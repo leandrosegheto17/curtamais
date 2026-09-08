@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-lint-test:
+    runs-on: ubuntu-latest
+    services:
+      # Postgres real usado pelos testes de integração de schema (L1-T02) —
+      # migration aplicada via `prisma migrate deploy` antes dos testes.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: curtamais
+          POSTGRES_PASSWORD: curtamais
+          POSTGRES_DB: curtamais
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Valores dummy, suficientes para build/lint/test — nenhum segredo real.
+      NEXTAUTH_SECRET: ci-dummy-secret
+      NEXTAUTH_URL: http://localhost:3000
+      OPENAI_API_KEY: sk-ci-dummy
+      OPENAI_MODEL: gpt-4o-mini
+      DATABASE_URL: postgresql://curtamais:curtamais@localhost:5432/curtamais?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply Prisma migrations
+        run: npm run db:migrate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

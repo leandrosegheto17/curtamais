@@ -82,18 +82,31 @@ separada.
 
 ### Lote 1 — Fundação de Infraestrutura e Persistência
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L1-T01 | Scaffold do projeto Next.js 14 (App Router, TS, Tailwind, shadcn/ui), lint/test/CI básico, configuração de env/secrets | BE+FE | 1 dia | — | — | Projeto builda, lint/test rodam em CI, `.env.example` documentado, nenhum segredo versionado |
-| L1-T02 | Migration Prisma do schema completo (ADR-005, SDD §5): `TripSession`, `DestinationApproval`, `AccommodationApproval`, `ActivityApproval`, `ItineraryItem`, `LlmGenerationLog` | BE | 1 dia | L1-T01 | — | Migration aplicada em ambiente local, todos os campos/enums do SDD §5 presentes, campos opcionais realmente nullable |
-| L1-T03 | Autenticação — NextAuth.js (conta opcional, e-mail/senha ou magic link) + sessão anônima via cookie httpOnly/secure (SDD §7) | BE | 1 dia | L1-T01, L1-T02 | — | Usuário consegue navegar sem conta (cookie de sessão); criar conta associa `user_id`; sessão sobrevive a reload |
+**Status do lote: Validado** (2026-09-08, Validador — chapéus QA e
+DevSecOps aprovaram; ver `QA-REPORT.md`/`SECURITY-REVIEW.md`). Débito de
+severidade média em dependências de terceiros registrado em
+`Refatoração Lote-1` (RL1-T01), com prazo antes do primeiro deploy em
+produção — não bloqueia o fechamento deste lote.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L1-T01 | Scaffold do projeto Next.js 14 (App Router, TS, Tailwind, shadcn/ui), lint/test/CI básico, configuração de env/secrets | BE+FE | 1 dia | — | — | Concluída | Projeto builda, lint/test rodam em CI, `.env.example` documentado, nenhum segredo versionado |
+| L1-T02 | Migration Prisma do schema completo (ADR-005, SDD §5): `TripSession`, `DestinationApproval`, `AccommodationApproval`, `ActivityApproval`, `ItineraryItem`, `LlmGenerationLog` | BE | 1 dia | L1-T01 | — | Concluída | Migration aplicada em ambiente local, todos os campos/enums do SDD §5 presentes, campos opcionais realmente nullable |
+| L1-T03 | Autenticação — NextAuth.js (conta opcional, e-mail/senha ou magic link) + sessão anônima via cookie httpOnly/secure (SDD §7) | BE | 1 dia | L1-T01, L1-T02 | — | Concluída | Usuário consegue navegar sem conta (cookie de sessão); criar conta associa `user_id`; sessão sobrevive a reload |
 
 ### Lote 2 — Módulo de Feriados (determinístico, ADR-007)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L2-T01 | Cálculo determinístico de feriados nacionais BR (fixos+móveis) + cálculo de emenda com fim de semana adjacente (RF-02.2, RNF-07) | BE | 1 dia | L1-T01 | — | Testes unitários cobrindo feriado em cada dia da semana; nenhuma chamada a LLM no caminho de cálculo |
-| L2-T02 | Server Action `getFeriadosProlongados` — lista de feriados ano corrente + seguinte com emenda calculada (RF-02.1) | BE | 0.5 dia | L2-T01 | — | Retorna lista ordenada por data, com emenda formatada, ano corrente e seguinte |
+**Status do lote: Validado com ressalvas** (2026-09-08, Validador — chapéus
+QA e DevSecOps aprovaram; ver `QA-REPORT.md`/`SECURITY-REVIEW.md`). Achado
+simples de cobertura de teste (guardrail automatizado de RNF-07 não cobre
+`src/lib/actions/feriados.ts`) registrado em `Refatoração Lote-2` (RL2-T01)
+— não bloqueia o fechamento deste lote; ambas as tarefas permanecem
+`Concluída`.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L2-T01 | Cálculo determinístico de feriados nacionais BR (fixos+móveis) + cálculo de emenda com fim de semana adjacente (RF-02.2, RNF-07) | BE | 1 dia | L1-T01 | — | Concluída | Testes unitários cobrindo feriado em cada dia da semana; nenhuma chamada a LLM no caminho de cálculo |
+| L2-T02 | Server Action `getFeriadosProlongados` — lista de feriados ano corrente + seguinte com emenda calculada (RF-02.1) | BE | 0.5 dia | L2-T01 | — | Concluída | Retorna lista ordenada por data, com emenda formatada, ano corrente e seguinte |
 
 ### Lote 3 — Gateway de IA
 
@@ -185,6 +198,27 @@ funcional, o que o guardrail do Coordenador proíbe.
 | L11-T03 | Validação/sanitização de entrada de texto livre (orçamento, destino manual) contra prompt injection (SDD §7) | BE | 0.5 dia | L3-T02 | L11-T01, L11-T02 | Entrada com tentativa de instrução embutida não altera o comportamento do prompt da etapa |
 | L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
 
+### Refatoração Lote-1 (débito registrado pelo Validador)
+
+Criada pelo Validador na checagem estrutural do Lote 1 (ver `QA-REPORT.md`/
+`SECURITY-REVIEW.md`, 2026-09-08) — achado de severidade média em
+dependência de terceiros, não bloqueante para o fechamento do Lote 1, mas
+com prazo antes do primeiro deploy em produção (chapéu DevOps).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL1-T01 | Upgrade de `next` (14.2.35 → versão corrigida, ex. 16.x) para resolver vulnerabilidades de severidade alta identificadas via `npm audit`/`SECURITY-REVIEW.md` (SSRF, request smuggling, cache poisoning, DoS), com regressão completa (lint/test/build) pós-upgrade; compatível com TASK.md item 12 ("Next.js 14+"), sem necessidade de novo ADR | BE+FE | 0.5-1 dia | L1-T01 | — | Pendente | `npm audit` sem achado de severidade alta/crítica em `next`/dependências diretas de runtime; `npm run lint`, `npm test` e `npm run build` passam sem regressão; prazo: concluída antes do primeiro deploy em produção do projeto |
+
+### Refatoração Lote-2 (débito registrado pelo Validador)
+
+Criada pelo Validador na checagem estrutural do Lote 2 (ver `QA-REPORT.md`,
+2026-09-08) — achado simples de cobertura de teste, não bloqueante para o
+fechamento do Lote 2 (L2-T01/L2-T02 permanecem `Concluída`).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL2-T01 | Estender o teste de guardrail de RNF-07 ("Determinismo / independência de LLM", `src/lib/__tests__/holidays.test.ts`) para também varrer `src/lib/actions/feriados.ts` (e demais arquivos futuros do módulo de feriados) contra `gateway-ia\|openai\|fetch\(\|await fetch`, hoje restrito só a `holidays.ts` | BE | 0.25 dia | L2-T01, L2-T02 | — | Pendente | Teste automatizado falha caso `src/lib/actions/feriados.ts` (ou outro arquivo do módulo de feriados) passe a referenciar LLM/rede; `npm test` continua passando sem regressão; prazo sugerido: antes do fechamento do Lote 6 (quando a UI T02 passa a consumir este módulo em tela) |
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):
@@ -205,6 +239,13 @@ Lotes 3+4+5 → Lote 8 (Hospedagem)
 Lotes 3+4+5 → Lote 9 (Passeios)
 Lote 9 + Lote 3 → Lote 10 (Roteiro/Encerramento) [L10-T01 aguarda SPIKE-02]
 Lotes 6+7+8+9+10 → Lote 11 (Cross-cutting final, L11-T04 é a última tarefa)
+
+Lote 1 → Refatoração Lote-1 (RL1-T01) — sem bloquear nenhum outro lote;
+  gate real é o primeiro deploy em produção (chapéu DevOps), não a ordem
+  de execução dos demais lotes.
+Lote 2 → Refatoração Lote-2 (RL2-T01) — sem bloquear nenhum outro lote;
+  prazo sugerido é o fechamento do Lote 6, não a ordem de execução dos
+  demais lotes.
 ```
 
 Dentro de cada lote, "Paralelizável-com" na Seção 3 já indica quais tarefas
