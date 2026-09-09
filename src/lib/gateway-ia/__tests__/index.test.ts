@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { GatewayIaError, generateStructuredCompletion } from "@/lib/gateway-ia";
 import { resetOpenAIClientForTests } from "@/lib/gateway-ia/client";
+import { GATEWAY_IA_SCHEMA_NAMES, roteiroEstruturadoSchema } from "@/lib/gateway-ia/schemas";
 
 const parseMock = vi.fn();
 
@@ -164,5 +165,177 @@ describe("generateStructuredCompletion (Gateway de IA)", () => {
         messages: [{ role: "user", content: "Sugira um destino." }],
       }),
     ).rejects.toThrow(/recusou/);
+  });
+
+  // L3-T03 — validação de plausibilidade de preço + grounding de data,
+  // integrada dentro de `generateStructuredCompletion` (critério de aceite:
+  // "resposta com preço fora de faixa plausível é rejeitada/reprocessada;
+  // datas geradas nunca conflitam com o range da sessão").
+  describe("validação de plausibilidade de preço/grounding de data (L3-T03)", () => {
+    it("rejeita com GatewayIaError quando a etapa destino retorna preço implausível", async () => {
+      parseMock.mockResolvedValueOnce({
+        model: "gpt-4o-mini",
+        choices: [
+          {
+            message: {
+              parsed: {
+                destinos: [
+                  {
+                    nome: "Foz do Iguaçu",
+                    justificativa: "Clima ameno.",
+                    faixaPrecoMin: 0,
+                    faixaPrecoMax: 0,
+                  },
+                  {
+                    nome: "Gramado",
+                    justificativa: "Boa opção.",
+                    faixaPrecoMin: 1800,
+                    faixaPrecoMax: 2800,
+                  },
+                ],
+              },
+              refusal: null,
+            },
+          },
+        ],
+        usage: null,
+      });
+
+      await expect(
+        generateStructuredCompletion({
+          schemaName: GATEWAY_IA_SCHEMA_NAMES.destino,
+          schema: z.object({
+            destinos: z.array(
+              z.object({
+                nome: z.string(),
+                justificativa: z.string(),
+                faixaPrecoMin: z.number(),
+                faixaPrecoMax: z.number(),
+              }),
+            ),
+          }),
+          messages: [{ role: "user", content: "Sugira destinos." }],
+        }),
+      ).rejects.toBeInstanceOf(GatewayIaError);
+    });
+
+    it("aceita normalmente quando a faixa de preço da etapa destino é plausível", async () => {
+      parseMock.mockResolvedValueOnce({
+        model: "gpt-4o-mini",
+        choices: [
+          {
+            message: {
+              parsed: {
+                destinos: [
+                  {
+                    nome: "Foz do Iguaçu",
+                    justificativa: "Clima ameno.",
+                    faixaPrecoMin: 1500,
+                    faixaPrecoMax: 2500,
+                  },
+                  {
+                    nome: "Gramado",
+                    justificativa: "Boa opção.",
+                    faixaPrecoMin: 1800,
+                    faixaPrecoMax: 2800,
+                  },
+                ],
+              },
+              refusal: null,
+            },
+          },
+        ],
+        usage: null,
+      });
+
+      const result = await generateStructuredCompletion({
+        schemaName: GATEWAY_IA_SCHEMA_NAMES.destino,
+        schema: z.object({
+          destinos: z.array(
+            z.object({
+              nome: z.string(),
+              justificativa: z.string(),
+              faixaPrecoMin: z.number(),
+              faixaPrecoMax: z.number(),
+            }),
+          ),
+        }),
+        messages: [{ role: "user", content: "Sugira destinos." }],
+      });
+
+      expect(result.data.destinos).toHaveLength(2);
+    });
+
+    it("rejeita com GatewayIaError quando o roteiro tem data fora do range da sessão", async () => {
+      parseMock.mockResolvedValueOnce({
+        model: "gpt-4o-mini",
+        choices: [
+          {
+            message: {
+              parsed: {
+                dias: [
+                  {
+                    data: "2026-11-01",
+                    manha: [],
+                    tarde: [],
+                    noite: [],
+                  },
+                ],
+              },
+              refusal: null,
+            },
+          },
+        ],
+        usage: null,
+      });
+
+      await expect(
+        generateStructuredCompletion({
+          schemaName: GATEWAY_IA_SCHEMA_NAMES.roteiro,
+          schema: roteiroEstruturadoSchema,
+          messages: [{ role: "user", content: "Monte o roteiro." }],
+          sessionDateRange: {
+            dateRangeStart: "2026-10-10",
+            dateRangeEnd: "2026-10-13",
+          },
+        }),
+      ).rejects.toBeInstanceOf(GatewayIaError);
+    });
+
+    it("aceita normalmente quando toda data do roteiro está dentro do range da sessão", async () => {
+      parseMock.mockResolvedValueOnce({
+        model: "gpt-4o-mini",
+        choices: [
+          {
+            message: {
+              parsed: {
+                dias: [
+                  {
+                    data: "2026-10-11",
+                    manha: [],
+                    tarde: [],
+                    noite: [],
+                  },
+                ],
+              },
+              refusal: null,
+            },
+          },
+        ],
+        usage: null,
+      });
+
+      const result = await generateStructuredCompletion({
+        schemaName: GATEWAY_IA_SCHEMA_NAMES.roteiro,
+        schema: roteiroEstruturadoSchema,
+        messages: [{ role: "user", content: "Monte o roteiro." }],
+        sessionDateRange: {
+          dateRangeStart: "2026-10-10",
+          dateRangeEnd: "2026-10-13",
+        },
+      });
+
+      expect(result.data.dias).toHaveLength(1);
+    });
   });
 });

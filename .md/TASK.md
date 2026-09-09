@@ -167,8 +167,8 @@ simples de cobertura de teste (guardrail automatizado de RNF-07 não cobre
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
 | L3-T01 | Client OpenAI GPT-4o-mini com JSON mode/structured outputs + interface interna abstrata do Gateway de IA (ADR-002) | BE | 1 dia | L1-T01, L1-T03 | L3-T05 | Concluída | Chamada de teste retorna JSON validado contra schema simples; API key só via env |
-| L3-T02 | Prompt design + contexto acumulado por etapa (destino/hospedagem/passeios/roteiro) com JSON schema de saída por etapa (ADR-003); aplica o mecanismo de streaming decidido em SPIKE-01 (Route Handler + `ReadableStream`, ver Seção 2) | BE | 1 dia | L3-T01, SPIKE-01 (resolvido) | — | Não iniciada | Prompt de cada etapa documentado; schema de saída validado; mecanismo de streaming escolhido no spike aplicado |
-| L3-T03 | Validação de plausibilidade de preço + grounding de data/calendário (ADR-003) | BE | 1 dia | L3-T02, L2-T01 | L3-T04 | Não iniciada | Resposta com preço fora de faixa plausível é rejeitada/reprocessada; datas geradas nunca conflitam com o range da sessão |
+| L3-T02 | Prompt design + contexto acumulado por etapa (destino/hospedagem/passeios/roteiro) com JSON schema de saída por etapa (ADR-003); aplica o mecanismo de streaming decidido em SPIKE-01 (Route Handler + `ReadableStream`, ver Seção 2) | BE | 1 dia | L3-T01, SPIKE-01 (resolvido) | — | Concluída | Prompt de cada etapa documentado; schema de saída validado; mecanismo de streaming escolhido no spike aplicado |
+| L3-T03 | Validação de plausibilidade de preço + grounding de data/calendário (ADR-003) | BE | 1 dia | L3-T02, L2-T01 | L3-T04 | Concluída | Resposta com preço fora de faixa plausível é rejeitada/reprocessada; datas geradas nunca conflitam com o range da sessão |
 | L3-T04 | Retry único automático + tratamento de falha (timeout/erro/malformado) + escrita em `LlmGenerationLog` (ADR-004, RNF-05) | BE | 1 dia | L3-T02, L1-T02 | L3-T03 | Não iniciada | Falha simulada gera exatamente 1 retry automático; log gravado em sucesso e falha; erro exposto ao chamador após 2ª falha |
 | L3-T05 | Rate limiting de chamadas ao Gateway de IA por sessão/IP (SDD §7) | BE | 0.5 dia | L3-T01 | L3-T02 | Concluída | Limite configurável; excesso retorna erro tratável, não exceção não capturada |
 
@@ -209,6 +209,145 @@ configurável via env, contadores independentes por chave, expiração de
 janela, e excesso retornando erro tratável (`GatewayIaError`) tanto pelo
 contador de baixo nível quanto pela guarda pública. `npm run lint` e
 `npm test` passam sem regressão (72 testes no total).
+
+Nota de implementação L3-T02 (2026-09-09, Executor/BE): schemas de saída por
+etapa em `src/lib/gateway-ia/schemas.ts` (`destinoSugestoesSchema` — 2-4
+destinos; `hospedagemOpcoesSchema` — exatamente 3 opções; `passeiosOpcoesSchema`
+— lista com faixa de preço podendo ser 0; `roteiroEstruturadoSchema` — dias
+com blocos manhã/tarde/noite), com campos espelhando o modelo de dados de
+cada entidade filha (`prisma/schema.prisma`), consistente com ADR-003.
+Prompt design por etapa em `src/lib/gateway-ia/prompts.ts`: `StageContext`
+(contexto acumulado estruturado — datas, orçamento, destino/hospedagem/
+passeios já aprovados quando aplicável) e 4 `buildXPrompt` (destino,
+hospedagem, passeios, roteiro), cada um documentado no código e com
+grounding de data corrente + range de datas (ADR-003); etapas que dependem
+de uma decisão anterior (hospedagem precisa de destino aprovado; roteiro
+precisa de destino e hospedagem) lançam erro explícito se chamadas sem essa
+pré-condição, em vez de gerar conteúdo incoerente. `GATEWAY_IA_STAGES`
+centraliza schema+prompt por etapa (`destino`/`hospedagem`/`passeios`/
+`roteiro`), reexportado por `src/lib/gateway-ia/index.ts`.
+
+Streaming (SPIKE-01 aplicado): `streamStructuredCompletion` em
+`src/lib/gateway-ia/index.ts` usa `client.chat.completions.stream(...)` (SDK
+oficial da OpenAI) com o mesmo `response_format`/`zodResponseFormat` de
+`generateStructuredCompletion`, encapsulado num `ReadableStream<Uint8Array>`
+que emite os deltas de `content.delta` incrementalmente e fecha ao receber
+`finalChatCompletion()` (ou propaga `GatewayIaError` em recusa/erro do SDK);
+`cancel()` do stream aborta o `chatStream` do SDK, evitando consumo órfão da
+resposta do provider. Consumida por
+`src/app/api/gateway-ia/[etapa]/route.ts` (`POST`, `export const dynamic =
+"force-dynamic"` — mesmo achado do SPIKE-01 repetido aqui), que valida o
+corpo da requisição contra `stageContextSchema`, resolve a etapa via
+`GATEWAY_IA_STAGES`, e devolve a `Response` com o `ReadableStream` — nenhuma
+chamada a `openai` fora do módulo `gateway-ia` (fronteira mantida).
+
+Decisão de design registrada: esta rota recebe o contexto acumulado já
+pronto no corpo da requisição (JSON), sem ler `TripSession` do banco nem
+validar dono de sessão — o Orquestrador de Sessão (Lote 4) ainda não existe
+neste ponto do projeto. A montagem do contexto a partir da sessão real e a
+checagem de autorização de dono de registro (TASK.md Seção 1, item 9) ficam
+para quem passar a chamar esta rota a partir de L7-T01/L8-T01/L9-T01/L10-T01
+(ou de um guard equivalente a L11-T02). Rate limiting (L3-T05,
+`checkGatewayIaRateLimit`) também não foi integrado nesta rota de propósito
+(fora do escopo declarado desta tarefa) — a interface pública não foi
+alterada, só ainda não há chamador aqui.
+
+Testes: `src/lib/gateway-ia/__tests__/prompts.test.ts` (12 casos — prompt de
+cada etapa a partir do contexto, incluindo erro de pré-condição e o caso
+"orçamento não informado nunca bloqueia", RF-10.3), `schemas.test.ts` (13
+casos — payload válido e inválido para as 4 etapas), `stream.test.ts` (4
+casos — SDK mockado via `vi.mock("openai")`, entrega incremental real de
+deltas, propagação de `GatewayIaError` em recusa/erro, abort no `cancel()`),
+e `src/app/api/gateway-ia/[etapa]/__tests__/route.test.ts` (5 casos — 404 de
+etapa desconhecida, 400 de contexto inválido/pré-condição não atendida, 200
+com corpo entregue de forma incremental — chunks chegando em timestamps
+diferentes, mesmo padrão de prova usado no SPIKE-01 —, e 502 em falha do
+Gateway de IA). Fora de escopo desta tarefa (fica para L3-T03/L3-T04/
+L7-T01/L8-T01/L9-T01/L10-T01): validação de plausibilidade de preço/
+grounding de data (a validação em si, não só o dado no prompt), retry
+automático e escrita em `LlmGenerationLog`, filtro/priorização de orçamento
+sobre a saída, persistência das entidades filhas, e a integração real desta
+rota com o Orquestrador de Sessão/autenticação/rate limiting. `npm run
+lint`, `npm test` (110 testes no total) e `npm run build` passam sem
+regressão; `npm run build` confirma `/api/gateway-ia/[etapa]` como rota
+dinâmica (`ƒ`), não estática (`○`).
+
+Nota de implementação L3-T03 (2026-09-09, Executor/BE): validação semântica
+pós-schema em `src/lib/gateway-ia/validation.ts`, rodando sobre o `data` já
+validado estruturalmente pelos schemas Zod de L3-T02 — integrada dentro de
+`generateStructuredCompletion` (`src/lib/gateway-ia/index.ts`), logo após a
+checagem de schema/recusa e antes de devolver o resultado ao chamador; uma
+resposta reprovada nunca sai do módulo, sempre vira `GatewayIaError` (mesmo
+tipo já usado desde L3-T01). A variante de streaming
+(`streamStructuredCompletion`) continua sem essa validação, de propósito
+(comentário já existente desde L3-T02: ela só entrega texto incremental para
+percepção de progresso na UI; a etapa real usa `generateStructuredCompletion`
+para a decisão de negócio).
+
+Critério de plausibilidade de preço adotado (decisão de implementação desta
+tarefa — não havia um valor numérico definido no SDD.md/PRD-TECNICO.md para
+"faixa plausível", então a escala abaixo foi escolhida e documentada no
+cabeçalho de `validation.ts`, dentro da margem de "detalhe de implementação"
+do papel de Executor): (1) faixa invertida (`min > max`) é sempre rejeitada;
+(2) nenhum valor pode exceder `MAX_PLAUSIBLE_PRICE_BRL` (R$ 1.000.000,
+teto de sanidade por item de viagem individual do MVP); (3) faixa "zero-zero"
+é rejeitada para destino/hospedagem (nunca são gratuitos por natureza) e para
+passeio quando `gratuito !== true` (evita "preço zero quando não deveria");
+(4) quando `min > 0`, a razão `max / min` não pode ultrapassar
+`MAX_PLAUSIBLE_PRICE_RATIO` (20x), pegando "ordem de grandeza absurda" mesmo
+dentro do teto absoluto (ex.: min=100/max=50000 tem ambos os valores plausíveis
+isoladamente, mas a faixa entre eles não é uma faixa de preço real). Aplicado
+às 3 etapas com preço na saída (`destino`/`hospedagem`/`passeios`,
+`GATEWAY_IA_SCHEMA_NAMES`); a etapa `roteiro` não tem campo de preço, e
+qualquer `schemaName` fora dessas 4 etapas conhecidas não sofre nenhuma
+checagem (mantém `generateStructuredCompletion` agnóstico ao domínio para
+outros usos, ex. os testes de L3-T01/T02 que usam schemas de teste
+arbitrários).
+
+Grounding de data/calendário: `validateDateGrounding` só se aplica à etapa
+`roteiro` (única cuja saída tem datas concretas, `RoteiroEstruturado.dias[].data`)
+— rejeita qualquer dia cuja data caia fora de
+`[dateRangeStart, dateRangeEnd]` (inclusive) ou não seja interpretável como
+`YYYY-MM-DD`. Como o range de datas não fazia parte de
+`StructuredCompletionRequest` até agora, foi adicionado um campo opcional
+`sessionDateRange` (mesmos valores de `StageContext.dateRangeStart/End`,
+`./prompts.ts`) — opcional porque destino/hospedagem/passeios não geram data
+na saída e continuam podendo chamar `generateStructuredCompletion` sem esse
+campo. Um tipo próprio `SessionDateRange` foi criado em `validation.ts` (em
+vez de importar `StageContext` de `prompts.ts`) para não criar um ciclo de
+import, já que `prompts.ts` já importa `index.ts`.
+
+Ajuste estrutural sem mudança de comportamento: `GatewayIaError` foi extraído
+de `index.ts` para `src/lib/gateway-ia/errors.ts`, para permitir que
+`validation.ts` reutilize o mesmo tipo sem criar um ciclo de import com
+`index.ts` (que agora importa `validation.ts`); `index.ts` reexporta
+`GatewayIaError` normalmente, então a API pública (`import { GatewayIaError }
+from "@/lib/gateway-ia"`) não mudou.
+
+Arquivos novos: `src/lib/gateway-ia/validation.ts`, `src/lib/gateway-ia/errors.ts`,
+`src/lib/gateway-ia/__tests__/validation.test.ts`. Arquivos alterados:
+`src/lib/gateway-ia/index.ts` (integração da validação + reexport de
+`GatewayIaError`/tipos de validação + campo `sessionDateRange`),
+`src/lib/gateway-ia/__tests__/index.test.ts` (4 casos novos de integração:
+preço implausível rejeitado, preço plausível aceito, data fora do range
+rejeitada, data dentro do range aceita — todos via
+`generateStructuredCompletion` com SDK mockado), `src/lib/gateway-ia/schemas.ts`
+(comentário de cabeçalho atualizado). Testes: `validation.test.ts` (18 casos —
+plausibilidade de preço para as 3 etapas com preço, grounding de data para
+roteiro, e `validateGatewayIaOutput` como ponto único) + 4 casos novos em
+`index.test.ts` (total do módulo `gateway-ia` cobrindo o critério de aceite
+desta tarefa). Fora de escopo desta tarefa (fica para L3-T04, não iniciada):
+retry automático em cima de uma resposta reprovada por esta validação (hoje
+propaga o erro na 1ª tentativa) e escrita em `LlmGenerationLog` — o ponto de
+extensão para L3-T04 envolver `generateStructuredCompletion` (validação
+incluída) num laço de 1 retry está documentado no comentário da própria
+função. Também fora de escopo: persistência em `TripSession`/entidades
+filhas (Orquestrador de Sessão, Lote 4, ainda não existe) e qualquer
+integração desta validação com regras de negócio por etapa (L7-T01/L8-T01/
+L9-T01/L10-T01, que ainda vão montar `sessionDateRange`/chamar
+`generateStructuredCompletion` a partir de uma `TripSession` real). `npm run
+lint`, `npm test` (132 testes no total) e `npm run build` passam sem
+regressão.
 
 ### Lote 4 — Orquestração de Sessão e Regra de Orçamento
 

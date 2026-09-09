@@ -9,28 +9,84 @@
 // mode/structured outputs (schema Zod por chamada) — nunca parsing de texto
 // livre de resposta de LLM.
 //
-// Escopo desta tarefa (L3-T01): só o client + esta interface + validação de
-// que a saída bate com um schema. As tarefas seguintes do Lote 3 constroem
-// em cima deste ponto de extensão, sem alterar sua fronteira pública:
-// - L3-T02: prompt design por etapa (usa `messages`/`schema` deste módulo).
-// - L3-T03: validação de plausibilidade de preço/grounding de data (roda
-//   sobre o `data` já retornado por `generateStructuredCompletion`).
+// Escopo original (L3-T01): só o client + esta interface + validação de que
+// a saída bate com um schema. As tarefas seguintes do Lote 3 constroem em
+// cima deste ponto de extensão, sem alterar sua fronteira pública:
+// - L3-T02 (IMPLEMENTADA nesta tarefa): prompt design + schema de saída por
+//   etapa (ver `./prompts.ts`/`./schemas.ts`, reexportados abaixo), e a
+//   variante de streaming `streamStructuredCompletion` (mecanismo decidido
+//   em SPIKE-01: Route Handler + `ReadableStream`, ver TASK.md Seção 2),
+//   consumida por `src/app/api/gateway-ia/[etapa]/route.ts`.
+// - L3-T03 (IMPLEMENTADA nesta tarefa): validação de plausibilidade de
+//   preço/grounding de data (ver `./validation.ts`), integrada dentro de
+//   `generateStructuredCompletion` logo após a validação de schema.
 // - L3-T04: retry único automático + escrita em `LlmGenerationLog` (deve
-//   envolver a chamada a `generateStructuredCompletion` feita aqui).
-// - L3-T05 (IMPLEMENTADA nesta tarefa): rate limiting por sessão/IP — ver
+//   envolver a chamada a `generateStructuredCompletion` feita aqui, que já
+//   inclui a validação de L3-T03).
+// - L3-T05 (IMPLEMENTADA): rate limiting por sessão/IP — ver
 //   `checkGatewayIaRateLimit` abaixo, guarda a ser chamada pelo Orquestrador
 //   de Sessão/Server Action da etapa ANTES de `generateStructuredCompletion`.
-// Nenhuma outra lógica listada acima é implementada nesta tarefa.
+// Nenhuma outra lógica listada acima (L3-T04) é implementada aqui.
 
 import { zodResponseFormat } from "openai/helpers/zod";
 import type { z } from "zod";
 import { getOpenAIClient, getOpenAIModel } from "./client";
+import { GatewayIaError } from "./errors";
 import { registerGatewayIaCall } from "./rate-limit";
+import { validateGatewayIaOutput } from "./validation";
+import type { SessionDateRange } from "./validation";
 
 export {
   getGatewayIaRateLimitPerMinute,
   resetGatewayIaRateLimitForTests,
 } from "./rate-limit";
+
+export {
+  GATEWAY_IA_STAGE_IDS,
+  GATEWAY_IA_STAGES,
+  buildDestinoPrompt,
+  buildHospedagemPrompt,
+  buildPasseiosPrompt,
+  buildRoteiroPrompt,
+  isGatewayIaStage,
+  stageContextSchema,
+} from "./prompts";
+export type {
+  ApprovedAccommodationContext,
+  ApprovedActivityContext,
+  ApprovedDestinationContext,
+  GatewayIaStage,
+  GatewayIaStageDefinition,
+  StageContext,
+} from "./prompts";
+
+export {
+  GATEWAY_IA_SCHEMA_NAMES,
+  destinoSugestoesSchema,
+  hospedagemOpcoesSchema,
+  passeiosOpcoesSchema,
+  roteiroEstruturadoSchema,
+} from "./schemas";
+export type {
+  DestinoSugestoes,
+  HospedagemOpcoes,
+  PasseiosOpcoes,
+  RoteiroEstruturado,
+} from "./schemas";
+
+// L3-T03 — validação de plausibilidade de preço/grounding de data, aplicada
+// automaticamente dentro de `generateStructuredCompletion` (abaixo) para as
+// 4 etapas do fluxo guiado. Reexportado para permitir que L7-T01/L8-T01/
+// L9-T01/L10-T01 (ou testes) invoquem a mesma checagem isoladamente quando
+// precisarem, sem duplicar a lógica.
+export {
+  MAX_PLAUSIBLE_PRICE_BRL,
+  MAX_PLAUSIBLE_PRICE_RATIO,
+  validateDateGrounding,
+  validateGatewayIaOutput,
+  validatePricePlausibility,
+} from "./validation";
+export type { SessionDateRange } from "./validation";
 
 /** Papel de uma mensagem enviada ao provider — sem "assistant" nesta versão porque o Gateway de IA (L3-T02+) monta prompts de uma única rodada por etapa, sem histórico de conversa em texto livre (ADR-003: contexto acumulado estruturado, não texto livre). */
 export type GatewayIaRole = "system" | "user";
@@ -66,6 +122,16 @@ export type StructuredCompletionRequest<Schema extends z.ZodTypeAny> = {
    * pode ajustar por etapa se necessário.
    */
   temperature?: number;
+  /**
+   * Range de datas da sessão (L3-T03, ADR-003) usado para grounding de
+   * calendário: quando informado e `schemaName` for o da etapa `roteiro`
+   * (`GATEWAY_IA_SCHEMA_NAMES.roteiro`), `generateStructuredCompletion`
+   * rejeita a resposta caso alguma data gerada caia fora deste range
+   * (ver `./validation.ts`). Opcional porque as etapas destino/hospedagem/
+   * passeios não geram datas na saída — só a etapa roteiro precisa informar
+   * isto (mesmos valores de `StageContext.dateRangeStart/End`, `./prompts.ts`).
+   */
+  sessionDateRange?: SessionDateRange;
 };
 
 export type StructuredCompletionUsage = {
@@ -86,22 +152,12 @@ export type StructuredCompletionResult<T> = {
   usage: StructuredCompletionUsage | null;
 };
 
-/**
- * Erro de fronteira do Gateway de IA. Todo erro de chamada ao provider
- * (rede, timeout, recusa, resposta que não bate com o schema) é normalizado
- * para este tipo antes de sair do módulo — o chamador nunca precisa
- * conhecer o formato de erro nativo do SDK da OpenAI. Tratamento de
- * retry/log fica em L3-T04.
- */
-export class GatewayIaError extends Error {
-  readonly cause?: unknown;
-
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = "GatewayIaError";
-    this.cause = cause;
-  }
-}
+// `GatewayIaError` vive em `./errors.ts` desde L3-T03 (extraído sem mudança
+// de comportamento, só para permitir que `./validation.ts` reutilize o
+// mesmo tipo sem criar um ciclo de import com este arquivo) — reexportado
+// aqui para manter a API pública (`import { GatewayIaError } from
+// "@/lib/gateway-ia"`) idêntica à de antes desta tarefa.
+export { GatewayIaError } from "./errors";
 
 /**
  * Guarda de rate limiting (L3-T05, SDD §7 / GUARDRAILS.md regra 19): deve ser
@@ -130,15 +186,21 @@ export function checkGatewayIaRateLimit(key: string): void {
 /**
  * Interface interna abstrata do Gateway de IA (L3-T01): faz uma chamada ao
  * provider de LLM configurado (ADR-002) usando JSON mode/structured outputs
- * (`response_format` gerado a partir de um schema Zod), e retorna o
- * resultado já validado e tipado contra esse schema — nunca texto livre.
+ * (`response_format` gerado a partir de um schema Zod), retorna o
+ * resultado já validado contra esse schema (nunca texto livre) e, desde
+ * L3-T03, também já validado semanticamente (plausibilidade de preço +
+ * grounding de data/calendário, `./validation.ts`) — uma resposta reprovada
+ * nunca é devolvida ao chamador, sempre vira `GatewayIaError`.
  *
- * Não implementa (fora do escopo de L3-T01, ver cabeçalho do arquivo):
- * retry automático, validação de plausibilidade de preço, escrita em
- * `LlmGenerationLog`. Rate limiting (L3-T05) é uma guarda separada
- * (`checkGatewayIaRateLimit`, acima) — este módulo não a chama
- * automaticamente, para deixar a composição da chave (sessão/IP) a critério
- * do chamador.
+ * Não implementa (fora do escopo desta função, ver cabeçalho do arquivo):
+ * retry automático nem escrita em `LlmGenerationLog` (L3-T04) — hoje uma
+ * resposta reprovada por `validateGatewayIaOutput` simplesmente propaga o
+ * erro na primeira tentativa; L3-T04 deve envolver esta chamada inteira
+ * (incluindo a validação) num laço de exatamente 1 retry automático antes de
+ * expor o erro ao chamador, e logar cada tentativa em `LlmGenerationLog`.
+ * Rate limiting (L3-T05) é uma guarda separada (`checkGatewayIaRateLimit`,
+ * acima) — este módulo não a chama automaticamente, para deixar a
+ * composição da chave (sessão/IP) a critério do chamador.
  */
 export async function generateStructuredCompletion<
   Schema extends z.ZodTypeAny,
@@ -180,6 +242,16 @@ export async function generateStructuredCompletion<
     );
   }
 
+  // L3-T03: validação semântica pós-schema (plausibilidade de preço +
+  // grounding de data/calendário, ver `./validation.ts`). Lança
+  // `GatewayIaError` diretamente (mesmo tipo já usado acima) quando reprova —
+  // uma resposta implausível/fora do range de datas nunca chega ao chamador.
+  validateGatewayIaOutput(
+    request.schemaName,
+    message.parsed,
+    request.sessionDateRange,
+  );
+
   const usage = completion.usage
     ? {
         promptTokens: completion.usage.prompt_tokens,
@@ -198,4 +270,106 @@ export async function generateStructuredCompletion<
     model: completion.model,
     usage,
   };
+}
+
+/**
+ * Variante de streaming de `generateStructuredCompletion` (L3-T02, aplica o
+ * mecanismo decidido no SPIKE-01: Route Handler + `ReadableStream`, ver
+ * TASK.md Seção 2). Usada pelo Route Handler de streaming por etapa
+ * (`src/app/api/gateway-ia/[etapa]/route.ts`) — nenhum outro lugar do
+ * projeto deve chamar `client.chat.completions.stream` diretamente (TASK.md
+ * Seção 1, item 1: fronteira do Gateway de IA).
+ *
+ * Ainda usa `response_format` com o schema Zod da etapa (JSON mode/structured
+ * outputs, ADR-002/003) — os deltas emitidos são fragmentos do JSON
+ * estruturado sendo montado pelo provider, nunca texto livre reempacotado.
+ * Isso mantém a regra "proibido parsing de texto livre" (TASK.md Seção 1,
+ * item 2): o formato da resposta continua sendo JSON Schema-constrained, só
+ * a ENTREGA ao cliente passa a ser incremental em vez de um único payload.
+ *
+ * Validação de plausibilidade de preço/grounding de data (L3-T03), retry
+ * automático e escrita em `LlmGenerationLog` (L3-T04) não fazem parte desta
+ * variante — elas operam sobre o resultado final já validado de
+ * `generateStructuredCompletion` (chamada não-streaming), consumida pelas
+ * regras de negócio por etapa
+ * (L7-T01/L8-T01/L9-T01/L10-T01). Esta função serve apenas para o requisito
+ * de streaming perceptível ao usuário (SDD §6, RNF-02) enquanto a geração
+ * acontece — a etapa ainda usa `generateStructuredCompletion` internamente
+ * (não-streaming) para o fluxo de decisão real, quando essas tarefas
+ * existirem.
+ */
+export function streamStructuredCompletion<Schema extends z.ZodTypeAny>(
+  request: StructuredCompletionRequest<Schema>,
+): ReadableStream<Uint8Array> {
+  const client = getOpenAIClient();
+  const model = getOpenAIModel();
+  const encoder = new TextEncoder();
+
+  // Hospedado no escopo da função (não dentro de `start`) para que `cancel`
+  // (abaixo) também consiga acessar a mesma instância e abortar a chamada ao
+  // provider se o cliente parar de ler o stream (ex. navegou para outra
+  // etapa antes do streaming terminar).
+  let chatStream: ReturnType<typeof client.chat.completions.stream> | undefined;
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false;
+      const closeWithError = (message: string, cause?: unknown) => {
+        if (closed) return;
+        closed = true;
+        controller.error(new GatewayIaError(message, cause));
+      };
+
+      try {
+        chatStream = client.chat.completions.stream({
+          model,
+          messages: request.messages,
+          response_format: zodResponseFormat(request.schema, request.schemaName),
+          temperature: request.temperature ?? 0.4,
+        });
+      } catch (error) {
+        closeWithError(
+          "Falha ao iniciar streaming do provider de LLM (OpenAI).",
+          error,
+        );
+        return;
+      }
+
+      chatStream.on("content.delta", ({ delta }) => {
+        if (closed || !delta) return;
+        controller.enqueue(encoder.encode(delta));
+      });
+
+      chatStream.on("error", (error) => {
+        closeWithError(
+          "Falha durante o streaming do provider de LLM (OpenAI).",
+          error,
+        );
+      });
+
+      chatStream
+        .finalChatCompletion()
+        .then((completion) => {
+          if (closed) return;
+          const message = completion.choices[0]?.message;
+          if (message?.refusal) {
+            closeWithError(
+              `Provider de LLM recusou a geração: ${message.refusal}`,
+            );
+            return;
+          }
+          closed = true;
+          controller.close();
+        })
+        .catch((error: unknown) => {
+          closeWithError(
+            "Falha ao finalizar streaming do provider de LLM (OpenAI).",
+            error,
+          );
+        });
+    },
+    cancel() {
+      chatStream?.abort();
+    },
+  });
 }
