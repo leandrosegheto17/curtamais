@@ -23,10 +23,12 @@
     "lucide-react": "^1.42.0",
     "next": "14.2.35",
     "next-auth": "^4.24.15",
+    "openai": "^7.12.1",
     "react": "^18",
     "react-dom": "^18",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",

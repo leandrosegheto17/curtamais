@@ -65,13 +65,67 @@ para todo Executor, independentemente da tarefa:
 
 ## 2. Spikes Técnicos
 
-| ID | Spike | Motivo | Bloqueia | Prazo sugerido |
-|---|---|---|---|---|
-| SPIKE-01 | Viabilidade de streaming de resposta LLM via Next.js Server Actions vs. Route Handler com `ReadableStream` (RNF-02, SDD §2/§3) | Server Actions têm suporte a streaming token-a-token menos maduro/documentado que Route Handlers; a meta de p95 ≤ 8s com primeiro conteúdo perceptível em até 2s (SDD §6) depende de qual mecanismo é usado — decisão técnica de incerteza alta, não deve ser estimada com confiança sem spike | L3-T02 (prompt design), L5-T03 (`LoadingStream`) | Antes do início do Lote 3 |
-| SPIKE-02 | Estratégia de proximidade geográfica no roteiro (RF-08.2) sem API de mapas/geocoding real — o SDD.md não define fonte de dado de geolocalização; a ordenação por proximidade dependerá do conhecimento geral do LLM sobre o destino, não de coordenadas reais | Incerteza sobre qualidade de resultado sem validação empírica com o provider escolhido (ADR-002); risco de sequenciamento incoerente sem checagem prévia | L10-T01 (regra de geração do roteiro) | Antes do início do Lote 10 |
+| ID | Spike | Motivo | Bloqueia | Prazo sugerido | Status |
+|---|---|---|---|---|---|
+| SPIKE-01 | Viabilidade de streaming de resposta LLM via Next.js Server Actions vs. Route Handler com `ReadableStream` (RNF-02, SDD §2/§3) | Server Actions têm suporte a streaming token-a-token menos maduro/documentado que Route Handlers; a meta de p95 ≤ 8s com primeiro conteúdo perceptível em até 2s (SDD §6) depende de qual mecanismo é usado — decisão técnica de incerteza alta, não deve ser estimada com confiança sem spike | L3-T02 (prompt design), L5-T03 (`LoadingStream`) | Antes do início do Lote 3 | **Resolvido** (2026-09-09, Executor/BE) |
+| SPIKE-02 | Estratégia de proximidade geográfica no roteiro (RF-08.2) sem API de mapas/geocoding real — o SDD.md não define fonte de dado de geolocalização; a ordenação por proximidade dependerá do conhecimento geral do LLM sobre o destino, não de coordenadas reais | Incerteza sobre qualidade de resultado sem validação empírica com o provider escolhido (ADR-002); risco de sequenciamento incoerente sem checagem prévia | L10-T01 (regra de geração do roteiro) | Antes do início do Lote 10 | Pendente |
 
 Nenhuma tarefa de implementação bloqueada por spike recebe estimativa de
 esforço até o spike ser resolvido (ver Seção 3, linhas correspondentes).
+
+### Resolução do SPIKE-01 (2026-09-09, Executor/BE)
+
+**Decisão: Route Handler (`app/api/.../route.ts`) retornando `ReadableStream`**,
+consumido no client via `fetch` + `response.body.getReader()`, não Server
+Actions. Justificativa: (1) Route Handlers dão controle direto sobre a
+`Response`/`ReadableStream` do Web Streams API, sem camada extra de
+serialização — Server Actions só suportam valor "streamable" via padrão
+`createStreamableValue`/`readStreamableValue` do pacote `ai/rsc` (Vercel AI
+SDK), uma dependência nova não coberta pela lista de bibliotecas obrigatórias
+do item 12 desta Seção 1 e com maturidade documentada inferior num app Next
+14.2.35 (não-canary); (2) a interface pública já existente do Gateway de IA
+(`generateStructuredCompletion`, `src/lib/gateway-ia/index.ts`) usa
+`client.chat.completions.parse` (SDK oficial OpenAI) e retorna o JSON já
+completo — expor streaming exigirá uma variante que emita deltas de texto
+brutos (ex. `client.chat.completions.stream(...)`) encapsulados num
+`ReadableStream` por um Route Handler; isso é uma extensão natural da
+fronteira do módulo (nova função exportada), não uma reescrita, e é o
+mecanismo já validado neste spike; (3) meta de performance do SDD §6 (p95
+≤ 8s, primeiro conteúdo perceptível em ≤ 2s): Route Handler não introduz
+overhead de serialização RSC entre o primeiro chunk e o cliente — TTFB é
+dominado só pela rede + tempo do provider até o primeiro token, confirmado
+empiricamente no protótipo (curl local: TTFB ~0.96s vs. tempo total ~2.0s
+para uma resposta simulada, mostrando entrega incremental real, não
+bufferizada); (4) esforço de troca se o Next.js for atualizado depois
+(RL1-T01, 14.2.35 → 16.x): Route Handlers + `Response`/`ReadableStream` são
+API estável do App Router desde a introdução, sem sinalização de mudança
+depreciada — risco de retrabalho no upgrade é baixo, ao contrário de uma
+dependência adicional (`ai/rsc`) hoje classificada como experimental.
+
+Protótipo mínimo funcional (não produtivo, não integra com o provider real):
+- `src/lib/gateway-ia/streaming-spike/simulate-stream.ts` — constrói um
+  `ReadableStream<Uint8Array>` que emite tokens de um texto fixo com delay
+  configurável, simulando chegada gradual de conteúdo de LLM.
+- `src/app/api/gateway-ia/streaming-spike/route.ts` — Route Handler GET que
+  expõe o stream simulado; usa `export const dynamic = "force-dynamic"`
+  (achado do spike: sem essa diretiva o Next.js 14 estatiza a rota em
+  `next build` por não usar nenhuma API dinâmica, bufferizando o stream uma
+  única vez em build-time e servindo sempre a mesma resposta pronta em
+  produção — L3-T02 deve repetir essa diretiva em toda rota real de
+  streaming do Gateway de IA).
+- `src/lib/gateway-ia/streaming-spike/__tests__/simulate-stream.test.ts` —
+  4 testes automatizados provando entrega incremental real (chunks chegando
+  em timestamps diferentes, tanto no builder isolado quanto invocando a
+  função `GET` da Route Handler diretamente).
+
+`npm run lint`, `npm test` (76 testes, incluindo os 4 novos) e `npm run
+build` passam sem regressão; `npm run build` confirma a rota como dinâmica
+(`ƒ`), não estática (`○`).
+
+Não implementado neste spike (fora de escopo, fica para L3-T02/L5-T03):
+integração com `generateStructuredCompletion`/provider real, protocolo de
+framing (texto puro vs. SSE `data:`/`event:` vs. patch incremental de JSON
+estruturado), e o componente `LoadingStream` do lado do cliente.
 
 ## 3. Lista de Tarefas
 
@@ -110,13 +164,51 @@ simples de cobertura de teste (guardrail automatizado de RNF-07 não cobre
 
 ### Lote 3 — Gateway de IA
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L3-T01 | Client OpenAI GPT-4o-mini com JSON mode/structured outputs + interface interna abstrata do Gateway de IA (ADR-002) | BE | 1 dia | L1-T01, L1-T03 | L3-T05 | Chamada de teste retorna JSON validado contra schema simples; API key só via env |
-| L3-T02 | Prompt design + contexto acumulado por etapa (destino/hospedagem/passeios/roteiro) com JSON schema de saída por etapa (ADR-003) — **depende da resolução de SPIKE-01** | BE | 1 dia (sem estimativa até SPIKE-01 resolver) | L3-T01, SPIKE-01 | — | Prompt de cada etapa documentado; schema de saída validado; mecanismo de streaming escolhido no spike aplicado |
-| L3-T03 | Validação de plausibilidade de preço + grounding de data/calendário (ADR-003) | BE | 1 dia | L3-T02, L2-T01 | L3-T04 | Resposta com preço fora de faixa plausível é rejeitada/reprocessada; datas geradas nunca conflitam com o range da sessão |
-| L3-T04 | Retry único automático + tratamento de falha (timeout/erro/malformado) + escrita em `LlmGenerationLog` (ADR-004, RNF-05) | BE | 1 dia | L3-T02, L1-T02 | L3-T03 | Falha simulada gera exatamente 1 retry automático; log gravado em sucesso e falha; erro exposto ao chamador após 2ª falha |
-| L3-T05 | Rate limiting de chamadas ao Gateway de IA por sessão/IP (SDD §7) | BE | 0.5 dia | L3-T01 | L3-T02 | Limite configurável; excesso retorna erro tratável, não exceção não capturada |
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L3-T01 | Client OpenAI GPT-4o-mini com JSON mode/structured outputs + interface interna abstrata do Gateway de IA (ADR-002) | BE | 1 dia | L1-T01, L1-T03 | L3-T05 | Concluída | Chamada de teste retorna JSON validado contra schema simples; API key só via env |
+| L3-T02 | Prompt design + contexto acumulado por etapa (destino/hospedagem/passeios/roteiro) com JSON schema de saída por etapa (ADR-003); aplica o mecanismo de streaming decidido em SPIKE-01 (Route Handler + `ReadableStream`, ver Seção 2) | BE | 1 dia | L3-T01, SPIKE-01 (resolvido) | — | Não iniciada | Prompt de cada etapa documentado; schema de saída validado; mecanismo de streaming escolhido no spike aplicado |
+| L3-T03 | Validação de plausibilidade de preço + grounding de data/calendário (ADR-003) | BE | 1 dia | L3-T02, L2-T01 | L3-T04 | Não iniciada | Resposta com preço fora de faixa plausível é rejeitada/reprocessada; datas geradas nunca conflitam com o range da sessão |
+| L3-T04 | Retry único automático + tratamento de falha (timeout/erro/malformado) + escrita em `LlmGenerationLog` (ADR-004, RNF-05) | BE | 1 dia | L3-T02, L1-T02 | L3-T03 | Não iniciada | Falha simulada gera exatamente 1 retry automático; log gravado em sucesso e falha; erro exposto ao chamador após 2ª falha |
+| L3-T05 | Rate limiting de chamadas ao Gateway de IA por sessão/IP (SDD §7) | BE | 0.5 dia | L3-T01 | L3-T02 | Concluída | Limite configurável; excesso retorna erro tratável, não exceção não capturada |
+
+Nota de implementação L3-T01 (2026-09-09, Executor/BE): client OpenAI singleton
++ leitura de `OPENAI_API_KEY`/`OPENAI_MODEL` só via `process.env` em
+`src/lib/gateway-ia/client.ts` (interno ao módulo, não exportado fora dele);
+interface pública `generateStructuredCompletion` em `src/lib/gateway-ia/index.ts`,
+usando `client.chat.completions.parse` + `zodResponseFormat` (SDK oficial da
+OpenAI, `openai/helpers/zod`) — schema Zod por chamada, sem parsing de texto
+livre; erros normalizados em `GatewayIaError`. Testes em
+`src/lib/gateway-ia/__tests__/index.test.ts` (5 casos, SDK mockado via
+`vi.mock("openai")`, sem chamada de rede real), cobrindo o critério de aceite
+(JSON validado contra schema simples) e a regra "API key só via env". Dependências
+novas adicionadas a `package.json`: `openai@^7.12.1`, `zod@^4.5.4`. Não
+implementado nesta tarefa (fora de escopo, ver L3-T02/T03/T04/T05): prompt
+por etapa, validação de plausibilidade de preço, retry/`LlmGenerationLog`,
+rate limiting — pontos de extensão deixados explícitos no cabeçalho de
+`src/lib/gateway-ia/index.ts`. `npm run lint`, `npm test` e `npm run build`
+passam sem regressão.
+
+Nota de implementação L3-T05 (2026-09-09, Executor/BE): contador em memória
+por processo (janela fixa de 60s por chave) em
+`src/lib/gateway-ia/rate-limit.ts` (`registerGatewayIaCall`), lendo o limite
+de `AI_GATEWAY_RATE_LIMIT_PER_MINUTE` a cada chamada (já reservada em
+`.env.example`, com default seguro de 10/min caso ausente/inválida) — sem
+dependência de infraestrutura externa (Redis etc.), consistente com o
+monólito único sem infra distribuída do MVP (SDD §1/§6). Guarda pública
+`checkGatewayIaRateLimit(key)` adicionada em `src/lib/gateway-ia/index.ts`,
+para ser chamada pelo Orquestrador de Sessão/Server Action da etapa ANTES de
+`generateStructuredCompletion`; a composição da chave (sessão anônima
+`anon_session_id`/`user_id`, ver `src/lib/anonymous-session.ts`, e/ou IP) fica
+a critério do chamador — este módulo não lê cookie/IP diretamente, mantendo a
+fronteira do Gateway de IA. Ao exceder o limite, lança `GatewayIaError` (o
+mesmo tipo já usado em todo o módulo desde L3-T01), nunca uma exceção não
+capturada. Testes em `src/lib/gateway-ia/__tests__/rate-limit.test.ts` (7
+casos), cobrindo o critério de aceite: limite respeitado dentro da janela,
+configurável via env, contadores independentes por chave, expiração de
+janela, e excesso retornando erro tratável (`GatewayIaError`) tanto pelo
+contador de baixo nível quanto pela guarda pública. `npm run lint` e
+`npm test` passam sem regressão (72 testes no total).
 
 ### Lote 4 — Orquestração de Sessão e Regra de Orçamento
 
@@ -132,7 +224,7 @@ simples de cobertura de teste (guardrail automatizado de RNF-07 não cobre
 |---|---|---|---|---|---|---|
 | L5-T01 | Tokens visuais (paleta, tipografia, Tailwind config) + `StepperProgress` (UX-SPEC §3) | FE | 1 dia | L1-T01 | — | Paleta semântica (sucesso/atenção/erro) definida; `StepperProgress` reflete estado vindo do servidor, nunca client-only |
 | L5-T02 | `PriceRangeBadge` + `BudgetInsufficientBanner` (UX-SPEC §3/§4) | FE | 0.5 dia | L5-T01 | L5-T03, L5-T05 | Badge sempre com ícone + texto "aproximado"; banner nunca desabilita botões da tela |
-| L5-T03 | `LoadingStream` + `ErrorRetryState` + `EmptyState` (UX-SPEC §3/§4) — **depende da resolução de SPIKE-01** | FE | 1 dia (sem estimativa até SPIKE-01 resolver) | L5-T01, SPIKE-01 | L5-T02, L5-T05 | `LoadingStream` renderiza conteúdo progressivo real (não spinner genérico) conforme mecanismo escolhido no spike; `aria-live="polite"` presente |
+| L5-T03 | `LoadingStream` + `ErrorRetryState` + `EmptyState` (UX-SPEC §3/§4); `LoadingStream` consome o stream via `fetch` + `ReadableStream.getReader()` (mecanismo decidido em SPIKE-01, ver Seção 2) | FE | 1 dia | L5-T01, SPIKE-01 (resolvido) | L5-T02, L5-T05 | `LoadingStream` renderiza conteúdo progressivo real (não spinner genérico) conforme mecanismo escolhido no spike; `aria-live="polite"` presente |
 | L5-T04 | `SuggestionCard` (base para T04/T06/T07) | FE | 1 dia | L5-T01, L5-T02 | — | Estrutura visual idêntica entre os 3 usos, conteúdo variável, acessível por teclado |
 | L5-T05 | PWA — Web App Manifest + Service Worker (ADR-001, RNF-04) | FE | 1 dia | L1-T01 | L5-T02, L5-T03 | App instalável; assets estáticos em cache; funciona offline apenas para shell da UI, não para geração de conteúdo |
 
@@ -226,9 +318,9 @@ Ordem de lote recomendada (setas = depende de):
 ```
 Lote 1 (Infra/Persistência)
   ├─→ Lote 2 (Feriados)
-  ├─→ Lote 3 (Gateway de IA)          [L3-T02 aguarda SPIKE-01]
+  ├─→ Lote 3 (Gateway de IA)          [SPIKE-01 resolvido — L3-T02 liberado]
   ├─→ Lote 4 (Orquestração/Orçamento)
-  └─→ Lote 5 (Design System)          [L5-T03 aguarda SPIKE-01]
+  └─→ Lote 5 (Design System)          [SPIKE-01 resolvido — L5-T03 liberado]
 
 Lotes 2+4+5 → Lote 6 (Telas de Entrada)
 Lotes 3+4+5 → Lote 7 (Destino)        [Lote 6 não bloqueia Lote 7: telas de
@@ -266,7 +358,7 @@ tela (Lote 9) além da camada de fundação.
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
-| SPIKE-01 (streaming) não resolvido a tempo | Atrasa L3-T02 e L5-T03, que por sua vez atrasam todo o Lote 7/8/9/10 (todos dependem de L3-T02) | Priorizar SPIKE-01 antes de qualquer outra coisa do Lote 3; timebox de 1 dia; se streaming via Server Action provar inviável, cair para Route Handler com `ReadableStream` sem reabrir ADR (é detalhe de implementação, não decisão arquitetural de SDD.md) |
+| SPIKE-01 (streaming) — **resolvido em 2026-09-09** (ver Seção 2): decisão Route Handler + `ReadableStream`, L3-T02/L5-T03 liberados com estimativa restaurada | Risco encerrado — não atrasa mais Lote 3/5/7/8/9/10 | Resolvido dentro do timebox de 1 dia previsto; nenhuma reabertura de ADR necessária (consistente com a Seção 6, item sobre mecanismo de streaming) |
 | SPIKE-02 (proximidade geográfica) não resolvido a tempo | Atrasa só L10-T01, mas L10-T01 é pré-requisito de todo o Lote 10 | Timebox de 1 dia; resultado aceitável mesmo que "melhor esforço" do LLM, dado que RF-08.2 já prevê "sempre que uma alternativa equivalente existir" — não é um requisito absoluto |
 | Fundador (único executor humano de fato) toca este projeto em paralelo a outros três do portfólio (ver `CTO-REVIEW.md` Gate 1, ressalva 2) | Risco de capacidade real, não de decomposição | Fora do escopo deste TASK.md resolver; registrado aqui só para não se perder — parecer ad hoc de `capacity-and-timeline-validation` fica a critério do Gestor |
 | L6-T06 (quiz wizard) e L10-T01 (roteiro) estimados acima de 1 dia-pessoa | Risco de subestimar esforço real de tarefas maiores que o alvo | Ambas justificadas na Seção 6 como inseparáveis; se a implementação real mostrar que passam de ~1.5-2 dias, sinal de que deveriam ter sido divididas — Executor deve escalar via `BLOCKERS.md` se isso ocorrer |
