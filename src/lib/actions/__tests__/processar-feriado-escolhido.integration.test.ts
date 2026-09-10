@@ -6,11 +6,33 @@
 // o range resultante (feriado + emenda) segue a MESMA ramificação de
 // RF-01.2/RF-01.3 conforme destino informado ou não, e o range gravado bate
 // com o cálculo determinístico de `src/lib/holidays.ts`.
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+// L11-T02a (ADR-008): `processarFeriadoEscolhido` agora resolve o dono da
+// sessão via `resolveSessionOwner`, que exige contexto de requisição real do
+// Next.js — `next-auth`/`next/headers` são mockados (mesmo padrão de
+// `data-livre.integration.test.ts`/`resolve-session-owner.test.ts`), por
+// padrão simulando o caminho anônimo (sem sessão autenticada).
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { processarFeriadoEscolhido } from "@/lib/actions/feriados";
 import { InvalidHolidaySelectionError } from "@/lib/actions/feriados-errors";
 import { getNationalHolidaysWithBridgeInRange } from "@/lib/holidays";
+
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
+const ANON_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 function iso(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -18,6 +40,14 @@ function iso(date: Date): string {
 
 describe("processarFeriadoEscolhido — integração real com Postgres (L6-T05, RF-02.3)", () => {
   const sessionIds: string[] = [];
+
+  beforeEach(() => {
+    getServerSessionMock.mockReset();
+    cookieGetMock.mockReset();
+    cookieSetMock.mockReset();
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_ID });
+  });
 
   afterEach(() => {
     vi.useRealTimers();
@@ -54,6 +84,30 @@ describe("processarFeriadoEscolhido — integração real com Postgres (L6-T05, 
       where: { sessionId: result.sessionId },
     });
     expect(destination).toBeNull();
+
+    // ADR-008/L11-T02a: fluxo anônimo grava anon_session_id, nunca user_id.
+    expect(stored.anonSessionId).toBe(ANON_ID);
+    expect(stored.userId).toBeNull();
+  });
+
+  it("com usuário autenticado: grava user_id (nunca anon_session_id), mesmo com cookie anônimo presente (ADR-008)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 1));
+    getServerSessionMock.mockResolvedValue({ user: { id: "user-holiday-1" } });
+
+    const pure = getNationalHolidaysWithBridgeInRange(2026, 2027);
+    const holiday = pure[0];
+
+    const result = await processarFeriadoEscolhido({
+      holidayDate: holiday.date.toISOString(),
+    });
+    sessionIds.push(result.sessionId);
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: result.sessionId },
+    });
+    expect(stored.userId).toBe("user-holiday-1");
+    expect(stored.anonSessionId).toBeNull();
   });
 
   it("com destino: registra DestinationApproval (user_provided) e avança para destino_confirmado (RF-01.3/RF-11)", async () => {

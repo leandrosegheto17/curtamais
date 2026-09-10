@@ -326,6 +326,58 @@ describe("applySessionFlowTransition — integração real com Postgres (L4-T02)
     expect(destination).toBeNull();
   });
 
+  it("revisar (L7-T05 retomada, ADR-006 Adendo 2) regride destino_confirmado para destino_pendente e apaga a DestinationApproval", async () => {
+    const session = await createTestSession();
+    sessionIds.push(session.id);
+    await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
+    await applySessionFlowTransition({
+      sessionId: session.id,
+      action: "aprovar",
+      childData: {
+        stage: "destino",
+        name: "Gramado",
+        justification: "Clima frio e gastronomia.",
+        priceRangeMin: "700.00",
+        priceRangeMax: "1200.00",
+        source: "ia_suggested",
+      },
+    });
+
+    const result = await applySessionFlowTransition({
+      sessionId: session.id,
+      action: "revisar",
+    });
+
+    expect(result.flowState).toBe("destino_pendente");
+    expect(result.status).toBe("in_progress");
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("destino_pendente");
+
+    const destination = await prisma.destinationApproval.findUnique({
+      where: { sessionId: session.id },
+    });
+    expect(destination).toBeNull();
+  });
+
+  it("revisar a partir de um estado que não é destino_confirmado/hospedagem_aprovada/passeios_aprovados/roteiro_aprovado não persiste nada", async () => {
+    const session = await createTestSession();
+    sessionIds.push(session.id);
+    await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
+    // Estado atual: destino_pendente — não é um dos estados que aceitam "revisar".
+
+    await expect(
+      applySessionFlowTransition({ sessionId: session.id, action: "revisar" }),
+    ).rejects.toBeInstanceOf(InvalidTransitionError);
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("destino_pendente");
+  });
+
   it("aprovar sem os dados da entidade filha correta não persiste nada (InvalidChildDataError)", async () => {
     const session = await createTestSession();
     sessionIds.push(session.id);

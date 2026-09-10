@@ -21,7 +21,9 @@ import {
   createSessionWithDateRange,
   type CreateSessionWithDateRangeResult,
 } from "@/lib/session-flow";
+import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
 import { InvalidHolidaySelectionError } from "./feriados-errors";
+import { resolveSessionOwner } from "./resolve-session-owner";
 
 /** Abreviação de dia da semana em português (3 letras, primeira maiúscula). */
 const WEEKDAY_ABBREV: Record<Weekday, string> = {
@@ -235,21 +237,33 @@ export async function processarFeriadoEscolhido(
     throw new InvalidHolidaySelectionError(input.holidayDate);
   }
 
-  // Sanitização do texto livre (Diretriz de Implementação 9): trim +
-  // limite de tamanho; string vazia após trim é tratada como "sem destino"
-  // por `createSessionWithDateRange`.
-  const trimmedDestino = input.destino?.trim();
-  if (trimmedDestino && trimmedDestino.length > MAX_DESTINO_LENGTH) {
+  // Sanitização do texto livre (Diretriz de Implementação 9; L11-T03, SDD.md
+  // Seção 7 / GUARDRAILS.md regra 18): trim + neutralização de tentativa de
+  // prompt injection (`sanitizeFreeTextForPrompt`,
+  // `@/lib/gateway-ia/prompt-injection-guard`) + limite de tamanho; string
+  // vazia após sanitização é tratada como "sem destino" por
+  // `createSessionWithDateRange`. Mantido o comportamento pré-existente de
+  // REJEITAR (não truncar) destino acima do limite — único dos 3 pontos de
+  // captura de destino manual do projeto que já fazia isso antes desta
+  // tarefa; não alterado, para não mudar contrato sem necessidade.
+  const trimmed = input.destino?.trim();
+  if (trimmed && trimmed.length > MAX_DESTINO_LENGTH) {
     throw new Error(
       `Destino excede o tamanho máximo permitido (${MAX_DESTINO_LENGTH} caracteres).`,
     );
   }
+  const trimmedDestino = trimmed
+    ? sanitizeFreeTextForPrompt(trimmed, { maxLength: MAX_DESTINO_LENGTH })
+    : trimmed;
+
+  const owner = await resolveSessionOwner();
 
   const { sessionId, flowState } = await createSessionWithDateRange({
     entryPath: "feriado",
     dateRangeStart: match.bridge.rangeStart,
     dateRangeEnd: match.bridge.rangeEnd,
     destino: trimmedDestino,
+    owner,
   });
 
   return { sessionId, flowState };

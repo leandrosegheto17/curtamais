@@ -102,6 +102,7 @@ mudança de decisão gera novo ADR com `Status: Superseded by ADR-NNN`.
 | [ADR-005](adr/005-schema-persistencia-estruturada-rf09.md) | Schema de persistência estruturada (RF-09) | Modelo relacional normalizado por etapa aprovada, campos opcionais, extensível pela Fase 2 |
 | [ADR-006](adr/006-orquestracao-de-fluxo-em-etapas-state-machine.md) | Orquestração do fluxo em etapas | State machine explícita server-side, persistida a cada transição |
 | [ADR-007](adr/007-calculo-deterministico-de-feriados.md) | Cálculo de feriados nacionais | Lógica determinística interna, sem chamada a LLM |
+| [ADR-008](adr/008-propriedade-e-autorizacao-de-trip-session.md) | Propriedade (dono) de `TripSession` e resolução de identidade | Novo campo `anon_session_id`; dono gravado no momento da criação (cookie anônimo ou `user_id`); guard de autorização sempre retorna 404 em divergência |
 
 ## 5. Modelo de Dados de Alto Nível
 
@@ -121,7 +122,8 @@ erDiagram
 
     TripSession {
         uuid id PK
-        uuid user_id "nullable, FK futura para Account"
+        uuid user_id "nullable, FK futura para Account; dono se conta autenticada (ADR-008)"
+        string anon_session_id "nullable, dono se sessão anônima (ADR-008); mutuamente exclusivo com user_id"
         enum entry_path "data_livre|feriado|quiz"
         date date_range_start "nullable ate RF-04 resolver"
         date date_range_end
@@ -194,6 +196,16 @@ Notas de design:
   (`DestinationApproval`, `AccommodationApproval`, `ActivityApproval`,
   `ItineraryItem`) só existe quando a etapa correspondente foi aprovada — reflete
   diretamente RN-03 (sessão "concluída com valor" com só uma etapa aprovada).
+- ADR-006 Adendo 2 (2026-09-10): a state machine (`SessionFlowAction`) ganhou
+  uma ação regressiva `revisar`, que leva um estado `*_confirmado`/
+  `*_aprovada(o)`/`*_aprovados` de volta ao `*_pendente` da mesma etapa (ex.:
+  `destino_confirmado` → `destino_pendente`). Como `DestinationApproval`/
+  `AccommodationApproval` são 0..1 por sessão e `ActivityApproval`/
+  `ItineraryItem` são o conjunto de linhas da própria etapa, não existe
+  tabela de histórico de aprovação — `revisar` apaga a(s) linha(s) de
+  aprovação só da etapa reaberta (nunca de etapa anterior) na mesma
+  transação que grava o novo `flow_state`; nenhum campo/enum novo é
+  necessário. Detalhe completo no ADR.
 - `LlmGenerationLog` não é requisito funcional do PRD-TECNICO.md, mas é
   necessário para operar a mitigação de custo/alucinação exigida pela ressalva 1
   do Gate 1 (observabilidade de custo por chamada e taxa de retry) — registrado
@@ -215,6 +227,18 @@ Notas de design:
   de verdade das 11 etapas, sincronizada com `status` só nos dois terminais
   (`concluida` → `completed`, `encerrada_parcial` → `partial`). Ver o ADR
   para o detalhamento completo.
+- `anon_session_id` (ADR-008, `.md/adr/008-propriedade-e-autorizacao-de-trip-session.md`)
+  foi acrescentado a `TripSession` para resolver o Bloqueio 004
+  (`.md/BLOCKERS.md`): `user_id` existia no schema desde L1-T02, mas nunca era
+  de fato gravado por nenhum ponto de criação real, e não havia nenhum campo
+  equivalente para sessão anônima — sem isso, o guard de autorização de
+  `L11-T02` (Seção 7) não tinha contra o que comparar. `anon_session_id` e
+  `user_id` são mutuamente exclusivos na prática (sessão anônima vs.
+  autenticada), gravados uma única vez no momento da criação
+  (`createSessionWithDateRange`), sem `CHECK` constraint formal — a garantia é
+  de responsabilidade do único ponto de criação real, reforçada em tempo de
+  compilação pelo tipo `owner` discriminado. Ver o ADR para a regra completa
+  de resolução de dono (precedência: conta autenticada > cookie anônimo).
 
 ## 6. Riscos Técnicos
 
@@ -236,6 +260,16 @@ Notas de design:
 - **Autorização**: toda leitura/escrita em `TripSession` e entidades filhas exige
   que o identificador de sessão (cookie) ou `user_id` autenticado corresponda ao
   dono do registro; nenhuma rota expõe `TripSession` de outro usuário/sessão.
+  O dono é gravado explicitamente no momento da criação da `TripSession`
+  (`user_id` se autenticado, `anon_session_id` se anônimo — mutuamente
+  exclusivos, precedência de conta autenticada sobre cookie anônimo quando
+  ambos presentes na requisição de criação) e comparado pelo guard central
+  contra a identidade resolvida da requisição corrente a cada leitura/escrita
+  subsequente; qualquer divergência (incluindo registro sem dono gravado)
+  retorna **404, nunca 403**, para não revelar a existência do registro a um
+  solicitante ilegítimo. Ver ADR-008
+  (`.md/adr/008-propriedade-e-autorizacao-de-trip-session.md`) para o
+  detalhamento completo.
 - **Criptografia**: TLS obrigatório em todo tráfego (cliente-servidor e
   servidor-provider de LLM); dados pessoais em repouso (e-mail de conta, quando
   aplicável) armazenados com criptografia em nível de coluna/disco do provedor

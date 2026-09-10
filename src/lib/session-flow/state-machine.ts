@@ -67,13 +67,19 @@ export type SessionFlowState = (typeof SESSION_FLOW_STATES)[number];
  * - `avancar`: avança de uma etapa já aprovada/confirmada para a sugestão
  *   pendente da etapa seguinte (ou para `concluida`, no caso do roteiro).
  * - `encerrar`: encerra a sessão preservando o que já foi aprovado (RN-03).
+ * - `revisar` (ADR-006, Adendo 2 — retomada de L7-T05/Bloqueio 002):
+ *   transição regressiva de uma etapa já aprovada/confirmada de volta para o
+ *   `*_pendente` da MESMA etapa (nunca pula para uma etapa anterior). Quem
+ *   grava/apaga a entidade filha correspondente é a camada de persistência
+ *   (`./persistence.ts`), não esta função pura — aqui só a decisão de estado.
  */
 export type SessionFlowAction =
   | "iniciar"
   | "aprovar"
   | "ajustar"
   | "avancar"
-  | "encerrar";
+  | "encerrar"
+  | "revisar";
 
 export const INITIAL_SESSION_FLOW_STATE: SessionFlowState =
   "entrada_selecionada";
@@ -106,7 +112,10 @@ const STATES_WITH_AT_LEAST_ONE_APPROVAL: ReadonlySet<SessionFlowState> =
  * vários estados ao mesmo tempo, não de um único estado por ação.
  */
 const SEQUENTIAL_TRANSITIONS: Readonly<
-  Record<SessionFlowState, Partial<Record<Exclude<SessionFlowAction, "encerrar">, SessionFlowState>>>
+  Record<
+    SessionFlowState,
+    Partial<Record<Exclude<SessionFlowAction, "encerrar" | "revisar">, SessionFlowState>>
+  >
 > = {
   entrada_selecionada: {
     iniciar: "destino_pendente",
@@ -143,6 +152,24 @@ const SEQUENTIAL_TRANSITIONS: Readonly<
   encerrada_parcial: {},
 };
 
+/**
+ * Tabela de transições regressivas da ação `revisar` (ADR-006, Adendo 2).
+ * Cada entrada leva um estado "aprovado/confirmado" de volta ao `*_pendente`
+ * DA MESMA etapa — nunca pula para uma etapa anterior. Só
+ * `destino_confirmado` → `destino_pendente` tem hoje uma Server Action/UI
+ * consumidora (`trocarDestino`, L7-T05); as outras 3 ficam disponíveis para
+ * L8/L9/L10 sem tarefa própria nesta rodada (ver nota de retomada L7-T05 em
+ * `.md/TASK.md`, Seção 3, Lote 7).
+ */
+const REVISAR_TRANSITIONS: Readonly<
+  Partial<Record<SessionFlowState, SessionFlowState>>
+> = {
+  destino_confirmado: "destino_pendente",
+  hospedagem_aprovada: "hospedagem_pendente",
+  passeios_aprovados: "passeios_pendente",
+  roteiro_aprovado: "roteiro_pendente",
+};
+
 /** true para `concluida`/`encerrada_parcial` — nenhuma ação é válida a partir daqui. */
 export function isTerminalSessionFlowState(state: SessionFlowState): boolean {
   return TERMINAL_STATES.has(state);
@@ -164,6 +191,14 @@ export function transitionSessionFlow(
       throw new InvalidTransitionError(currentState, action);
     }
     return "encerrada_parcial";
+  }
+
+  if (action === "revisar") {
+    const revisarTarget = REVISAR_TRANSITIONS[currentState];
+    if (!revisarTarget) {
+      throw new InvalidTransitionError(currentState, action);
+    }
+    return revisarTarget;
   }
 
   const nextState = SEQUENTIAL_TRANSITIONS[currentState]?.[action];

@@ -5,10 +5,32 @@
 // que `submitQuizAnswers` cria a `TripSession` com `entryPath: "quiz"` e o
 // range de datas sugerido, e avança `flowState` para `destino_pendente` via
 // `@/lib/session-flow` — cobrindo o critério de aceite de L6-T07 (RF-03.2).
-import { afterAll, describe, expect, it } from "vitest";
+// L11-T02a (ADR-008): `submitQuizAnswers` agora resolve o dono da sessão via
+// `resolveSessionOwner`, que exige contexto de requisição real do Next.js —
+// `next-auth`/`next/headers` são mockados (mesmo padrão de
+// `data-livre.integration.test.ts`/`resolve-session-owner.test.ts`), por
+// padrão simulando o caminho anônimo (sem sessão autenticada).
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { submitQuizAnswers } from "@/lib/actions/quiz";
 import type { QuizAnswers } from "@/components/quiz/quiz-wizard";
+
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
+const ANON_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function baseAnswers(
   overrides: Partial<QuizAnswers> = {},
@@ -24,6 +46,14 @@ function baseAnswers(
 
 describe("submitQuizAnswers — integração real com Postgres (L6-T07)", () => {
   const sessionIds: string[] = [];
+
+  beforeEach(() => {
+    getServerSessionMock.mockReset();
+    cookieGetMock.mockReset();
+    cookieSetMock.mockReset();
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_ID });
+  });
 
   afterAll(async () => {
     await prisma.tripSession.deleteMany({ where: { id: { in: sessionIds } } });
@@ -48,6 +78,23 @@ describe("submitQuizAnswers — integração real com Postgres (L6-T07)", () => 
       where: { sessionId: result.sessionId },
     });
     expect(destination).toBeNull();
+
+    // ADR-008/L11-T02a: fluxo anônimo grava anon_session_id, nunca user_id.
+    expect(stored.anonSessionId).toBe(ANON_ID);
+    expect(stored.userId).toBeNull();
+  });
+
+  it("com usuário autenticado: grava user_id (nunca anon_session_id), mesmo com cookie anônimo presente (ADR-008)", async () => {
+    getServerSessionMock.mockResolvedValue({ user: { id: "user-quiz-1" } });
+
+    const result = await submitQuizAnswers(baseAnswers());
+    sessionIds.push(result.sessionId);
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: result.sessionId },
+    });
+    expect(stored.userId).toBe("user-quiz-1");
+    expect(stored.anonSessionId).toBeNull();
   });
 
   it("range gerado é coerente com o período informado (fim_de_semana → 2 a 4 dias)", async () => {

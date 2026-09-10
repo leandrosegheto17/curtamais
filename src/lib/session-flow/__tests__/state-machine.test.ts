@@ -177,6 +177,37 @@ describe("regra de encerrada_parcial (RF-05.4/RN-03)", () => {
   });
 });
 
+describe("regra de revisar (ADR-006 Adendo 2, retomada L7-T05/Bloqueio 002)", () => {
+  it.each([
+    ["destino_confirmado", "destino_pendente"],
+    ["hospedagem_aprovada", "hospedagem_pendente"],
+    ["passeios_aprovados", "passeios_pendente"],
+    ["roteiro_aprovado", "roteiro_pendente"],
+  ] as const)(
+    "revisar em %s regride para %s (mesma etapa, nunca pula para etapa anterior)",
+    (state, expected) => {
+      expect(transitionSessionFlow(state, "revisar")).toBe(expected);
+    },
+  );
+
+  it.each([
+    "entrada_selecionada",
+    "destino_pendente",
+    "hospedagem_pendente",
+    "passeios_pendente",
+    "roteiro_pendente",
+    "concluida",
+    "encerrada_parcial",
+  ] as const)(
+    "revisar é rejeitado a partir de %s (não é um estado aprovado/confirmado)",
+    (state) => {
+      expect(() => transitionSessionFlow(state, "revisar")).toThrow(
+        InvalidTransitionError,
+      );
+    },
+  );
+});
+
 describe("isTerminalSessionFlowState", () => {
   it("true apenas para concluida e encerrada_parcial", () => {
     const terminal = SESSION_FLOW_STATES.filter((state) =>

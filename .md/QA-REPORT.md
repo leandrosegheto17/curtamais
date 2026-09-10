@@ -817,3 +817,394 @@ está liberado para a auditoria de segurança completa do chapéu DevSecOps
 (Seção 3 do comando `/validar`)** — nenhuma reprovação crítica exige parar
 aqui.
 `public/sw.js`).
+
+## Lote 4 — Orquestração de Sessão e Regra de Orçamento
+
+**Nota de processo**: as 3 tarefas deste lote (L4-T01 a L4-T03) já estavam
+`Concluída` em `TASK.md` desde 2026-09-09, mas o lote nunca recebeu uma
+seção própria de validação neste relatório (nem em `SECURITY-REVIEW.md`) —
+os Lotes 6/7/8/9/10, que dependem diretamente dele, começaram a ser
+executados sem essa validação ter sido registrada. Achado durante a
+checagem estrutural do Lote 7 (ver seção correspondente abaixo). Validado
+retroativamente agora, antes de prosseguir com o veredito do Lote 7 (que
+inclui uma extensão dos próprios arquivos deste lote, ADR-006 Adendo 2).
+
+Status geral: **Aprovado**. As 3 tarefas passam nos critérios de aceite,
+confirmados por leitura direta do código (`src/lib/session-flow/`) — não
+pela nota de implementação do Executor. Nenhuma reprovação crítica ou
+simples encontrada.
+
+### L4-T01 — State machine server-side (ADR-006)
+
+Critério de aceite: "Transição inválida (pular etapa) é rejeitada; todos os
+estados do ADR-006 implementados."
+
+- `src/lib/session-flow/state-machine.ts`: os 11 estados de
+  `SESSION_FLOW_STATES` batem literalmente com o vocabulário do ADR-006.
+  `transitionSessionFlow` rejeita pular etapa e qualquer ação a partir de
+  estado terminal (`TERMINAL_STATES`), via `InvalidTransitionError`
+  (confirmado por leitura de `SEQUENTIAL_TRANSITIONS`/`STATES_WITH_AT_LEAST_ONE_APPROVAL`).
+  Módulo puro, sem import de Prisma/runtime — confirmado.
+- **Aprovado.**
+
+### L4-T02 — Persistência de transição de etapa (RF-09, RN-03)
+
+Critério de aceite: "Aprovar uma etapa persiste a entidade filha certa;
+encerrar em qualquer ponto preserva o já aprovado (RN-03)."
+
+- `src/lib/session-flow/persistence.ts`: `applySessionFlowTransition`
+  decide via `transitionSessionFlow` (L4-T01) ANTES de qualquer escrita,
+  valida `childData.stage` contra `APPROVAL_STAGE_BY_PENDING_STATE`, e só
+  então grava `tx.tripSession.update` + `tx.<entidade>.create`/`createMany`
+  dentro de uma única `prisma.$transaction` — rollback automático garante
+  atomicidade. `encerrar` nunca passa pelo branch de criação de entidade
+  filha (RN-03, confirmado por leitura: o `if (input.action === "aprovar")`
+  é o único ponto de chamada de `persistApprovedChildData`).
+- Sincronização de `status` só nos terminais (`concluida`→`completed`,
+  `encerrada_parcial`→`partial`), conforme ADR-006 Adendo 1 — confirmado.
+- **Aprovado.**
+
+### L4-T03 — Regra RF-10 (filtro/priorização de orçamento)
+
+Critério de aceite: "Com orçamento informado, sugestões fora da faixa não
+aparecem como prioritárias; sem opção na faixa, retorna a mais barata com
+flag de excedente; ausência de orçamento nunca bloqueia."
+
+- `src/lib/session-flow/budget-filter.ts`: `applyBudgetFilter` — sem
+  orçamento, devolve a lista original inalterada, todas `withinBudget: true`
+  (RF-10.3/RN-04, nunca bloqueia); com orçamento e ao menos uma opção
+  dentro, reordena (dentro primeiro, fora depois, sem remover nenhuma —
+  interpretação documentada e consistente com RN-04); sem nenhuma opção
+  dentro, devolve a mais barata primeiro com `exceedsBudget: true`, nunca
+  lista vazia nem erro (RF-10.2). Lógica pura, sem I/O — confirmado por
+  leitura completa do arquivo.
+- **Aprovado.**
+
+### Integração entre as 3 tarefas do lote
+
+- L4-T02 consome `transitionSessionFlow` de L4-T01 como decisão pura antes
+  de qualquer escrita — confirmado (não duplica a lógica de transição).
+- L4-T03 é ortogonal à state machine/persistência (função pura,
+  co-localizada no mesmo diretório) — consumida de fato só a partir de
+  L7-T01 (`generateDestinationSuggestions`), fora do escopo deste lote em
+  si; consistente com a tabela de dependências (L4-T03 não bloqueia
+  L4-T01/L4-T02).
+
+### Requisitos não funcionais relevantes ao lote
+
+- **RN-03** (sessão parcial nunca é erro): garantida estruturalmente pela
+  separação de branches em `persistence.ts` — confirmado acima.
+- **Autorização de dono de sessão** (SDD §7, GUARDRAILS.md regra 16): não
+  implementada neste lote, de propósito — `applySessionFlowTransition`
+  recebe `sessionId` já resolvido pelo chamador, sem checar dono. Consistente
+  com a lacuna já rastreada e aceita em `L11-T02` (Lote 11, cross-cutting),
+  não uma omissão deste lote.
+
+### Bugs encontrados
+
+Nenhum. Nenhuma reprovação crítica nem simples neste lote.
+
+### Padrão recorrente sinalizado ao Coordenador
+
+Não aplicável — nenhum bug encontrado.
+
+## Checagem Estrutural do Lote 4 (Validador, sem dispatch ao Coordenador)
+
+- As 3 tarefas do Lote 4 (L4-T01 a L4-T03) estão `Concluída` em `TASK.md`
+  (Seção 3) — confirmado.
+- Seção 4: Lote 4 depende de L1-T02 (Lote 1, já `Validado`); os lotes que
+  dependem do Lote 4 (6, 7, 8, 9, 10, 11) referenciam L4-T01/T02/T03
+  corretamente — nenhuma dependência órfã/inconsistente relativa a este
+  lote.
+- Bloqueio 001 (`.md/BLOCKERS.md`) está `Resolvido`, com a resolução
+  (ADR-006 Adendo 1) de fato aplicada no código (`flowState`/enum
+  `SessionFlowState` migrados, confirmado por leitura de
+  `prisma/schema.prisma` e do código de `persistence.ts`).
+- Nenhum achado simples/débito baixo-médio a registrar em
+  `Refatoração Lote-4` — nenhuma tarefa nova criada.
+
+## Veredito de Release-Readiness do Lote 4
+
+**Lote 4 pode fechar como `Validado`** (sem ressalvas), retroativamente.
+As 3 tarefas passam nos critérios de aceite literais do `TASK.md`, a
+composição entre elas funciona como projetada, e nenhum problema foi
+encontrado. **Nota de processo registrada**: este lote deveria ter sido
+validado antes do início dos Lotes 6/7/8/9/10 que dependem dele — nenhum
+dano concreto foi identificado retroativamente (o código de L4-T01/T02/T03
+está correto), mas o gate de validação por lote não foi seguido à risca
+neste ponto do projeto. Sinalizado no veredito do Lote 7 abaixo, sem
+necessidade de reabrir nenhuma tarefa.
+
+## Lote 7 — Resolução de Destino (T04, T05)
+
+Status geral: **Aprovado**. As 5 tarefas do lote (L7-T01 a L7-T05) passam
+nos respectivos critérios de aceite, confirmados por leitura direta do
+código (`src/lib/stage-rules/destino.ts`, `src/lib/actions/destino.ts`,
+`src/lib/actions/confirmacao-destino.ts`,
+`src/components/destino/destino-sugestoes-screen.tsx`,
+`src/components/destino/destino-confirmacao-screen.tsx`, rotas
+`src/app/destino/**`) e pela extensão da state machine (ADR-006 Adendo 2,
+`src/lib/session-flow/state-machine.ts`/`persistence.ts`) — não pela nota
+de implementação do Executor — e por execução real da suíte. Nenhuma
+reprovação crítica ou simples encontrada.
+
+### Suíte executada
+
+| Comando | Resultado |
+|---|---|
+| `npm run lint` | Passou — nenhum warning/erro |
+| `npx vitest run src/lib/stage-rules src/lib/actions src/components/destino src/app/destino src/lib/session-flow` | 95 testes passam, 47 falham — **todas** as 47 falhas são `*.integration.test.ts` que exigem Postgres real em `localhost:55432` (indisponível neste ambiente de validação), mesma limitação documentada desde L4-T02/L7-T01/T02/T03/T04/T05 no `TASK.md`; confirmado por inspeção de cada `FAIL` (todas em arquivos `*.integration.test.ts`, todas com `PrismaClientInitializationError: Can't reach database server`, nenhuma falha de asserção/tipo/compilação). Nenhuma outra classe de falha encontrada. |
+| `npm run build` (`next build`) | Passou — build de produção completo; `/destino` e `/destino/confirmacao` confirmadas como rotas dinâmicas (`ƒ`) |
+
+### L7-T01 — Regra RF-04 (geração de sugestões + filtro de orçamento)
+
+Critério de aceite: "Cada sugestão tem nome, justificativa curta, faixa de
+preço; respeita orçamento quando informado."
+
+- `src/lib/stage-rules/destino.ts`: `generateDestinationSuggestions` chama
+  `generateStructuredCompletionWithRetry` (L3-T04, retry+log) com o prompt/
+  schema já registrados de `destino` (L3-T02) — reaproveita, não duplica.
+  Aplica `applyBudgetFilter` (L4-T03) sobre o resultado, convertendo o shape
+  do schema (`faixaPrecoMin`/`Max`) para o shape genérico esperado —
+  confirmado por leitura. `DestinationSuggestionResult` sempre tem
+  `name`/`justification`/`priceRangeMin`/`Max`.
+- 6 casos unitários (`src/lib/stage-rules/__tests__/destino.test.ts`,
+  `@vitest-environment node`, Gateway de IA mockado via `importOriginal`) —
+  todos passam: nome/justificativa/faixa presentes; chamada correta ao
+  Gateway (sessionId/stage/schemaName/mensagens); sem orçamento nunca
+  bloqueia; com orçamento reordena; sem opção na faixa devolve a mais
+  barata com `exceedsBudget: true`; erro do Gateway propaga sem ser
+  mascarado.
+- **Aprovado.**
+
+### L7-T02 — T04 UI (cartões, 4 estados, rodapé)
+
+Critério de aceite: "4 estados presentes conforme UX-SPEC §4; rodapé
+oferece 'continuar' e 'encerrar aqui' (RF-04.5)."
+
+- `src/components/destino/destino-sugestoes-screen.tsx`: os 4 estados
+  (`loading`/`error`/`empty`/`success`) implementados via
+  `LoadingStream`/`ErrorRetryState`/`EmptyState`/`SuggestionCard` (L5-T03/
+  T04) reaproveitados, nenhuma lógica de estado duplicada — confirmado.
+  `BudgetInsufficientBanner` exibido quando `exceedsBudget`, nunca
+  desabilitando os botões de aprovar (RN-04, confirmado: `disabled` dos
+  botões de aprovar não depende de `hasBudgetExceeded`). Rodapé de decisão
+  após aprovar oferece "Continuar para hospedagem"
+  (`router.push("/destino/confirmacao?...")`) e "Só queria decidir o
+  destino — encerrar aqui" (`encerrarResolucaoDestino` + navegação) — ambos
+  presentes e navegando só após a Promise resolver (nenhuma navegação
+  otimista).
+- Preço sempre via `SuggestionCard`/`PriceRangeBadge` embutido (Diretriz 6);
+  erros com `role="alert"` + ícone + texto (Diretriz de acessibilidade,
+  UX-SPEC §5); foco no título ao montar; `min-h-11` nos botões principais.
+- 11 casos em `destino-sugestoes-screen.test.tsx` (Server Actions
+  substituídas via `actionsOverride`, nenhum mock de módulo inteiro) — todos
+  passam, cobrindo os 4 estados, `BudgetInsufficientBanner` não bloqueando,
+  rodapé de decisão com as duas ações, atalho de destino manual.
+- **Aprovado.**
+
+### L7-T03 — T04 Server Actions (aprovar/rejeitar-nova rodada/informar manual/encerrar)
+
+Critério de aceite: "Aprovar avança para confirmação; rejeitar todas
+permite nova rodada ou entrada manual; encerrar preserva destino aprovado."
+
+- `src/lib/actions/destino.ts`: `gerarSugestoesDestino` valida
+  `flowState === "destino_pendente"` antes de gastar uma chamada ao Gateway
+  de IA (`DestinoEtapaInvalidaError` caso contrário); "nova rodada" é a
+  mesma função chamada de novo pela UI, sem transição de estado —
+  confirmado, consistente com RF-04.4. `aprovarDestinoSugerido` **revalida**
+  o payload da sugestão no servidor
+  (`assertValidSuggestionPayload`: nome/justificativa não vazios, faixa
+  numérica/não-negativa/não-invertida/dentro de teto de sanidade) antes de
+  chamar `applySessionFlowTransition` — nunca confia cegamente no payload
+  devolvido pelo cliente, mesmo sendo originalmente gerado pelo servidor
+  (item de segurança relevante, ver `SECURITY-REVIEW.md`). Toda persistência
+  passa por `applySessionFlowTransition` (L4-T02) — nenhuma escrita direta
+  no Prisma para `TripSession`/entidades filhas, confirmado por leitura
+  completa do arquivo (a única leitura direta é `prisma.tripSession.findUnique`
+  em `gerarSugestoesDestino`, para montar contexto). `encerrarResolucaoDestino`
+  só chama `applySessionFlowTransition({ action: "encerrar" })`, preservando
+  `DestinationApproval` (RN-03) estruturalmente (mesma garantia já
+  confirmada em L4-T02).
+- **Investigação da possível inconsistência RF-04.5 × state machine
+  (documentada no `TASK.md`)**: confirmada como NÃO sendo uma inconsistência
+  real — "encerrar aqui" só é oferecido pela UI depois de uma aprovação,
+  quando a sessão já está em `destino_confirmado`, estado já elegível para
+  `encerrar` desde L4-T01. Concordo com a conclusão do Executor após
+  reler `UX-SPEC.md` (linhas 86-88, "Depois de aprovar um bloco...") e a
+  tabela `STATES_WITH_AT_LEAST_ONE_APPROVAL` (`state-machine.ts`).
+- 14 casos de integração real com Postgres (`destino.integration.test.ts`)
+  — não confirmados nesta sessão de validação (mesma limitação de ambiente
+  de todo o restante da suíte), mas o código foi lido linha a linha e é
+  consistente com o que os testes afirmam cobrir.
+- **Aprovado.**
+
+### L7-T04 — T05 UI (confirmação de destino)
+
+Critério de aceite: "Nome do destino em destaque; botões 'Confirmar e
+continuar' / 'Trocar destino'; sempre aparece, mesmo vindo de T04."
+
+- `src/components/destino/destino-confirmacao-screen.tsx`: destino em
+  destaque (`font-serif text-3xl text-accent`), os dois botões exigidos
+  (`min-h-11`), cada um com estado de "processando" (`aria-busy`) enquanto
+  aguarda o servidor, erro acessível (`role="alert"`) sem travar os botões.
+  Componente agnóstico da origem do destino (T01/T02/T03 vs. T04) —
+  confirmado, recebe só `destino`/`sessionId` já resolvidos.
+- `src/app/destino/confirmacao/page.tsx`: sem `sessionId`/`destino`,
+  redireciona para `/` em vez de renderizar tela quebrada — confirmado
+  (RF-11 "sempre aparece" cumprido pelo lado inverso: nunca aparece sem
+  dado válido).
+- **"Trocar destino" (retomada pós Bloqueio 002)**: confirmado que
+  `confirmacao-destino-client.tsx` hoje chama a Server Action real
+  `trocarDestino` (não mais `router.back()` isolado) e só navega
+  (`router.back()`) depois da Promise resolver — sem navegação otimista.
+- 9 + 3 + 4 casos (`destino-confirmacao-screen.test.tsx`,
+  `confirmacao-destino-client.test.tsx`, `page.test.tsx`) — todos passam
+  (unitários/componente, sem dependência de Postgres).
+- **Aprovado.**
+
+### L7-T05 — T05 Server Action (confirmar/trocar destino)
+
+Critério de aceite: "Confirmar avança para hospedagem; trocar volta ao
+campo de destino da tela de origem."
+
+- `src/lib/actions/confirmacao-destino.ts`: `confirmarDestino` delega
+  `applySessionFlowTransition({ action: "avancar" })` a partir de
+  `destino_confirmado` → `hospedagem_pendente` — único caminho válido na
+  state machine a partir desse estado, confirmado.
+- **`trocarDestino` (retomada, ADR-006 Adendo 2)**: delega
+  `applySessionFlowTransition({ action: "revisar" })`. Confirmado por
+  leitura cruzada de `state-machine.ts` (`REVISAR_TRANSITIONS`,
+  `destino_confirmado → destino_pendente`) e `persistence.ts`
+  (`deleteRevisarChildData` apaga só `DestinationApproval` da própria
+  sessão, via `deleteMany({ where: { sessionId } })`, antes de gravar o
+  novo `flowState`, na mesma transação) — critério de aceite cumprido
+  literalmente ("trocar volta ao campo de destino da tela de origem": o
+  `flowState` regride e o dado antigo é removido, permitindo nova
+  aprovação). Rejeição a partir de outro estado propaga
+  `InvalidTransitionError` sem persistir nada (mesmo padrão de
+  `confirmarDestino`).
+- **Aprovado.**
+
+### Testes de integração cruzada entre as tarefas do lote (fluxo ponta a ponta)
+
+Fluxo completo confirmado por leitura + testes automatizados existentes,
+encadeando os módulos reais sem nenhuma reimplementação local:
+
+1. `gerarSugestoesDestino` (L7-T03) → `generateDestinationSuggestions`
+   (L7-T01) → Gateway de IA (Lote 3) + `applyBudgetFilter` (Lote 4) —
+   sugestões chegam a `DestinoSugestoesScreen` (L7-T02) via `fetchImpl`.
+2. `aprovarDestinoSugerido`/`informarDestinoManualmente` (L7-T03) →
+   `applySessionFlowTransition` (Lote 4) → `destino_pendente` →
+   `destino_confirmado`, persistindo `DestinationApproval` — a UI (L7-T02)
+   navega para `/destino/confirmacao` só depois da Promise resolver.
+3. `ConfirmacaoDestinoPage`/`ConfirmacaoDestinoClient` (L7-T04) → chama
+   `confirmarDestino`/`trocarDestino` (L7-T05) → `applySessionFlowTransition`
+   → `hospedagem_pendente` (avança) ou `destino_pendente` (regride,
+   apagando `DestinationApproval`).
+4. `encerrarResolucaoDestino` (L7-T03) → `applySessionFlowTransition` →
+   `encerrada_parcial`, preservando `DestinationApproval` (RN-03).
+- Nenhuma das 5 tarefas reimplementa lógica de outra (Diretriz de
+  Implementação 3/11) — confirmado por leitura cruzada dos 5 arquivos
+  principais listados no cabeçalho desta seção do Lote 7.
+- Integração com Lotes 3/4/5/6: Lote 3 (Gateway de IA) e Lote 4
+  (Orquestração/Orçamento, agora retroativamente `Validado` acima) — ambos
+  consumidos só via suas fronteiras públicas (`@/lib/gateway-ia`,
+  `@/lib/session-flow`), nenhum arquivo interno importado diretamente.
+  Lote 5 (Design System) — componentes reutilizados sem duplicação (L7-T02/
+  T04, confirmado acima). Lote 6 (Telas de Entrada) não bloqueia o Lote 7
+  (confirmado pela Seção 4 do `TASK.md`) e nenhuma tela de origem de Lote 6
+  navega de fato para `/destino`/`/destino/confirmacao` ainda — gap já
+  documentado como integração cross-lote futura, consistente em todo o
+  projeto (não é um achado novo).
+
+### Requisitos não funcionais relevantes ao lote
+
+- **RN-04** (orçamento nunca bloqueia): confirmado em `applyBudgetFilter`
+  (Lote 4, revalidado acima) e em `DestinoSugestoesScreen` (botões de
+  aprovar nunca desabilitados por `BudgetInsufficientBanner`).
+- **Acessibilidade (WCAG AA, UX-SPEC §5)**: foco gerenciado ao montar em
+  ambas as telas (T04/T05); erros sempre `role="alert"` + ícone + texto,
+  nunca só cor; alvo de toque `min-h-11` nos botões principais; formulário
+  manual de T04 com `aria-describedby` ligando erro ao campo. Nenhuma
+  checagem automatizada de contraste/leitor de tela real foi executada
+  nesta validação (fora do escopo de `npm test`/`npm run build`) — mesma
+  limitação já aceita nos lotes anteriores (Lote 5), com a revisão final
+  cross-tela reservada para `L11-T04`. Nenhuma pendência nova encontrada
+  além do que já está registrado em `RL5-T02` (não deste lote).
+- **RNF-05 (retry único)**: reaproveitado de L3-T04 via
+  `generateStructuredCompletionWithRetry`, nenhuma reimplementação — RN-04
+  confirma consistência com o restante do projeto.
+
+### Bugs encontrados
+
+Nenhum. Nenhuma reprovação crítica nem simples neste lote.
+
+### Padrão recorrente sinalizado ao Coordenador
+
+Não aplicável — nenhum bug encontrado. (A sinalização real deste lote —
+sequenciamento de `L11-T03`, ver `SECURITY-REVIEW.md` — é um achado de
+segurança/dependência, não um padrão de bug de implementação; registrada
+como Bloqueio 003 em `.md/BLOCKERS.md`, escalada ao coordenador.)
+
+## Checagem Estrutural do Lote 7 (Validador, sem dispatch ao Coordenador)
+
+- As 5 tarefas do Lote 7 (L7-T01 a L7-T05) estão `Concluída` em `TASK.md`
+  (Seção 3) — confirmado.
+- **Achado de processo (resolvido nesta sessão, sem necessidade de
+  redesenho)**: o Lote 4, do qual o Lote 7 depende diretamente, nunca havia
+  sido validado (nenhuma seção em `QA-REPORT.md`/`SECURITY-REVIEW.md`, nenhum
+  "Status do lote" em `TASK.md`) — corrigido acima, validado retroativamente
+  nesta mesma sessão, sem problema encontrado no código.
+- **Extensão da state machine (ADR-006 Adendo 2) sobre módulos do Lote 4
+  já em produção de código**: confirmado por leitura de
+  `src/lib/session-flow/state-machine.ts`/`persistence.ts` que a mudança
+  foi puramente ADITIVA — nova ação `"revisar"` acrescentada à união
+  `SessionFlowAction` (não removeu/alterou nenhuma ação existente), nova
+  tabela `REVISAR_TRANSITIONS` separada de `SEQUENTIAL_TRANSITIONS` (não
+  tocada), novo branch `if (input.action === "revisar")` em
+  `applySessionFlowTransition` (o branch de `"aprovar"` e a lógica de
+  `encerrar`/sincronização de `status` permanecem exatamente como estavam).
+  Nenhuma assinatura pública existente (`transitionSessionFlow`,
+  `applySessionFlowTransition`) mudou de shape para os chamadores já
+  existentes (L4-T02, e os consumidores de L6/L7 anteriores a esta
+  extensão) — retrocompatível. `npx vitest run
+  src/lib/session-flow/__tests__/state-machine.test.ts` → 37/37 passam
+  (confirmado nesta sessão), incluindo os casos pré-existentes de L4-T01 —
+  **nenhuma regressão encontrada** nas tarefas L4-T01/L4-T02 por causa desta
+  extensão.
+- Seção 4 (Dependências): Lote 7 depende de Lotes 3+4+5 (todos já
+  `Validado`/`Validado com ressalvas` acima) — nenhuma dependência
+  órfã/inconsistente relativa a este lote. Lote 6 corretamente modelado
+  como não-bloqueante.
+- Nenhuma tarefa `Bloqueada` sem resolução no Lote 7 (Bloqueio 002 já
+  `Resolvido`).
+- **Achado de segurança com implicação de sequenciamento** (não um achado
+  de código deste lote em si): ver `SECURITY-REVIEW.md`, Lote 7 — registrado
+  como Bloqueio 003 em `.md/BLOCKERS.md`, escalado ao coordenador (decisão
+  de dependência entre `L11-T03` e `L8-T01`/`L9-T01`/`L10-T01`, fora da
+  autoridade do Validador). **Não bloqueia o fechamento do Lote 7** — as 5
+  tarefas cumprem seus critérios de aceite integralmente; o achado é sobre
+  uma tarefa futura (Lote 8) que ainda não existe.
+- Nenhum achado simples/débito baixo-médio de QA a registrar em
+  `Refatoração Lote-7` — nenhuma tarefa nova criada por este chapéu (o
+  achado de segurança vira registro em `BLOCKERS.md`, não uma tarefa de
+  refatoração, já que a correção em si — `L11-T03` — já existe planejada;
+  o que falta é só a decisão de sequenciamento do Coordenador).
+
+## Veredito de Release-Readiness do Lote 7
+
+**Lote 7 pode fechar como `Validado com ressalvas`.** As 5 tarefas (L7-T01
+a L7-T05) passam nos critérios de aceite literais do `TASK.md`, `npm run
+lint`/`npm run build` passam sem regressão, a suíte não-integração passa
+integralmente (95/95), a composição entre as tarefas (regra → Server
+Actions → UI → confirmação/troca) funciona como projetada, a extensão da
+state machine do Lote 4 foi aditiva e sem regressão, e o Lote 4
+(pré-requisito nunca antes validado) foi validado retroativamente sem
+problema. A ressalva não é um bug de nenhuma das 5 tarefas — é um achado de
+segurança sobre uma dependência futura ainda não implementada
+(sequenciamento de `L11-T03` antes de `L8-T01`/`L9-T01`/`L10-T01`, ver
+`SECURITY-REVIEW.md` e Bloqueio 003 em `BLOCKERS.md`), que não impede este
+lote de fechar mas precisa de decisão do Coordenador antes do início do
+Lote 8. **O lote está liberado para a auditoria de segurança completa do
+chapéu DevSecOps** (mesma sessão, ver `SECURITY-REVIEW.md` abaixo).

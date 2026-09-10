@@ -30,11 +30,27 @@ import { prisma } from "@/lib/prisma";
 import { applySessionFlowTransition } from "./persistence";
 import type { SessionFlowState } from "./state-machine";
 
+// L11-T02a — ADR-008: dono da sessão (usuário autenticado OU sessão
+// anônima), resolvido pelo CHAMADOR (Server Action de tela) e nunca
+// inferido aqui — este helper só grava o que recebe. Discriminado por
+// `type` para que o guard central de `L11-T02` (ainda não implementado)
+// tenha, em tempo de compilação, a garantia de que os dois ramos são
+// mutuamente exclusivos.
+export type SessionOwner =
+  | { type: "user"; userId: string }
+  | { type: "anonymous"; anonSessionId: string };
+
 export type CreateSessionWithDateRangeInput = {
   /** Caminho de entrada que originou esta sessão (RF-01/RF-02/RF-03). */
   entryPath: TripEntryPath;
   dateRangeStart: Date;
   dateRangeEnd: Date;
+  /**
+   * Dono da sessão (ADR-008) — obrigatório. Grava exatamente um dos dois
+   * campos (`user_id` OU `anon_session_id`) no `INSERT`, nunca os dois,
+   * nunca nenhum.
+   */
+  owner: SessionOwner;
   /**
    * Destino já decidido pelo usuário (RF-01.3/RF-02.3), opcional. Texto
    * livre — o chamador (Server Action de tela) é responsável por
@@ -68,6 +84,12 @@ export async function createSessionWithDateRange(
       entryPath: input.entryPath,
       dateRangeStart: input.dateRangeStart,
       dateRangeEnd: input.dateRangeEnd,
+      // ADR-008: exatamente um dos dois é gravado, nunca os dois, nunca
+      // nenhum — garantido pelo tipo discriminado `SessionOwner` (o ramo
+      // não usado do `owner` simplesmente não existe no objeto de entrada).
+      ...(input.owner.type === "user"
+        ? { userId: input.owner.userId }
+        : { anonSessionId: input.owner.anonSessionId }),
     },
     select: { id: true },
   });

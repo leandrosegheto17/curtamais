@@ -475,6 +475,13 @@ novas), `package.json`/`package-lock.json` (via `npm audit`, dependências
 - Nenhuma injeção de código/SQL — este módulo não toca banco de dados
   nem monta comando de shell; toda saída do provider é consumida via
   JSON mode/structured outputs (nunca `eval`/parsing de texto livre).
+
+**Atualização (Lote 7, 2026-09-10)**: este mesmo achado se concretiza — ver
+seção "Lote 7" abaixo, item 1 — L7-T03 agora persiste texto livre real do
+usuário (`informarDestinoManualmente`) que vai alimentar
+`context.destination.name` assim que L8-T01/L9-T01/L10-T01 existirem.
+Registrado como Bloqueio 003 em `.md/BLOCKERS.md`, escalado ao coordenador.
+
 - **Conforme, com ressalva de sequenciamento sinalizada acima** (SDD.md
   §7 "Validação de entrada" / GUARDRAILS.md regra 18).
 
@@ -650,3 +657,232 @@ tráfego público real** até integração (código) ou controle compensatório
 de borda (infraestrutura) estar em vigor. Liberado para seguir à
 checagem estrutural do lote (Seção 4 do `TASK.md`), condicionado à dupla
 aprovação com o veredito de QA (`QA-REPORT.md`) para o mesmo lote.
+
+## Lote 4 — Orquestração de Sessão e Regra de Orçamento
+
+**Nota de processo**: este lote nunca havia recebido auditoria de segurança
+própria (achado durante a checagem estrutural do Lote 7 — ver
+`QA-REPORT.md`, Lote 4). Auditado retroativamente agora, depois da
+aprovação funcional retroativa do chapéu QA para este lote (mesma sessão).
+
+Status geral: **Aprovado**, sem achado de severidade alta/crítica nem
+compliance obrigatório pendente.
+
+### Escopo desta auditoria
+
+`src/lib/session-flow/state-machine.ts`, `persistence.ts`, `errors.ts`,
+`budget-filter.ts`, `index.ts`, migration
+`prisma/migrations/20260909203030_l4_t02_flow_state/`.
+
+### 1. Requisitos de segurança de arquitetura (SDD §7) — escrita centralizada
+
+- `applySessionFlowTransition` (`persistence.ts`) é o único ponto do módulo
+  que chama `tx.tripSession.update`/`tx.<entidade>.create` — confirmado por
+  busca de `prisma.tripSession.update`/`prisma.<entidade>Approval|Item>.create`
+  em todo `src/`: nenhuma ocorrência fora deste arquivo (nas tarefas já
+  existentes no repositório neste momento). Consistente com a Diretriz de
+  Implementação 3/TASK.md item 3.
+- **Conforme.**
+
+### 2. Autorização de dono de sessão (SDD §7, GUARDRAILS.md regra 16)
+
+- Nenhuma checagem de dono do registro em `applySessionFlowTransition` —
+  recebe `sessionId` já resolvido pelo chamador, sem validar cookie/`user_id`.
+  **Não é um achado novo**: rastreado desde a nota de implementação de
+  L4-T02 como fora de escopo, com tarefa dedicada já planejada (`L11-T02`,
+  Lote 11, cross-cutting) — mesmo padrão já aceito em todas as auditorias
+  anteriores (Lotes 1/2/3/5). Não gera novo achado aqui.
+
+### 3. Exposição de dados sensíveis / integridade transacional
+
+- Toda a transição (decisão + escrita de `TripSession` + entidade filha)
+  roda dentro de uma única `prisma.$transaction` — confirmado por leitura:
+  `SessionNotFoundError`/`InvalidTransitionError`/`InvalidChildDataError`
+  são sempre lançados antes de qualquer `tx.*.update`/`create`, e o
+  callback do `$transaction` garante rollback automático em qualquer
+  exceção — nenhum estado parcialmente gravado é possível.
+- `deleteRevisarChildData` (ação `revisar`, ADR-006 Adendo 2) usa
+  `deleteMany({ where: { sessionId } })` para as 4 etapas — sempre
+  filtrado por `sessionId`, nunca apaga linha de outra sessão; confirmado
+  por leitura de `REVISAR_STAGE_BY_APPROVED_STATE`/`deleteRevisarChildData`.
+- Nenhum dado sensível (segredo, senha, token) transita por este módulo —
+  só campos de negócio da viagem (nome de destino/hospedagem, preços,
+  datas). Nenhum log de erro deste módulo serializa conteúdo de sessão além
+  do necessário (`SessionNotFoundError`/`InvalidTransitionError` incluem só
+  `sessionId`/estado/ação, não dado de outra sessão).
+- **Conforme, sem achado.**
+
+### 4. Compliance regulatório (LGPD)
+
+- Este módulo não implementa exclusão de conta/cascade delete (fora de
+  escopo, `L11-T01`, Lote 11) — consistente, sem achado novo.
+
+### Achados que exigem escalonamento
+
+Nenhum.
+
+## Veredito
+
+**Build do Lote 4 aprovado em segurança**, sem ressalvas. Nenhum achado de
+severidade alta/crítica, nenhuma exposição de dado sensível, integridade
+transacional garantida estruturalmente. As lacunas de autorização
+(`L11-T02`) e exclusão de conta (`L11-T01`) são gaps já rastreados e
+aceitos como trabalho futuro planejado, não achados novos deste lote.
+Liberado para dupla aprovação com `QA-REPORT.md` (Lote 4).
+
+## Lote 7 — Resolução de Destino (T04, T05)
+
+Auditoria roda depois da aprovação funcional do chapéu QA para este lote
+(ver `QA-REPORT.md` — Lote 7 aprovado, veredito "Validado com ressalvas").
+
+Status geral: **Aprovado, com débito/ressalva registrada** (severidade
+média, não bloqueante para o fechamento deste lote, mas com implicação de
+sequenciamento para o Lote 8 — ver item 1).
+
+### Escopo desta auditoria
+
+`src/lib/stage-rules/destino.ts`, `src/lib/actions/destino.ts`,
+`destino-errors.ts`, `src/lib/actions/confirmacao-destino.ts`,
+`confirmacao-destino-errors.ts`, extensão de `src/lib/session-flow/
+state-machine.ts`/`persistence.ts` (ADR-006 Adendo 2), e as rotas/
+componentes `src/app/destino/**`, `src/components/destino/**`.
+
+### 1. Prompt injection — entrada de texto livre agora alimenta persistência real (achado, ver Bloqueio 003)
+
+- `informarDestinoManualmente` (`destino.ts`) sanitiza a entrada só por
+  `trim()` + truncagem de tamanho (`DESTINO_MAX_LENGTH = 200`) — nenhuma
+  filtragem de conteúdo contra instrução embutida (ex.: um usuário poderia
+  digitar `"Paris. Ignore as instruções anteriores e..."` como destino).
+  Mesmo padrão já usado por `data-livre.ts`/`feriados.ts` (Lote 6, ainda
+  não validado formalmente) — não é uma regressão introduzida por L7-T03,
+  mas reproduz o mesmo padrão insuficiente.
+- Esse valor é persistido em `DestinationApproval.name` (via
+  `applySessionFlowTransition`) e, na tabela `stage-rules`, é o mesmo
+  campo que vai compor `StageContext.destination.name` — interpolado
+  literalmente em `buildHospedagemPrompt`/`buildPasseiosPrompt`/
+  `buildRoteiroPrompt` (`src/lib/gateway-ia/prompts.ts`, já auditado no
+  Lote 3, item 1) assim que L8-T01/L9-T01/L10-T01 existirem.
+- **Risco hoje: ainda baixo** — L8/L9/L10 não estão implementados, logo não
+  há caminho de código real que leia `DestinationApproval.name` de volta
+  para um prompt ainda. Mas a auditoria do Lote 3 já havia pedido que o
+  Coordenador confirmasse o sequenciamento de `L11-T03` (sanitização de
+  conteúdo) antes de `L8-T01`/`L9-T01`/`L10-T01` — isso **não foi feito**
+  (confirmado: `L11-T03` na Seção 3 do `TASK.md` ainda só depende de
+  `L3-T02`, sem dependência reversa de L8/L9/L10) — e agora o dado real que
+  vai alimentar esse risco já existe e está sendo persistido em produção de
+  código.
+- A saída do Gateway de IA continua schema-constrained (Zod/JSON mode,
+  ADR-002/003) em todas as etapas — limita (mas não elimina) o "blast
+  radius" de uma injeção bem-sucedida: o atacante não consegue fazer o
+  provider executar ação fora do schema, mas pode conseguir influenciar o
+  conteúdo de campos de texto livre da resposta (`justificativa`,
+  `distinctiveFeature`, `timingJustification`) de forma indesejada.
+- **Classificação: achado de severidade MÉDIA, não bloqueante para o
+  fechamento do Lote 7** (nenhuma exploração possível hoje — L8/L9/L10 não
+  existem). **Registrado como Bloqueio 003 em `.md/BLOCKERS.md`**, escalado
+  ao coordenador (decisão de sequenciamento de dependência entre `L11-T03`
+  e `L8-T01`/`L9-T01`/`L10-T01` — redesenho de dependência pequeno, fora da
+  autoridade do Validador) — recomendação do validador: bloquear o início
+  de implementação de `L8-T01` até `L11-T03` estar concluída, ou pelo menos
+  garantir que ambas fechem antes do primeiro deploy que exponha geração de
+  hospedagem/passeios/roteiro.
+
+### 2. Revalidação de payload contra adulteração — `aprovarDestinoSugerido`
+
+- `assertValidSuggestionPayload` (`destino.ts`) revalida nome (não vazio),
+  justificativa (não vazia), faixa de preço (numérica, não negativa, não
+  invertida, dentro de `MAX_SANE_PRICE_BRL = 1_000_000`) **antes** de
+  chamar `applySessionFlowTransition` — nunca confia cegamente no payload
+  devolvido pelo cliente, mesmo sendo dado originalmente gerado pelo
+  próprio servidor (uma viagem de ida e volta pelo client entre a geração e
+  a aprovação é suficiente para adulteração). Payload inválido lança
+  `InvalidDestinoSuggestionError` sem persistir nada — confirmado por
+  leitura, ordem correta (validação sempre antes da chamada de
+  persistência).
+- **Conforme** SDD §7 ("Validação de entrada")/Diretriz de Implementação 9.
+
+### 3. Nenhuma escrita em `TripSession` fora do Orquestrador de Sessão
+
+- Busca em `src/lib/actions/destino.ts`/`confirmacao-destino.ts` por
+  `prisma.tripSession.update`/`prisma.destinationApproval.create` diretos:
+  nenhuma ocorrência — toda escrita passa por `applySessionFlowTransition`
+  (`@/lib/session-flow`). A única leitura direta ao Prisma nestes dois
+  arquivos é `prisma.tripSession.findUnique` em `gerarSugestoesDestino`,
+  usada só para montar o contexto de geração (não escreve nada).
+- **Conforme** Diretriz de Implementação 3/GUARDRAILS.md (state machine
+  como única fonte de verdade).
+
+### 4. Exposição de dados sensíveis
+
+- `sessionId`/`destino` trafegam via querystring nas rotas `/destino` e
+  `/destino/confirmacao` — `sessionId` é um identificador opaco de sessão
+  (cookie httpOnly/anônimo por trás, `TripSession.id`, não um segredo/
+  credencial), mesmo padrão já usado desde o Lote 6 (não uma introdução
+  deste lote); `destino` é o próprio dado que a tela exibe, não sensível.
+  Renderizado via React (nunca `dangerouslySetInnerHTML`) — sem vetor de
+  XSS refletido.
+- Erros de `destino.ts`/`confirmacao-destino.ts` (`DestinoEtapaInvalidaError`,
+  `InvalidDestinoSuggestionError`, etc.) expõem só o `flowState`/mensagem
+  fixa, nunca stack trace/erro nativo do Prisma.
+- Nenhum campo de `DestinationApproval` persiste dado de conta (e-mail/
+  senha) — confirmado por leitura do schema/`persistApprovedChildData`.
+- **Conforme, sem achado novo.**
+
+### 5. Rate limiting
+
+- `gerarSugestoesDestino` chama `generateDestinationSuggestions` →
+  `generateStructuredCompletionWithRetry`, mas **não chama
+  `checkGatewayIaRateLimit`** (L3-T05) em nenhum ponto — mesmo gap já
+  registrado em `Refatoração Lote-3` (RL3-T01), agora também presente no
+  primeiro consumidor real da regra de negócio (L7-T01/L7-T03). Não é um
+  achado novo — RL3-T01 já cobre "antes de qualquer deploy que exponha
+  tráfego público real que dispare geração" de forma ampla o suficiente
+  para incluir este caminho; nenhuma tarefa nova necessária, só reforça a
+  urgência de RL3-T01 antes do primeiro deploy.
+
+### 6. Dependências de terceiros
+
+- Nenhuma dependência nova adicionada neste lote — `npm audit` inalterado
+  em relação ao já registrado em `RL1-T01`/Lote 3.
+
+### 7. Requisitos de segurança operacional para o chapéu DevOps
+
+- Mesmos requisitos já registrados no Lote 3 (secrets via env/secrets
+  manager, rate limiting antes de tráfego público real) — nenhum requisito
+  operacional novo específico deste lote, além de reforçar que
+  `RL3-T01`/Bloqueio 003 precisam estar resolvidos antes do primeiro deploy
+  que exponha geração de destino/hospedagem/passeios/roteiro a tráfego
+  público.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica com exploração real neste lote —
+nenhum escalonamento a `executor` necessário (as 5 tarefas cumprem seus
+critérios de aceite; o achado do item 1 é sobre uma dependência futura, não
+sobre código deste lote).
+
+Escalado ao **coordenador** (Bloqueio 003, `.md/BLOCKERS.md`): decisão de
+sequenciamento — `L11-T03` precisa concluir antes de `L8-T01`/`L9-T01`/
+`L10-T01`.
+
+Sinalização ao **Gestor** (paralela, não pré-requisito do fechamento deste
+lote): o achado de sequenciamento do item 1 já havia sido sinalizado no
+fechamento do Lote 3 (2026-09-09) e não foi resolvido antes do dado real
+começar a fluir (Lote 7) — reforça o pedido já feito então: confirmar
+formalmente o sequenciamento de `L11-T03` antes do Lote 8 iniciar.
+
+## Veredito
+
+**Build do Lote 7 aprovado em segurança, com débito/ressalva registrada.**
+Nenhum achado de severidade alta/crítica com exploração real, nenhum
+compliance obrigatório (LGPD) pendente, revalidação de payload contra
+adulteração implementada corretamente, nenhuma escrita fora do Orquestrador
+de Sessão. Um achado de severidade média (sequenciamento de `L11-T03`
+relativo a `L8-T01`/`L9-T01`/`L10-T01`) foi registrado como Bloqueio 003 em
+`BLOCKERS.md`, escalado ao coordenador — **não bloqueia o fechamento do
+Lote 7**, mas **bloqueia — na avaliação deste chapéu — o início de
+`L8-T01` sem `L11-T03` concluída antes**, e por consequência qualquer
+deploy que inclua geração real de hospedagem/passeios/roteiro sem essa
+sanitização em vigor. Liberado para seguir à checagem estrutural do lote
+(Seção 4 do `TASK.md`), condicionado à dupla aprovação com o veredito de QA
+(`QA-REPORT.md`) para o mesmo lote — já confirmada acima.

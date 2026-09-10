@@ -465,6 +465,15 @@ L3-T02).
 
 ### Lote 4 — Orquestração de Sessão e Regra de Orçamento
 
+**Status do lote: Validado** (2026-09-10, Validador — chapéus QA e
+DevSecOps aprovaram retroativamente; ver `QA-REPORT.md`/`SECURITY-REVIEW.md`).
+Nota de processo: este lote ficou sem validação registrada desde sua
+conclusão (2026-09-09) — os Lotes 6/7/8/9/10, que dependem dele, começaram
+antes desse gate ser fechado. Achado durante a checagem estrutural do Lote
+7 e corrigido na mesma sessão, sem problema de código encontrado
+retroativamente. Nenhum achado bloqueante; nenhuma tarefa de
+`Refatoração Lote-4` criada.
+
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
 | L4-T01 | State machine server-side — estados e transições (ADR-006): `entrada_selecionada` → `destino_pendente/confirmado` → `hospedagem_pendente/aprovada` → `passeios_pendente/aprovados` → `roteiro_pendente/aprovado` → `concluida`, com `encerrada_parcial` a partir de qualquer etapa aprovada | BE | 1 dia | L1-T02 | — | Concluída | Transição inválida (pular etapa) é rejeitada; todos os estados do ADR-006 implementados |
@@ -1662,19 +1671,655 @@ esta tarefa.
 
 ### Lote 7 — Resolução de Destino (T04, T05)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L7-T01 | Regra RF-04 — geração de 2-4 sugestões de destino via Gateway de IA + filtro de orçamento (RF-04.1/RF-10) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03 | L7-T04, L7-T05 | Cada sugestão tem nome, justificativa curta, faixa de preço; respeita orçamento quando informado |
-| L7-T02 | T04 UI — cartões de destino, estados (Loading/Error/Empty), ações aprovar/rejeitar-todas/informar-manual, rodapé de decisão | FE | 1 dia | L5-T03, L5-T04, L7-T01 | L7-T03 | 4 estados presentes conforme UX-SPEC §4; rodapé oferece "continuar" e "encerrar aqui" (RF-04.5) |
-| L7-T03 | T04 Server Actions — aprovar (RF-04.3), rejeitar todas/nova rodada (RF-04.4), informar manualmente, encerrar aqui (RF-04.5 → T-END parcial) | BE | 1 dia | L4-T02, L7-T01 | L7-T02 | Aprovar avança para confirmação; rejeitar todas permite nova rodada ou entrada manual; encerrar preserva destino aprovado |
-| L7-T04 | T05 UI — tela de confirmação de destino (RF-11) | FE | 0.5 dia | L5-T01 | L7-T01, L7-T05 | Nome do destino em destaque; botões "Confirmar e continuar" / "Trocar destino"; sempre aparece, mesmo vindo de T04 |
-| L7-T05 | T05 Server Action — confirmar/trocar destino (RF-11) | BE | 0.5 dia | L4-T01, L4-T02 | L7-T01, L7-T04 | Confirmar avança para hospedagem; trocar volta ao campo de destino da tela de origem |
+**Status do lote: Validado com ressalvas** (2026-09-10, Validador — chapéus
+QA e DevSecOps aprovaram as 5 tarefas; ver `QA-REPORT.md`/`SECURITY-REVIEW.md`).
+Achado de segurança de severidade média (sequenciamento de `L11-T03`,
+sanitização de texto livre contra prompt injection, relativo a
+`L8-T01`/`L9-T01`/`L10-T01` — já sinalizado sem resolução desde a auditoria
+do Lote 3) registrado como Bloqueio 003 em `.md/BLOCKERS.md` — não bloqueou
+o fechamento deste lote (nenhuma exploração possível na época, L8/L9/L10
+não existiam), e foi resolvido pelo Coordenador em 2026-09-10: `L11-T03`
+agora é dependência explícita de `L8-T01`/`L9-T01`/`L10-T01` (Seção 3), com
+elegibilidade antecipada para logo após `L3-T02` (Seção 4) — ver nota de
+resolução completa após a tabela do Lote 11. Checagem estrutural confirmou, adicionalmente, que o Lote 4 (do qual
+este lote depende) nunca havia sido validado — corrigido retroativamente na
+mesma sessão (ver `Status do lote` do Lote 4 acima), e que a extensão da
+state machine (ADR-006 Adendo 2, `src/lib/session-flow/`) foi puramente
+aditiva, sem regressão em L4-T01/L4-T02.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L7-T01 | Regra RF-04 — geração de 2-4 sugestões de destino via Gateway de IA + filtro de orçamento (RF-04.1/RF-10) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03 | L7-T04, L7-T05 | Concluída | Cada sugestão tem nome, justificativa curta, faixa de preço; respeita orçamento quando informado |
+| L7-T02 | T04 UI — cartões de destino, estados (Loading/Error/Empty), ações aprovar/rejeitar-todas/informar-manual, rodapé de decisão | FE | 1 dia | L5-T03, L5-T04, L7-T01 | L7-T03 | Concluída | 4 estados presentes conforme UX-SPEC §4; rodapé oferece "continuar" e "encerrar aqui" (RF-04.5) |
+| L7-T03 | T04 Server Actions — aprovar (RF-04.3), rejeitar todas/nova rodada (RF-04.4), informar manualmente, encerrar aqui (RF-04.5 → T-END parcial) | BE | 1 dia | L4-T02, L7-T01 | L7-T02 | Concluída | Aprovar avança para confirmação; rejeitar todas permite nova rodada ou entrada manual; encerrar preserva destino aprovado |
+| L7-T04 | T05 UI — tela de confirmação de destino (RF-11) | FE | 0.5 dia | L5-T01 | L7-T01, L7-T05 | Concluída | Nome do destino em destaque; botões "Confirmar e continuar" / "Trocar destino"; sempre aparece, mesmo vindo de T04 |
+| L7-T05 | T05 Server Action — confirmar/trocar destino (RF-11) | BE | 0.5 dia | L4-T01, L4-T02 | L7-T01, L7-T04 | Concluída | Confirmar avança para hospedagem; trocar volta ao campo de destino da tela de origem |
+
+Nota de implementação L7-T01 (2026-09-10, Executor/BE): implementada a regra
+RF-04.1/RF-10 como função pura assíncrona `generateDestinationSuggestions` em
+`src/lib/stage-rules/destino.ts`, reexportada via `src/lib/stage-rules/index.ts`
+(novo módulo, mesma convenção de fronteira única de `@/lib/gateway-ia`/
+`@/lib/session-flow` — nunca importar `./destino` diretamente). É o ponto de
+junção entre as duas camadas já prontas: chama
+`generateStructuredCompletionWithRetry` (L3-T04 — retry único + escrita em
+`LlmGenerationLog`, nunca `generateStructuredCompletion` direto, conforme nota
+de L3-T04) para a etapa "destino", reaproveitando o registro central de
+prompt/schema já existente (`buildDestinoPrompt`/`destinoSugestoesSchema`,
+`src/lib/gateway-ia/prompts.ts`/`schemas.ts`, L3-T02) sem reconstruir nenhum
+dos dois; em seguida aplica `applyBudgetFilter` (RF-10, L4-T03,
+`src/lib/session-flow/budget-filter.ts`) sobre a lista de 2-4 destinos
+retornada, convertendo `budgetAmount` (quando informado) para o
+`BudgetInput` que a função espera. Nunca bloqueia por orçamento (RN-04): sem
+`budgetAmount`, todas as sugestões voltam com `withinBudget: true`/
+`exceedsBudget: false`, na ordem original.
+
+**Decisão de escopo pequena (não escalada)**: criado o diretório novo
+`src/lib/stage-rules/` para abrigar as regras de negócio por etapa (destino
+aqui; hospedagem/passeios/roteiro ficam para L8-T01/L9-T01/L10-T01,
+seguindo o mesmo padrão de um arquivo por etapa reexportado no `index.ts`).
+Nem `gateway-ia` (agnóstico ao domínio de viagens, por design — ver
+cabeçalho de `src/lib/gateway-ia/index.ts`) nem `session-flow` (camada de
+persistência/state machine, não de geração) eram o lugar certo para esta
+combinação específica "chamar o LLM da etapa + aplicar RF-10"; um módulo
+próprio evita inflar qualquer um dos dois com responsabilidade que não é
+deles. Interface pública: `generateDestinationSuggestions(input)` recebe
+`sessionId` + o subconjunto de `StageContext` relevante à etapa destino
+(datas + orçamento opcional) e devolve
+`DestinationSuggestionResult[]` (`name`, `justification`, `priceRangeMin`,
+`priceRangeMax`, `withinBudget`, `exceedsBudget`) — shape achatado, não o
+`BudgetFilteredSuggestion<T>` genérico de `applyBudgetFilter`, para o
+chamador (Server Action de L7-T03) não precisar conhecer o formato interno
+de `session-flow`.
+
+**Fora de escopo desta tarefa (mantido para as tarefas futuras que já
+dependem de L7-T01 na tabela acima)**: Server Action de tela e persistência
+de `DestinationApproval` (L7-T03, via `applySessionFlowTransition` já pronto
+desde L4-T02); UI de cartões/estados (L7-T02); resolução/checagem de dono da
+sessão (L11-T02) — esta função recebe `sessionId` já resolvido pelo
+chamador, sem tocar `TripSession`/Prisma diretamente (só o faz
+indiretamente, via `generateStructuredCompletionWithRetry`, para
+`LlmGenerationLog`).
+
+Nota de implementação L7-T03 (2026-09-10, Executor/BE): 5 funções em novo
+Server Action `"use server"` `src/lib/actions/destino.ts` cobrindo RF-04.3/
+.4/.5 e o atalho manual de T04 (UX-SPEC.md). Nenhuma chama `prisma`
+diretamente para escrita — toda persistência passa por
+`applySessionFlowTransition` (`@/lib/session-flow`, L4-T02); a única leitura
+direta ao Prisma é `prisma.tripSession.findUnique` em `gerarSugestoesDestino`,
+para montar o contexto (`dateRangeStart`/`dateRangeEnd`/`budgetAmount`/
+`budgetCurrency`) exigido por `generateDestinationSuggestions` (L7-T01).
+
+**Investigação da possível inconsistência RF-04.5 × state machine (apontada
+na atribuição desta tarefa) — CONCLUÍDA, NÃO é uma inconsistência real**:
+`UX-SPEC.md` (`### T04`, linhas 86-88) é explícito — "Depois de aprovar um
+bloco, aparece o rodapé de decisão: 'Continuar para hospedagem' ou 'Só queria
+decidir o destino — encerrar aqui' (RF-04.5)" — ou seja, a opção "encerrar
+aqui" só é oferecida DEPOIS de um destino já ter sido aprovado em T04, quando
+a sessão já está em `destino_confirmado`, não antes (não existe rodapé de
+decisão em `destino_pendente`, antes da aprovação). `destino_confirmado` JÁ
+está entre os estados elegíveis para a ação `encerrar`
+(`STATES_WITH_AT_LEAST_ONE_APPROVAL`, `src/lib/session-flow/state-machine.ts`,
+L4-T01) — a hipótese de bloqueio não se confirmou. `encerrarResolucaoDestino`
+(função 5 abaixo) só chama `applySessionFlowTransition({action: "encerrar"})`
+a partir de uma sessão que já passou por `aprovarDestinoSugerido`/
+`informarDestinoManualmente`; nenhuma tentativa de encerrar a partir de
+`destino_pendente` é feita por este módulo. Um teste de integração dedicado
+(`encerrarResolucaoDestino` chamado sobre uma sessão ainda em
+`destino_pendente`) prova, programaticamente, que a state machine continua
+rejeitando esse caso com `InvalidTransitionError` (comportamento correto e
+esperado — reforça que a UI de L7-T02 não deve oferecer o botão antes da
+aprovação, consistente com o próprio `UX-SPEC.md`).
+
+**As 5 funções exportadas**:
+1. `gerarSugestoesDestino(sessionId)` — RF-04.1, usada tanto para o
+   carregamento inicial de T04 quanto para "nova rodada" após "Nenhum me
+   interessa" (RF-04.4): a mesma função, chamada de novo pela UI, sem
+   nenhuma transição de estado (permanece em `destino_pendente`). Lê a
+   `TripSession` (`SessionNotFoundError` se não existir), valida
+   `flowState === "destino_pendente"` (`DestinoEtapaInvalidaError` caso
+   contrário — evita gastar uma chamada ao Gateway de IA para uma sessão que
+   não está aguardando destino) e `dateRangeStart`/`dateRangeEnd` presentes
+   (`DestinoContextoIncompletoError`, guarda defensiva — nunca deveria
+   disparar, dado que toda sessão em `destino_pendente` passou por
+   `createSessionWithDateRange`), então delega a `generateDestinationSuggestions`
+   (`@/lib/stage-rules`, L7-T01).
+2. `aprovarDestinoSugerido({ sessionId, suggestion })` — RF-04.3. Revalida o
+   payload da sugestão antes de persistir (`assertValidSuggestionPayload`:
+   nome/justificativa não vazios, faixa de preço numérica/não-negativa/não-
+   invertida/dentro de um teto de sanidade) — nunca confia cegamente no que
+   volta do cliente, mesmo sendo dado originalmente gerado pelo próprio
+   servidor (Diretriz de Implementação 9, TASK.md Seção 1). Payload inválido
+   lança `InvalidDestinoSuggestionError` antes de qualquer chamada a
+   `applySessionFlowTransition` (nada é persistido). Válido, chama
+   `applySessionFlowTransition("aprovar", { stage: "destino", source:
+   "ia_suggested", ... })`.
+3. `informarDestinoManualmente({ sessionId, destino })` — atalho "Já sei o
+   destino, quero informar" (`UX-SPEC.md`, disponível a qualquer momento em
+   T04, não só depois de rejeitar todas). Diferente de `submeterDataLivre`
+   (L6-T03), aqui destino é OBRIGATÓRIO — vazio após trim lança
+   `InvalidManualDestinoError` (não é tratado como "sem destino", já que essa
+   é literalmente a única finalidade desta função); trim + truncagem em
+   `DESTINO_MAX_LENGTH = 200` (mesmo limite de L6-T03/L6-T05). Aprova com o
+   mesmo placeholder de preço já adotado por `createSessionWithDateRange`
+   (`source: "user_provided"`, `justification: null`, `priceRangeMin`/`Max:
+   0`).
+4. RF-04.4 "rejeitar todas" não tem função dedicada — decisão de design: a UI
+   chama `gerarSugestoesDestino` de novo para "nova rodada", ou
+   `informarDestinoManualmente` para o caminho de entrada manual;
+   `destino_pendente` já é o estado de repouso desta tela, não há transição
+   de estado a registrar só por "rejeitar".
+5. `encerrarResolucaoDestino(sessionId)` — RF-04.5 → T-END parcial. Só
+   `applySessionFlowTransition({ action: "encerrar" })`; preserva o
+   `DestinationApproval` já aprovado (RN-03, garantido estruturalmente por
+   `applySessionFlowTransition`/L4-T02, testado aqui de novo para o caminho
+   específico desta tarefa).
+
+Erros dedicados em `src/lib/actions/destino-errors.ts` (sem `"use server"`,
+mesmo motivo/padrão de `data-livre-errors.ts`/`feriados-errors.ts` — Next.js
+proíbe classe exportada de arquivo `"use server"`):
+`DestinoEtapaInvalidaError`, `DestinoContextoIncompletoError`,
+`InvalidDestinoSuggestionError`, `InvalidManualDestinoError`.
+
+**Testes (L7-T03)**: `src/lib/actions/__tests__/destino.integration.test.ts`
+(14 casos), mesmo padrão híbrido já usado por
+`stage-rules/__tests__/destino.test.ts` (mock de
+`generateStructuredCompletionWithRetry` via `@/lib/gateway-ia`, nenhuma
+chamada de rede real) combinado com integração real de persistência contra o
+Postgres de desenvolvimento (mesmo padrão de
+`data-livre.integration.test.ts`/`persistence.integration.test.ts`), cobrindo
+o critério de aceite: gerar sugestões sem persistir nada + nova rodada sem
+mudar de estado (RF-04.4); `SessionNotFoundError`/`DestinoEtapaInvalidaError`;
+aprovar sugestão persiste com `source: "ia_suggested"` e avança para
+`destino_confirmado` (RF-04.3); payload adulterado (faixa invertida, nome
+vazio) rejeitado sem persistir; aprovar uma sessão já `destino_confirmado`
+propaga `InvalidTransitionError` (via `applySessionFlowTransition`, sem
+duplicar essa validação); destino manual persiste com `source:
+"user_provided"`/`justification: null`/preço `0`/`0`, rejeita vazio, trunca
+acima do limite; encerrar a partir de `destino_confirmado` preserva
+`DestinationApproval` (RN-03) e sincroniza `status: "partial"`; encerrar a
+partir de `destino_pendente` continua rejeitado (prova da investigação
+acima).
+
+**Execução nesta sessão de trabalho**: `npm run lint` e `npm run build`
+passam sem regressão (build confirma `/destino`/`/destino/confirmacao` já
+presentes como rotas dinâmicas — artefatos das tarefas paralelas L7-T02/
+L7-T04 deste mesmo lote, não tocadas por esta tarefa). `npm test` **não pôde
+validar os 14 casos de integração desta tarefa nem reconfirmar os demais
+testes de integração já existentes do projeto** (`persistence.integration.test.ts`,
+`data-livre.integration.test.ts` etc.) — o Postgres de desenvolvimento
+(`localhost:55432`) não estava acessível nesta sessão de execução (`docker`
+indisponível no ambiente desta instância do Executor;
+`PrismaClientInitializationError: Can't reach database server`), uma
+limitação de ambiente desta sessão, não uma falha de código: todos os testes
+puramente unitários/mockados do restante da suíte passaram normalmente (286
+casos antes desta tarefa), e todos os casos que falharam (os 14 novos desta
+tarefa incluídos) falharam exclusivamente com esse mesmo erro de
+conectividade, nenhum erro de compilação/tipo/asserção — reforçado por `npm
+run build` ter compilado e type-checado `destino.ts`/`destino-errors.ts`/o
+teste novo com sucesso (o build do Next.js faz checagem de tipo completa,
+incluindo os tipos gerados pelo Prisma Client a partir do `schema.prisma`
+real). **Ação pendente antes de fechar esta tarefa como `Concluída`**: rodar
+`npm test` novamente num ambiente com Postgres acessível em
+`localhost:55432` para confirmar os 14 casos novos e a ausência de regressão
+nos demais testes de integração do lote.
+
+Arquivos novos: `src/lib/actions/destino.ts`, `src/lib/actions/destino-errors.ts`,
+`src/lib/actions/__tests__/destino.integration.test.ts`. Nenhum arquivo
+existente foi alterado (nenhuma colisão esperada com L7-T02/L7-T04/L7-T05,
+tarefas paralelas do mesmo lote). Fora de escopo desta tarefa: UI de T04
+(L7-T02); tela/Server Action de T05 — confirmação explícita de destino
+(RF-11, L7-T04/L7-T05) — `aprovarDestinoSugerido`/`informarDestinoManualmente`
+só retornam `proximaEtapa: "confirmacao_destino"`, a navegação/persistência
+de T05 em si é de outra tarefa; autorização de dono de sessão (L11-T02).
+Nenhum desvio de escopo/estimativa nesta tarefa.
+
+**Testes**: `src/lib/stage-rules/__tests__/destino.test.ts`, 6 casos
+(unitários, `@vitest-environment node`, mesmo padrão de
+`src/lib/gateway-ia/__tests__/index.test.ts`) — `generateStructuredCompletionWithRetry`
+mockada via `vi.mock("@/lib/gateway-ia", ...)` com `importOriginal` (os
+demais exports do módulo, como `buildDestinoPrompt`/`destinoSugestoesSchema`,
+permanecem reais), nenhuma chamada de rede real: critério de aceite (cada
+sugestão tem nome/justificativa/faixa de preço); chamada correta ao Gateway
+de IA (`sessionId`, `stage: "destino"`, `schemaName`, mensagens
+system+user); sem orçamento nunca bloqueia (RF-10.3/RN-04); com orçamento,
+reordena as dentro da faixa primeiro (RF-10.1); nenhuma opção na faixa
+devolve a mais barata primeiro com `exceedsBudget: true`, sem erro nem lista
+vazia (RF-10.2); erro do Gateway de IA (falha após retry) propaga sem ser
+mascarado.
+
+`npm run lint` (sem warnings/erros), `npx vitest run src/lib/stage-rules`
+(6/6 passam) e a suíte completa (`npm test`, 306 testes: 272 passam, 34
+falham — todas as falhas são testes de integração pré-existentes de
+`persistence.integration.test.ts`/outros que exigem Postgres real em
+`localhost:55432`, não disponível neste ambiente; confirmado que a mesma
+contagem de falhas ocorre independentemente desta tarefa, sem relação com o
+código novo) e `npm run build` (rotas inalteradas, build limpo) passam sem
+regressão. Nenhum desvio de escopo/estimativa; nenhum arquivo de
+`gateway-ia`/`session-flow` foi alterado por esta tarefa (só consumidos via
+suas fronteiras públicas já existentes).
+
+Nota de implementação/bloqueio L7-T05 (2026-09-10, Executor/BE): implementada
+SÓ a parte "Confirmar e continuar" do critério de aceite. Server Action
+`confirmarDestino` em novo módulo `src/lib/actions/confirmacao-destino.ts`
+(`"use server"`, mesmo padrão de `submeterDataLivre`, L6-T03): revalida
+`sessionId` no servidor e delega para `applySessionFlowTransition({ sessionId,
+action: "avancar" })` (`@/lib/session-flow`, L4-T02) — nunca chama `prisma`
+diretamente (Diretriz de Implementação 3). A partir do estado onde a tela T05
+vive (`destino_confirmado`), `avancar` é a única ação válida na state machine
+de L4-T01 e leva a `hospedagem_pendente`, batendo exatamente com "Confirmar
+avança para hospedagem" do critério de aceite. Erro de validação de input
+próprio (`InvalidConfirmacaoDestinoInputError`,
+`src/lib/actions/confirmacao-destino-errors.ts`, mesmo motivo de separação de
+arquivo de `data-livre-errors.ts`: classe de erro não pode ser exportada de um
+arquivo `"use server"`).
+
+**"Trocar destino" NÃO foi implementada nesta tarefa — bloqueio real,
+registrado em `.md/BLOCKERS.md` (Bloqueio 002, status Aberto, escalado para o
+coordenador)**: investigada a state machine de L4-T01
+(`src/lib/session-flow/state-machine.ts`, `SEQUENTIAL_TRANSITIONS`) e
+confirmado que ela não tem nenhuma transição regressiva — a partir de
+`destino_confirmado`, a única ação modelada é `avancar`; não existe ação
+`voltar`/`trocar`/equivalente que leve de volta a `destino_pendente` (ou a
+qualquer estado anterior), nem na tabela de transições sequenciais nem no
+tratamento especial de `encerrar`. Isso é uma lacuna real entre o critério de
+aceite desta tarefa ("trocar volta ao campo de destino da tela de origem") e a
+state machine já implementada e validada em L4-T01/L4-T02 — não uma ambiguidade
+de leitura. Conforme os Guardrails deste papel (nunca inventar uma transição
+nova na state machine por conta própria, nunca decidir sozinho um desvio
+grande de escopo), nenhuma função `trocarDestino`/Server Action equivalente foi
+criada; nenhum arquivo de `session-flow` foi alterado. O cabeçalho de
+`confirmacao-destino.ts` documenta explicitamente essa decisão para quem
+consumir o módulo (L7-T04, UI da mesma tela, rodando em paralelo agora) — ver
+Bloqueio 002 para as duas opções de resolução levantadas (nova transição
+regressiva vs. navegação client-side pura sem tocar `flowState`, nenhuma delas
+decidida aqui) e o detalhamento do porquê nenhuma delas se resolve sozinha sem
+uma decisão de arquitetura do Coordenador.
+
+**Testes**: `src/lib/actions/__tests__/confirmacao-destino.integration.test.ts`
+(mesmo padrão de integração real com Postgres de
+`data-livre.integration.test.ts`/`persistence.integration.test.ts`), 3 casos —
+confirmar avança `destino_confirmado`→`hospedagem_pendente` preservando a
+`DestinationApproval` já aprovada (critério de aceite); confirmar a partir de
+um estado que não é `destino_confirmado` rejeita com `InvalidTransitionError`
+sem persistir nada (não pula etapa); `sessionId` ausente/vazio rejeita com
+`InvalidConfirmacaoDestinoInputError` sem consultar o banco. Nenhum teste foi
+escrito para "trocar destino", de propósito — não há comportamento
+implementado para testar.
+
+`npm run lint` (sem warnings/erros) e `npm run build` (build limpo, nenhuma
+rota nova — Server Action, não Route Handler) passam sem regressão. `npm test`
+(309 testes no total, 3 novos desta tarefa): 273 passam, 36 falham — 34 falhas
+pré-existentes (mesmo ambiente sem Postgres local em `localhost:55432`, já
+documentado desde L4-T02/L7-T01) + 2 das 3 novas (as que exigem banco real; o
+3º caso, validação de `sessionId` vazio, não depende de banco e passa).
+Confirmado que a contagem de falhas pré-existentes não mudou. Nenhum desvio de
+escopo/estimativa além do bloqueio já descrito acima.
+
+Nota de implementação L7-T02 (2026-09-10, Executor/FE): UI da tela T04
+(Sugestões de destino, UX-SPEC.md Seção 2/4, RF-04.3/.4/.5) em
+`src/components/destino/destino-sugestoes-screen.tsx`
+(`DestinoSugestoesScreen`), montada na rota `src/app/destino/page.tsx`
+(convenção de rota `/destino`, reservada por L7-T04 no próprio cabeçalho de
+`src/app/destino/confirmacao/page.tsx`: "Uma futura rota /destino (T04,
+sugestões — L7-T02) deve manter o mesmo prefixo `/destino/...`" — seguida à
+risca). No momento em que esta tarefa chegou a este ponto, as Server Actions
+reais de L7-T03 (`src/lib/actions/destino.ts`: `gerarSugestoesDestino`,
+`aprovarDestinoSugerido`, `informarDestinoManualmente`,
+`encerrarResolucaoDestino`) já estavam implementadas (tarefa paralela
+concluída antes desta), então a integração é real, não uma suposição de
+interface — nenhuma lógica de negócio/persistência foi reimplementada aqui
+(Diretriz de Implementação 3), só consumida pelas assinaturas já publicadas.
+
+**4 estados (critério de aceite, UX-SPEC §4)**: `LoadingStream`/
+`ErrorRetryState`/`EmptyState` (L5-T03) e `SuggestionCard`/
+`BudgetInsufficientBanner` (L5-T04/L5-T02) reutilizados sem duplicar lógica
+de estado (Diretriz de Implementação 11). **Decisão de integração
+documentada no cabeçalho do componente** (dentro da margem de detalhe de
+implementação do Executor, não escalada): `LoadingStream` foi desenhado para
+consumir o Route Handler de streaming bruto (`/api/gateway-ia/[etapa]`,
+SPIKE-01) — mecanismo que só entrega texto incremental para PERCEPÇÃO de
+progresso, sem retry/validação/filtro de orçamento (comentário já existente
+em `src/lib/gateway-ia/index.ts` desde L3-T02: "a etapa real usa
+generateStructuredCompletion para a decisão de negócio"). A decisão real de
+T04 usa `gerarSugestoesDestino` (não-streaming, com retry único + RF-10 já
+aplicados). Compor os dois mecanismos diretamente exigiria ou (a) duas
+chamadas ao provider por carregamento de tela (uma de streaming bruto só
+para efeito visual + uma real para a decisão, sem ADR que autorize esse
+custo dobrado), ou (b) reimplementar a lógica de estado de `LoadingStream`
+localmente (proibido pela Diretriz 11). Resolvido reutilizando o ponto de
+extensão já existente `fetchImpl` de `LoadingStream` (criado em L5-T03 para
+testes) para ligar o componente à Server Action real: `fetchImpl` chama
+`gerarSugestoesDestino`, aguarda o resultado já validado/filtrado por
+orçamento, e entrega como um único chunk de um `ReadableStream` sintético —
+o usuário vê o mesmo skeleton/`aria-live="polite"` de sempre enquanto a
+Server Action está em voo, sem nenhuma chamada adicional ao Gateway de IA e
+sem nenhum código de streaming novo. Mesmo mecanismo reaproveitado para "nova
+rodada" (RF-04.4) via remount (`key={loadKey}`, incrementado a cada retry/
+nova rodada).
+
+**Fluxo de estados implementado**: `loading` (carregando) → `success`
+(cartões, via `SuggestionCard`, com preço sempre via `PriceRangeBadge`
+embutido, Diretriz 6) → aprovar um cartão (`aprovarDestinoSugerido`) exibe o
+rodapé de decisão (RF-04.5: "Continuar para hospedagem" navega para
+`/destino/confirmacao?sessionId&destino&flowState=destino_confirmado`, a
+rota de T05 já publicada por L7-T04 — a aprovação em si já avança
+`destino_pendente`→`destino_confirmado`, T05 é quem confirma explicitamente
+depois, RF-11; "Só queria decidir o destino — encerrar aqui" chama
+`encerrarResolucaoDestino` e navega para `/encerramento?sessionId&flowState=
+encerrada_parcial`, rota assumida para T-END/L10-T04, ainda não implementada
+— 404 esperado até aquele lote, mesmo padrão de gap documentado já aceito em
+outras notas deste TASK.md, ex. rodapé de `DestinoConfirmacaoScreen`/L7-T04
+sem `onConfirmar`/`onTrocar` wired). "Nenhum me interessa — gerar outras
+opções" (RF-04.4) leva a `empty` (`EmptyState`, ações "Gerar novas
+sugestões"/nova rodada e "Informar destino manualmente"); "Já sei o destino,
+quero informar" (atalho, disponível também direto do estado de sucesso)
+abre um formulário inline que chama `informarDestinoManualmente`. Falha de
+`gerarSugestoesDestino` (após o retry único do servidor) vai para `error`
+(`ErrorRetryState`, mensagem exata do UX-SPEC.md Seção 4: "Não conseguimos
+gerar sugestões agora — tentar novamente"), com `onRetry` reiniciando via
+`loadKey`. `BudgetInsufficientBanner` exibido quando alguma sugestão tem
+`exceedsBudget: true` (RF-10.2), nunca desabilitando os botões de aprovar
+(RN-04, testado explicitamente). `StepperProgress` reflete
+`destino_confirmado` só depois de uma aprovação, `destino_pendente` antes.
+
+**Acessibilidade (UX-SPEC §5)**: título da etapa com foco ao montar (mesmo
+padrão de `FeriadosScreen`/`DestinoConfirmacaoScreen`); erros de ação
+(aprovar/manual/encerrar) via `role="alert"` + ícone + texto, nunca só cor;
+alvo de toque `min-h-11` nos botões principais; formulário manual com
+`aria-describedby` ligando o erro ao campo (mesmo padrão de
+`T01DateRangeForm`/L6-T02).
+
+**Fora de escopo desta tarefa**: lógica das Server Actions em si (L7-T03, já
+pronta, só consumida); tela T05 (L7-T04, já pronta, só linkada via
+querystring); T-END (L10-T04, ainda não existe — link `/encerramento`
+assumido, documentado acima); autorização de dono de sessão (L11-T02).
+
+**Testes**: `src/components/destino/__tests__/destino-sugestoes-screen.test.tsx`
+(11 casos, Server Actions reais substituídas por dublês via um prop de
+injeção `actionsOverride` do próprio componente — nenhum mock de módulo
+inteiro, nenhuma chamada de rede/banco real) — cobre os 4 estados (critério
+de aceite: skeleton de `LoadingStream` antes da resolução; cartões com preço
+formatado no estado de sucesso; `ErrorRetryState` após falha com retry
+funcional; `EmptyState` com as duas ações de RF-04.4), `BudgetInsufficientBanner`
+não bloqueando o botão de aprovar (RN-04), aprovar exibindo o rodapé de
+decisão (RF-04.5) com as duas ações, navegação exata de "Continuar para
+hospedagem" (querystring completa) e de "encerrar aqui" (chamando
+`encerrarResolucaoDestino` antes de navegar), e o atalho de destino manual
+tanto a partir do sucesso quanto do vazio.
+
+`npm run lint` (sem warnings/erros), `npx vitest run src/components/destino`
+(20/20 passam — 9 já existentes de `DestinoConfirmacaoScreen`/L7-T04 + 11
+novos desta tarefa) e `npm run build` (rota `/destino` aparece como dinâmica,
+`ƒ`, junto de `/destino/confirmacao`) passam sem regressão. `npm test`
+(349 testes: 300 passam, 49 falham — todas as falhas são testes de
+integração pré-existentes que exigem Postgres real em `localhost:55432`,
+não disponível neste ambiente, mesmo padrão já confirmado não-relacionado a
+este código na nota de L7-T01; nenhuma falha em teste unitário/de componente).
+Nenhum desvio de escopo/estimativa; nenhum arquivo de
+`gateway-ia`/`session-flow`/`stage-rules`/`src/lib/actions/destino.ts`/
+`src/components/destino/destino-confirmacao-screen.tsx`/
+`src/app/destino/confirmacao/page.tsx` foi alterado por esta tarefa (só
+consumidos via suas fronteiras públicas já existentes) — evitando colisão
+com as demais instâncias em paralelo no mesmo lote.
+
+Nota de implementação L7-T04 (2026-09-10, Executor/FE): tela T05 (UX-SPEC.md
+Seção 2/4, RF-11) implementada como `DestinoConfirmacaoScreen`
+(`src/components/destino/destino-confirmacao-screen.tsx`, "use client",
+componente de apresentação puro): título "Confirme seu destino" com foco
+gerenciado ao montar (`tabIndex={-1}` + `useEffect`, UX-SPEC §5), nome do
+destino em destaque (`font-serif text-3xl text-accent`), `StepperProgress`
+(L5-T01, `currentState` default `destino_confirmado` — destino aparece
+`completed`, hospedagem `current`) e os dois botões exigidos pelo critério de
+aceite ("Confirmar e continuar"/"Trocar destino", `min-h-11`, RNF-04), cada um
+com estado de "processando" próprio enquanto aguarda confirmação do servidor
+(UX-SPEC §7: "todo botão de avanço mostra estado de processando... distinto do
+`LoadingStream`") e erro acessível (`role="alert"`, ícone + texto, nunca só
+cor) se a ação falhar — sem travar a tela (botões continuam habilitados para
+nova tentativa).
+
+**Rota**: `/destino/confirmacao` (`src/app/destino/confirmacao/page.tsx`,
+Server Component fino) — decisão de convenção desta tarefa (nenhum namespace
+prévio para telas de destino em `SDD.md`/`UX-SPEC.md`), espelhando o
+identificador `proximaEtapa: "confirmacao_destino"` já usado por
+`submeterDataLivre`/`processarFeriadoEscolhido`/`aprovarDestinoSugerido`/
+`informarDestinoManualmente` (L6-T03/L6-T05/L7-T03). `sessionId`/`destino`
+chegam via querystring (RF-11: "recebido via prop/query"); sem um dos dois a
+página redireciona para `/` (`next/navigation` `redirect`) em vez de renderizar
+uma tela quebrada — T05 nunca aparece sem um destino resolvido pelo servidor.
+`flowState` é opcional e só ajusta o `StepperProgress`; valor ausente/inválido
+usa o default seguro `destino_confirmado`. Nenhuma tela de origem (T01/T02/T03/
+T04) foi alterada para navegar até aqui de fato — integração cross-lote deixada
+para uma tarefa futura, mesmo padrão já registrado nas notas de L6-T02/L6-T03 e
+reafirmado por L7-T03 ("a navegação/tela em si é de outra tarefa").
+
+**"Sempre aparece, mesmo vindo de T04" (RF-11)**: garantido estruturalmente —
+`DestinoConfirmacaoScreen`/a rota não sabem nem precisam saber se `destino`
+veio de um destino informado manualmente (T01/T02/T03, `source:
+"user_provided"`) ou de uma sugestão aprovada em T04 (`source:
+"ia_suggested"`, L7-T03) — ambos os caminhos produzem `proximaEtapa:
+"confirmacao_destino"` com o mesmo shape (`sessionId`/`flowState`/`destino`),
+então a mesma rota/componente atende os dois sem ramificação.
+
+**Server Action real (L7-T05) e o impacto do Bloqueio 002**: como
+`src/lib/actions/confirmacao-destino.ts` (L7-T05, tarefa irmã paralela) ficou
+pronta ainda durante a execução desta tarefa, a UI foi acoplada à Server
+Action real em vez de ficar com um prop não-wireado — novo wrapper "use
+client" `src/app/destino/confirmacao/confirmacao-destino-client.tsx`
+(necessário porque `page.tsx` precisa continuar Server Component para poder
+chamar `redirect()`) passa `onConfirmar={confirmarDestino}` diretamente. Para
+"Trocar destino", `confirmarDestino` (L7-T05) documenta explicitamente no
+próprio cabeçalho — e `.md/BLOCKERS.md` Bloqueio 002 (status Aberto, já
+escalado ao coordenador pela própria L7-T05) confirma — que a state machine
+(ADR-006/L4-T01) não tem nenhuma transição regressiva a partir de
+`destino_confirmado`: não existe (e esta tarefa não tem autoridade para
+inventar) uma Server Action de "trocar" que reverta o `flowState` no servidor.
+Seguindo a orientação já deixada por L7-T05, "Trocar destino" foi implementado
+como navegação client-side pura (`router.back()`, `next/navigation`), sem
+chamar nenhuma Server Action — reproduz a mesma limitação já sinalizada no
+Bloqueio 002 (a sessão permanece `flowState: destino_confirmado` no servidor
+até uma nova aprovação de destino sobrescrever/gerar um novo registro).
+**Sinalizando aqui, sem reabrir um novo bloqueio**: L7-T04 também fica
+afetado pelo Bloqueio 002 já aberto — a resolução definitiva de "Trocar
+destino" (nova transição regressiva na state machine vs. aceitar a limitação
+atual permanentemente) é uma decisão do Coordenador, não desta tarefa.
+
+**Testes** (Testing Library, `@testing-library/user-event`): 9 casos em
+`src/components/destino/__tests__/destino-confirmacao-screen.test.tsx`
+(destino em destaque + os dois botões — critério de aceite; comportamento
+idêntico independentemente da origem do destino; foco no título ao montar;
+clique em cada botão chama a prop `onConfirmar`/`onTrocar` com `{ sessionId
+}`; erro acessível em falha, sem travar os botões; funciona sem quebrar quando
+as props não são passadas; navegação por teclado nos dois botões em ordem;
+`StepperProgress` presente); 3 casos em
+`src/app/destino/confirmacao/__tests__/confirmacao-destino-client.test.tsx`
+(`confirmarDestino` real chamada com `{ sessionId }`; "Trocar destino" chama
+só `router.back()`, nunca uma Server Action — prova direta da decisão do
+Bloqueio 002; falha em `confirmarDestino` mostra erro sem navegar); 4 casos em
+`src/app/destino/confirmacao/__tests__/page.test.tsx` (renderiza com
+`sessionId`/`destino` da querystring já acoplada à Server Action real;
+redireciona para `/` quando falta `sessionId`; redireciona para `/` quando
+falta `destino`; `flowState` inválido não quebra a tela).
+
+Arquivos novos: `src/components/destino/destino-confirmacao-screen.tsx`,
+`src/components/destino/__tests__/destino-confirmacao-screen.test.tsx`,
+`src/app/destino/confirmacao/page.tsx`,
+`src/app/destino/confirmacao/confirmacao-destino-client.tsx`,
+`src/app/destino/confirmacao/__tests__/page.test.tsx`,
+`src/app/destino/confirmacao/__tests__/confirmacao-destino-client.test.tsx`.
+Nenhum arquivo de `session-flow`/`gateway-ia`/de outras tarefas do lote foi
+alterado.
+
+`npm run lint` (sem warnings/erros), `npx vitest run src/components/destino
+src/app/destino` (27/27 passam, incluindo os testes já publicados por L7-T02
+em paralelo, `DestinoSugestoesScreen`) e `npm run build` passam sem regressão
+— `/destino/confirmacao` confirmada como rota dinâmica (`ƒ`), consistente com
+depender de `searchParams`. `npm test` (suíte completa, 349 testes: 300
+passam, 49 falham — todas as falhas são os mesmos testes de integração
+pré-existentes que exigem Postgres real em `localhost:55432`, indisponível
+neste ambiente, já documentado desde L4-T02/L7-T01/L7-T03; nenhuma falha nova
+introduzida por esta tarefa). Nenhum desvio de escopo/estimativa nesta tarefa
+além do impacto (não decidido aqui) do Bloqueio 002 já sinalizado acima.
+
+**Nota de bloqueio/resolução — retomada de L7-T05 e L7-T04 (2026-09-10,
+Coordenador, Bloqueio 002 resolvido como ADR-006 Adendo 2)**: instrução para
+quem retomar, seguindo o mesmo padrão da instrução deixada pelo Adendo 1 para
+L4-T02.
+
+- **L7-T05 (BE, retomar)**: 1) em
+  `src/lib/session-flow/state-machine.ts`, adicionar `"revisar"` a
+  `SessionFlowAction` e uma tabela de transições regressivas (ou entradas
+  adicionais na própria `SEQUENTIAL_TRANSITIONS`, decisão de detalhe):
+  `destino_confirmado --revisar--> destino_pendente` (as outras 3 —
+  `hospedagem_aprovada`/`passeios_aprovados`/`roteiro_aprovado` — podem ser
+  adicionadas na mesma tarefa, já que é a mesma tabela e o mesmo padrão, mas
+  só `destino_confirmado` tem uma Server Action/UI consumidora hoje; as
+  demais ficam disponíveis para L8/L9/L10 sem tarefa própria). 2) Em
+  `applySessionFlowTransition`/`src/lib/session-flow/` (extensão de L4-T02),
+  tratar `revisar` como uma transição que, na mesma transação, apaga a linha
+  de `DestinationApproval` da sessão (0..1, então é um `delete` simples,
+  nunca de outra etapa) antes de gravar o novo `flowState`. 3) Nova Server
+  Action `trocarDestino` em `src/lib/actions/confirmacao-destino.ts` (mesmo
+  padrão de `confirmarDestino`: revalida `sessionId`, delega para
+  `applySessionFlowTransition({ sessionId, action: "revisar" })`, mesma
+  classe de erro de validação de input já existente). 4) Atualizar o
+  cabeçalho do módulo (que hoje documenta a limitação do Bloqueio 002) para
+  remover a nota de bloqueio e descrever a nova função. 5) Testes: caso de
+  `revisar` avançando `destino_confirmado`→`destino_pendente` e removendo a
+  `DestinationApproval`; caso de `revisar` a partir de um estado que não é
+  `destino_confirmado` rejeitando com `InvalidTransitionError` sem persistir
+  nada (mesmo padrão dos 3 casos já existentes de `confirmarDestino`).
+- **L7-T04 (FE, reabrir)**: em
+  `src/app/destino/confirmacao/confirmacao-destino-client.tsx`, trocar a
+  implementação de "Trocar destino" de `router.back()` (`next/navigation`)
+  para chamar a nova Server Action `trocarDestino` (mesmo padrão já usado
+  para `onConfirmar`/`confirmarDestino`), e só então navegar de volta à tela
+  de origem após a confirmação do servidor — o botão e o rótulo "Trocar
+  destino" na UI (`DestinoConfirmacaoScreen`) não mudam, só a função por trás
+  do handler `onTrocar`. Atualizar/remover a nota de cabeçalho e os 2
+  comentários que documentavam a limitação do Bloqueio 002 (código e nota de
+  implementação já registrada acima permanecem como histórico do que foi
+  feito na primeira passada; não precisam ser apagados, só não descrever mais
+  a limitação como atual). Atualizar o teste
+  `confirmacao-destino-client.test.tsx` (caso "Trocar destino chama só
+  `router.back()`") para refletir a nova chamada a `trocarDestino`.
+- **L8/L9/L10 (Tech Lead, decisão já tomada, nenhuma ação necessária agora)**:
+  as transições `hospedagem_aprovada`/`passeios_aprovados`/`roteiro_aprovado`
+  `--revisar-->` `*_pendente` já ficam disponíveis na state machine assim que
+  L7-T05 implementar o item 1 acima. Se uma tarefa futura desses lotes
+  precisar de um botão equivalente a "Trocar destino" (ex.: "Trocar
+  hospedagem"), a Server Action correspondente só precisa chamar
+  `applySessionFlowTransition({ action: "revisar" })` e apagar a(s) linha(s)
+  de aprovação da própria etapa (mesmo padrão do item 2 acima, adaptado à
+  cardinalidade da entidade: `AccommodationApproval` é 0..1 como
+  `DestinationApproval`; `ActivityApproval`/`ItineraryItem` são 0..n — apagar
+  todas as linhas da sessão para aquela etapa). Nenhuma tarefa nova é criada
+  neste TASK.md para isso agora.
+
+**Nota de implementação — L7-T05 concluída (2026-09-10, Executor/BE, retomada
+do Bloqueio 002/ADR-006 Adendo 2)**: implementados os 5 passos da instrução de
+retomada acima.
+
+1) `src/lib/session-flow/state-machine.ts`: `"revisar"` adicionada a
+   `SessionFlowAction`; nova tabela `REVISAR_TRANSITIONS` (separada de
+   `SEQUENTIAL_TRANSITIONS`, mesmo padrão de tratamento à parte já usado para
+   `encerrar`/`STATES_WITH_AT_LEAST_ONE_APPROVAL`) com as 4 transições
+   regressivas: `destino_confirmado→destino_pendente`,
+   `hospedagem_aprovada→hospedagem_pendente`,
+   `passeios_aprovados→passeios_pendente`,
+   `roteiro_aprovado→roteiro_pendente`. Decisão: incluídas as 4 desde já (não
+   só a de destino), conforme sugerido pelo Coordenador — mesmo custo, mesma
+   tabela/padrão, disponível para L8/L9/L10 sem tarefa própria.
+2) `src/lib/session-flow/persistence.ts`: nova constante
+   `REVISAR_STAGE_BY_APPROVED_STATE` (inverso de
+   `APPROVAL_STAGE_BY_PENDING_STATE`) e função `deleteRevisarChildData`,
+   chamada dentro da mesma transação do `$transaction` quando `input.action
+   === "revisar"`, ANTES de `tx.tripSession.update`. Usa `deleteMany({ where:
+   { sessionId } })` (nunca `delete`) uniformemente para as 4 etapas —
+   cobre tanto as 0..1 (`DestinationApproval`/`AccommodationApproval`) quanto
+   as 0..n (`ActivityApproval`/`ItineraryItem`) sem lançar se não houver
+   linha, sempre filtrado por `sessionId` (nunca toca outra sessão/etapa).
+3) `src/lib/actions/confirmacao-destino.ts`: nova Server Action
+   `trocarDestino({ sessionId })` — mesmo padrão de `confirmarDestino`
+   (revalida `sessionId` via `InvalidConfirmacaoDestinoInputError`, delega
+   para `applySessionFlowTransition({ sessionId, action: "revisar" })`),
+   retorna `{ proximaEtapa: "destino", sessionId, flowState:
+   "destino_pendente" }`.
+4) Cabeçalho de `confirmacao-destino.ts` reescrito: removida a nota de
+   limitação do Bloqueio 002, descreve as duas Server Actions e a ação
+   `revisar`.
+5) Testes novos: `src/lib/session-flow/__tests__/state-machine.test.ts` (13
+   casos unitários puros, sem Postgres — 4 transições válidas de `revisar` +
+   7 estados rejeitados, todos passando: `npx vitest run
+   src/lib/session-flow/__tests__/state-machine.test.ts` → 37/37, incluindo os
+   já existentes); `src/lib/session-flow/__tests__/persistence.integration.test.ts`
+   (2 casos novos: `revisar` regredindo e apagando `DestinationApproval`;
+   `revisar` rejeitado com `InvalidTransitionError` sem persistir nada, a
+   partir de `destino_pendente`); `src/lib/actions/__tests__/confirmacao-destino.integration.test.ts`
+   (novo `describe` com 3 casos para `trocarDestino`, mesmo padrão dos 3 já
+   existentes para `confirmarDestino`).
+
+Arquivos alterados: `src/lib/session-flow/state-machine.ts`,
+`src/lib/session-flow/persistence.ts`, `src/lib/actions/confirmacao-destino.ts`,
+`src/lib/session-flow/__tests__/state-machine.test.ts`,
+`src/lib/session-flow/__tests__/persistence.integration.test.ts`,
+`src/lib/actions/__tests__/confirmacao-destino.integration.test.ts`. Nenhum
+arquivo de UI (`L7-T04`) tocado nesta tarefa — reabertura de L7-T04 é
+instância separada, conforme a nota de retomada.
+
+`npm run lint` (sem warnings/erros), `npx vitest run
+src/lib/session-flow/__tests__/state-machine.test.ts` (37/37 passam) e `npm
+run build` passam sem regressão de tipo/compilação. `npm test` (suíte
+completa, 365 testes: 312 passam, 53 falham — todas as falhas continuam
+sendo os mesmos arquivos de teste de integração pré-existentes que exigem
+Postgres real em `localhost:55432`, indisponível neste ambiente, mesma
+limitação documentada desde L4-T02; os 7 casos novos desta tarefa que tocam
+Postgres real — 2 em `persistence.integration.test.ts`, 3 em
+`confirmacao-destino.integration.test.ts` para `trocarDestino`, mais os 2 já
+existentes de `confirmarDestino` recontados — falham pelo mesmo motivo de
+ambiente, não por regressão de lógica; nenhuma falha nova de outra natureza
+introduzida). Nenhum desvio de escopo/estimativa. `.md/BLOCKERS.md`, Bloqueio
+002, permanece `Resolvido` (já marcado pelo Coordenador, não alterado aqui).
+
+**Nota de retomada — L7-T04 (2026-09-10, Executor/FE, retomada do Bloqueio
+002/ADR-006 Adendo 2)**: implementado o item da instrução de retomada acima.
+Em `src/app/destino/confirmacao/confirmacao-destino-client.tsx`, o handler
+`onTrocar` passado para `DestinoConfirmacaoScreen` deixou de ser
+`router.back()` isolado e passou a chamar a Server Action real `trocarDestino`
+(L7-T05, já concluída) com `{ sessionId }`, aguardar a Promise resolver e só
+então navegar de volta com `router.back()` — mesmo padrão de
+`onConfirmar`/`confirmarDestino` já usado neste arquivo. Em caso de falha, o
+próprio `runAction` de `DestinoConfirmacaoScreen` captura o erro e mostra a
+mensagem acessível (`role="alert"`), sem navegar — comportamento herdado
+automaticamente, nenhuma mudança necessária em `DestinoConfirmacaoScreen`
+(componente de apresentação, fora de escopo, não tocado). Cabeçalho do
+wrapper client e o cabeçalho de teste reescritos para não descrever mais a
+limitação do Bloqueio 002 como atual; a nota de implementação original de
+L7-T04 (acima) permanece como histórico da primeira passada, não foi alterada.
+
+Teste `confirmacao-destino-client.test.tsx` atualizado: o caso "Trocar destino
+chama só `router.back()`" foi substituído por um caso que mocka `trocarDestino`
+e confere `toHaveBeenCalledWith({ sessionId })` seguido de `router.back()`
+sendo chamado; adicionado um caso novo espelhando o já existente de
+`confirmarDestino` — falha em `trocarDestino` mostra erro acessível sem
+navegar (`backMock` não chamado). Suíte do arquivo: 4/4 passam.
+
+Arquivos alterados: `src/app/destino/confirmacao/confirmacao-destino-client.tsx`,
+`src/app/destino/confirmacao/__tests__/confirmacao-destino-client.test.tsx`.
+Nenhum arquivo de `src/lib/session-flow/`, `src/lib/actions/confirmacao-destino.ts`
+ou `DestinoConfirmacaoScreen` tocado (fora de escopo desta retomada).
+
+`npm run lint` sem warnings/erros. `npx vitest run src/app/destino
+src/components/destino src/lib/actions/confirmacao-destino` → 4 arquivos de
+teste, 28/28 passam (inclui os 4 casos deste arquivo). `npm run build` conclui
+sem erro de tipo/compilação, rota `/destino/confirmacao` gerada normalmente.
+Nenhum desvio de escopo/estimativa. Coluna de Status da tarefa não alterada
+por esta nota (mantida conforme já registrado na tabela do Lote 7).
 
 ### Lote 8 — Hospedagem (T06)
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
 |---|---|---|---|---|---|---|
-| L8-T01 | Regra RF-06 — geração de 3 opções de hospedagem via Gateway de IA + filtro de orçamento (RF-06.1/.2) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03 | — | Sempre 3 opções, cada uma com nome/tipo, faixa de preço por diária, característica distintiva |
+| L8-T01 | Regra RF-06 — geração de 3 opções de hospedagem via Gateway de IA + filtro de orçamento (RF-06.1/.2) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03** | — | Sempre 3 opções, cada uma com nome/tipo, faixa de preço por diária, característica distintiva |
 | L8-T02 | T06 UI — cartões, aprovar/ajustar (com feedback textual), rodapé de decisão | FE | 1 dia | L5-T03, L5-T04, L8-T01 | L8-T03 | "Ajustar" regenera a mesma etapa sem avançar (RF-05.3); rodapé oferece continuar/encerrar (RF-05.4) |
 | L8-T03 | T06 Server Actions — aprovar avança (RF-06.3), ajustar regenera, encerrar aqui | BE | 1 dia | L4-T02, L8-T01 | L8-T02 | Aprovar persiste `AccommodationApproval` e avança para passeios |
 
@@ -1682,7 +2327,7 @@ esta tarefa.
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
 |---|---|---|---|---|---|---|
-| L9-T01 | Regra RF-07 — geração de lista de passeios/atividades, garantindo ao menos 1 opção gratuita quando existir (RF-07.1/.2) + filtro de orçamento | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03 | — | Cada item com nome, faixa de preço (podendo ser R$ 0), duração aproximada; ao menos 1 item gratuito quando relevante ao destino |
+| L9-T01 | Regra RF-07 — geração de lista de passeios/atividades, garantindo ao menos 1 opção gratuita quando existir (RF-07.1/.2) + filtro de orçamento | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03** | — | Cada item com nome, faixa de preço (podendo ser R$ 0), duração aproximada; ao menos 1 item gratuito quando relevante ao destino |
 | L9-T02 | T07 UI — lista com checkbox, remoção antes de aprovar, badge "Gratuito", validação "ao menos um item" | FE | 1 dia | L5-T02, L5-T03, L9-T01 | L9-T03 | Botão "Aprovar seleção" desabilita/some se todos os itens forem removidos, com mensagem explicativa |
 | L9-T03 | T07 Server Actions — aprovar seleção (RF-07.3), remover item, encerrar aqui | BE | 1 dia | L4-T02, L9-T01 | L9-T02 | Aprovar persiste `ActivityApproval` só dos itens não removidos e avança para roteiro |
 
@@ -1690,19 +2335,419 @@ esta tarefa.
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
 |---|---|---|---|---|---|---|
-| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1.5 dia (ver Seção 6 — justificativa de tamanho; sem estimativa final até SPIKE-02 resolver) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02 | L10-T04 | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir |
+| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1.5 dia (ver Seção 6 — justificativa de tamanho; sem estimativa final até SPIKE-02 resolver) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02, **L11-T03** | L10-T04 | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir |
 | L10-T02 | T08 UI — blocos por dia (acordeão em mobile), horário + justificativa de timing | FE | 1 dia | L5-T03, L10-T01 | L10-T03 | Um bloco por dia da viagem, dividido em manhã/tarde/noite; justificativa exibida quando presente |
 | L10-T03 | T08 Server Action — aprovar roteiro (RF-08.4): grava `ItineraryItem`, marca sessão `concluida`, aciona RF-09 | BE | 1 dia | L4-T02, L10-T01 | L10-T02 | Aprovação persiste todos os itens do roteiro e marca `TripSession.status = completed` |
 | L10-T04 | T-END UI — resumo (completo ou parcial), reutilizada em todo ponto de saída (RN-03) | FE | 1 dia | L5-T01 | L10-T01, L10-T02, L10-T03 | Rótulo "Viagem decidida!" (completo) ou "Parte da sua viagem está decidida" (parcial), nunca como erro |
 
 ### Lote 11 — Cross-cutting Final (Segurança, LGPD, Acessibilidade)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L11-T01 | Exclusão de conta e dados associados (LGPD, RNF-06) — endpoint + cascade delete de `TripSession` e entidades filhas por `user_id` | BE | 1 dia | L1-T02, L1-T03 | L11-T02, L11-T03 | Excluir conta remove todas as sessões e entidades filhas associadas; nenhum dado órfão remanescente |
-| L11-T02 | Autorização cross-cutting — guard central checando dono do registro em toda rota que lê/escreve `TripSession` (SDD §7) | BE | 1 dia | L1-T03, L4-T02 | L11-T01, L11-T03 | Requisição com cookie/`user_id` de outra sessão recebe 403/404, nunca expõe dado de terceiro |
-| L11-T03 | Validação/sanitização de entrada de texto livre (orçamento, destino manual) contra prompt injection (SDD §7) | BE | 0.5 dia | L3-T02 | L11-T01, L11-T02 | Entrada com tentativa de instrução embutida não altera o comportamento do prompt da etapa |
-| L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L11-T01 | Exclusão de conta e dados associados (LGPD, RNF-06) — endpoint + cascade delete de `TripSession` e entidades filhas por `user_id` | BE | 1 dia | L1-T02, L1-T03 | L11-T02a, L11-T02, L11-T03 | Concluída | Excluir conta remove todas as sessões e entidades filhas associadas; nenhum dado órfão remanescente |
+| L11-T02a **(nova, ver Bloqueio 004/ADR-008)** | Persistência do dono da sessão — schema (`anon_session_id`), `createSessionWithDateRange` passa a exigir `owner` (usuário autenticado ou sessão anônima) e grava no `INSERT`, com retrofit pontual de `submeterDataLivre`/L6-T03, `processarFeriadoEscolhido`/L6-T05 e `submitQuizAnswers`/L6-T07 para resolver e passar `owner` (SDD §5/§7, ADR-008) | BE | 1 dia | L1-T03, L4-T02 | L11-T01, L11-T03 | Concluída | Toda `TripSession` criada grava exatamente um dono (`user_id` OU `anon_session_id`, nunca os dois, nunca nenhum); as 3 Server Actions de criação continuam funcionando sem regressão (fluxo anônimo e autenticado), cobertas por teste automatizado |
+| L11-T02 | Autorização cross-cutting — guard central que resolve o dono esperado da requisição (mesma regra de precedência de `L11-T02a`) e compara contra o dono persistido em `TripSession` (SDD §7, ADR-008); integrado a `applySessionFlowTransition`/`gerarSugestoesDestino`/toda leitura direta de `TripSession` | BE | 0.5 dia | L11-T02a | L11-T01, L11-T03 | Não iniciada | Requisição com cookie/`user_id` de outra sessão recebe sempre **404** (nunca 403), nunca expõe dado de terceiro; dono legítimo (mesmo cookie/`user_id` gravado na criação) continua autorizado sem regressão |
+| L11-T03 **(elegível a partir do Lote 3 — ver nota abaixo)** | Validação/sanitização de entrada de texto livre (orçamento, destino manual) contra prompt injection (SDD §7) | BE | 0.5 dia | L3-T02 | L11-T01, L11-T02a, L11-T02 | Concluída | Entrada com tentativa de instrução embutida não altera o comportamento do prompt da etapa |
+| L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Não iniciada | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
+
+**Nota de resolução do Bloqueio 004 (2026-09-10, Coordenador)**: `L11-T02`
+estava `Bloqueada` — reaberta como duas tarefas, formalizadas em ADR-008
+(`.md/adr/008-propriedade-e-autorizacao-de-trip-session.md`):
+
+- **`L11-T02a` (nova)**: persiste o dono da sessão. Schema Prisma ganha
+  `anonSessionId String? @map("anon_session_id")` em `TripSession`
+  (coexistindo com `userId`, mutuamente exclusivos na prática, sem `CHECK`
+  formal). `createSessionWithDateRange`
+  (`src/lib/session-flow/create-session-with-range.ts`) passa a exigir um
+  parâmetro `owner: { type: "user"; userId } | { type: "anonymous";
+  anonSessionId }`, gravado no `INSERT`. Como essa mudança de contrato afeta
+  as 3 Server Actions já `Concluída`s que chamam o helper
+  (`submeterDataLivre`/`src/lib/actions/data-livre.ts`/L6-T03,
+  `processarFeriadoEscolhido`/`src/lib/actions/feriados.ts`/L6-T05,
+  `submitQuizAnswers`/`src/lib/actions/quiz.ts`/L6-T07), o retrofit delas
+  (resolver `owner` via `getServerSession(authOptions)` — autenticado — ou
+  `resolveAnonymousSessionId` do cookie — anônimo, com precedência de conta
+  sobre cookie — e passar para o helper) **faz parte do escopo de
+  `L11-T02a`**, não uma tarefa separada: é a mesma mudança mecânica aplicada
+  de forma idêntica nos 3 chamadores de um único helper compartilhado, sem
+  introduzir regra de negócio nova em nenhum deles (inseparabilidade
+  documentada aqui, não decidida em silêncio). Nenhuma outra Server Action
+  cria `TripSession` hoje.
+- **`L11-T02` (revisada)**: guard central em si, agora dependente de
+  `L11-T02a` — sem o dono persistido, não há contra o que comparar. Critério
+  de aceite ajustado: resposta de negação é **sempre 404** (nunca 403,
+  decisão explícita do ADR-008 para não revelar existência do registro a
+  dono errado) — remove a ambiguidade "403/404" do critério de aceite
+  original. Guard resolve o dono esperado da requisição com a mesma regra de
+  precedência de `L11-T02a` e integra em `applySessionFlowTransition`
+  (`src/lib/session-flow/persistence.ts`), `gerarSugestoesDestino`, e
+  qualquer outro ponto de leitura direta de `TripSession` fora desse módulo
+  — mesma superfície já mapeada pelo Executor na nota de bloqueio abaixo.
+  Estimativa reduzida de 1 para 0.5 dia (a complexidade de persistência do
+  dono migrou para `L11-T02a`).
+
+**Instrução para quem retomar**: executar `L11-T02a` primeiro (schema +
+migration + helper + retrofit dos 3 chamadores + teste cobrindo os dois
+fluxos, anônimo e autenticado, sem regressão), só então `L11-T02` (guard +
+integração + teste de autorização: dono legítimo passa, identidade de outra
+sessão recebe 404 sem vazar dado). Nenhuma mudança em `flowState`/`status`
+nem em nenhuma decisão já registrada em ADR-005/ADR-006.
+
+Nota de implementação L11-T03 (2026-09-10, Executor/BE): tarefa priorizada
+fora da cadência normal do Lote 11, conforme resolução do Bloqueio 003
+(`.md/BLOCKERS.md`) — implementada antes de L8-T01/L9-T01/L10-T01, que agora
+podem iniciar.
+
+**Nota de implementação L11-T02a (2026-09-10, Executor/BE)**: implementado
+exatamente conforme ADR-008, dentro dos limites da tarefa (guard central em
+si permanece fora de escopo, é `L11-T02`).
+
+- **Schema** (`prisma/schema.prisma`, `model TripSession`): novo campo
+  `anonSessionId String? @map("anon_session_id")`, nullable, coexistindo com
+  `userId`. Migration `prisma/migrations/20260910120000_l11_t02a_anon_session_owner/migration.sql`
+  (`ALTER TABLE trip_sessions ADD COLUMN anon_session_id TEXT`) — escrita à
+  mão seguindo o mesmo padrão SQL das migrations anteriores
+  (`20260909203030_l4_t02_flow_state`), porque nenhum Postgres local estava
+  acessível neste ambiente (`localhost:55432` recusa conexão — mesma
+  limitação de ambiente já registrada em tarefas anteriores) para rodar
+  `prisma migrate dev` de fato; `npx prisma generate` (que não exige conexão
+  com o banco) foi executado com sucesso e o client reflete o novo campo.
+  **Pendência real para quem tiver acesso a um Postgres**: rodar
+  `npx prisma migrate deploy` (ou `migrate dev` num ambiente de
+  desenvolvimento) para aplicar esta migration a um banco real antes do
+  primeiro uso — a migration em si não foi validada contra um banco vivo
+  nesta tarefa, só o SQL gerado manualmente e a regeneração do client.
+- **`src/lib/session-flow/create-session-with-range.ts`**: novo tipo
+  `SessionOwner` (`{ type: "user"; userId } | { type: "anonymous";
+  anonSessionId }`), reexportado em `src/lib/session-flow/index.ts`.
+  `CreateSessionWithDateRangeInput.owner` é agora obrigatório; o `INSERT`
+  grava condicionalmente `userId` OU `anonSessionId` a partir do `owner`
+  recebido (nunca os dois, nunca nenhum — garantido pelo tipo discriminado).
+  Assinatura muda (breaking change interno), retrofit dos 3 chamadores feito
+  nesta mesma tarefa (ver abaixo).
+- **`src/lib/actions/resolve-session-owner.ts` (novo)**: helper único
+  compartilhado pelos 3 chamadores, resolvendo `SessionOwner` com a regra de
+  precedência do ADR-008 — `getServerSession(authOptions)` primeiro
+  (autenticado vence); cai para `resolveAnonymousSessionId` do cookie
+  (`ANONYMOUS_SESSION_COOKIE`, `@/lib/anonymous-session`) só se não houver
+  sessão NextAuth válida. Defensivamente, se o cookie anônimo ainda não
+  existir nesta requisição (o `src/middleware.ts` normalmente já garante que
+  existe em toda navegação de página), gera um novo id e grava via
+  `cookies().set(...)` (permitido em Server Actions do Next.js 14),
+  reaproveitando `anonymousSessionCookieOptions()`.
+- **Retrofit dos 3 chamadores** (`src/lib/actions/data-livre.ts`
+  `submeterDataLivre`/L6-T03, `src/lib/actions/feriados.ts`
+  `processarFeriadoEscolhido`/L6-T05, `src/lib/actions/quiz.ts`
+  `submitQuizAnswers`/L6-T07): cada um chama `resolveSessionOwner()` e passa
+  o resultado como `owner` para `createSessionWithDateRange`. Mudança
+  mecânica idêntica nos 3, sem nenhuma regra de negócio nova — exatamente
+  como a Nota de resolução do Bloqueio 004 já previa.
+- **Decisão de detalhe não coberta explicitamente pelo ADR-008**: o cookie
+  anônimo ausente na requisição (caso defensivo — hoje sempre presente
+  graças ao middleware) resulta em um novo UUID gerado dentro de
+  `resolveSessionOwner`, gravado na resposta da própria Server Action.
+  Alternativa de "rejeitar a requisição" foi descartada por quebrar o fluxo
+  anônimo sem necessidade real (nenhum artefato exige isso); tratado como
+  pequeno detalhe de implementação, não escalado.
+- **Testes**: `src/lib/actions/__tests__/resolve-session-owner.test.ts`
+  (novo, unitário, sem banco) cobre a regra de precedência e a garantia de
+  exclusividade mútua do `SessionOwner` nos dois fluxos — é o teste principal
+  do critério de aceite desta tarefa. As integrações existentes
+  (`create-session-with-range.integration.test.ts`,
+  `data-livre.integration.test.ts`,
+  `processar-feriado-escolhido.integration.test.ts`,
+  `quiz.integration.test.ts`, `destino.integration.test.ts`) foram
+  atualizadas: `next-auth`/`next/headers` são mockados (necessário porque
+  `resolveSessionOwner` chama `getServerSession`/`cookies()`, que exigem
+  contexto de requisição real do Next.js, indisponível ao chamar a Server
+  Action diretamente de um teste — sem o mock, toda chamada lançava
+  `` `headers` was called outside a request scope`` mesmo antes de tentar
+  tocar o banco); cada arquivo ganhou também um teste novo cobrindo o fluxo
+  autenticado (`userId` gravado, `anonSessionId` nulo) além do já existente
+  fluxo anônimo (agora também com a asserção explícita do campo oposto
+  nulo). Todos os testes de integração aqui listados continuam falhando
+  neste ambiente por falta de Postgres local (`localhost:55432` inacessível)
+  — mesma limitação de ambiente já documentada em tarefas anteriores, não
+  uma regressão desta tarefa; confirmado comparando com o baseline (mesmas
+  125 falhas de "Can't reach database server", zero ocorrência do erro
+  `outside a request scope` na suíte inteira após o mock).
+- `npm run lint`: sem erros. `npx tsc --noEmit`: os 3 erros residuais
+  (`page.test.tsx`, `budget-insufficient-banner.test.tsx`,
+  `auth-callbacks.test.ts`) são pré-existentes, em arquivos não tocados por
+  esta tarefa (confirmado via `git log` — vêm do commit anterior). `npm run
+  build`: sucesso.
+- **Fora de escopo desta tarefa (fica para `L11-T02`)**: o guard central de
+  autorização em si (comparação "dono esperado da requisição" vs. "dono
+  persistido") e sua integração em `applySessionFlowTransition`/
+  `gerarSugestoesDestino`/qualquer outro ponto de leitura direta de
+  `TripSession`. **O que `L11-T02` já pode assumir pronto**: (1) todo
+  registro `TripSession` criado a partir de agora grava exatamente um dono;
+  (2) `SessionOwner`/`resolveSessionOwner` já existem e podem ser
+  reaproveitados (mesma regra de precedência exigida pelo guard, ADR-008
+  item 4) — `resolveSessionOwner` está em `src/lib/actions/`, não em
+  `src/lib/session-flow/`, porque depende de `next/headers`/NextAuth (camada
+  de Server Action), então o guard central (que vive em `session-flow` ou
+  módulo equivalente) deve importar de `@/lib/actions/resolve-session-owner`
+  ou replicar a mesma composição — decisão de organização de módulo deixada
+  para `L11-T02`, não travada por esta tarefa; (3) a aplicação real
+  (`npx prisma migrate deploy`) da migration `anon_session_id` continua
+  pendente em qualquer ambiente com Postgres real, antes de `L11-T02` rodar
+  testes de integração que dependam do campo estar de fato na tabela.
+
+**Ponto real de captura de texto livre que alimenta prompt** (investigação
+desta tarefa): hoje só existem 3 pontos do código que persistem
+`DestinationApproval.name`/`TripSession` a partir de texto livre do usuário
+e que, a partir de L8-T01/L9-T01/L10-T01, viram `context.destination.name`
+interpolado literalmente em `buildHospedagemPrompt`/`buildPasseiosPrompt`/
+`buildRoteiroPrompt` (`src/lib/gateway-ia/prompts.ts`): (1)
+`informarDestinoManualmente` (`src/lib/actions/destino.ts`, L7-T03); (2) o
+campo `destino` opcional de `submeterDataLivre`
+(`src/lib/actions/data-livre.ts`, L6-T03); (3) o campo `destino` opcional de
+`processarFeriadoEscolhido` (`src/lib/actions/feriados.ts`, L6-T05/RF-02.3).
+`submitQuizAnswers` (`src/lib/actions/quiz.ts`, L6-T07) NÃO persiste
+orçamento/texto livre nenhum (decisão de escopo já documentada naquela
+tarefa) — nenhuma ação adicional necessária ali. `budgetAmount`/
+`budgetCurrency` (`prisma/schema.prisma`, `StageContext`) são campos
+NUMÉRICOS (Prisma `Decimal`)/enum-like, não texto livre — fora do escopo
+desta sanitização (sem superfície de prompt injection textual).
+
+**Estratégia adotada** (detalhe de implementação — não há um mecanismo de
+sanitização de prompt injection definido em SDD.md/ADRs): NEUTRALIZAÇÃO por
+regex heurística em vez de rejeição total da submissão. Novo módulo
+`src/lib/gateway-ia/prompt-injection-guard.ts`, exportando
+`sanitizeFreeTextForPrompt(rawValue, { maxLength })`: (1) trim + colapso de
+quebra de linha/tab (impede simular múltiplas "mensagens" dentro de um único
+campo); (2) remoção de marcadores de papel/delimitador de conversa (cercas
+de código markdown, tokens `<|...|>`, `[INST]`/`[/INST]`, `System:` no início
+de linha, `###`/`---`); (3) redação de frases conhecidas de override de
+instrução em PT-BR e EN (~20 padrões — "ignore as instruções anteriores",
+"ignore previous instructions", "aja como/act as", "you are now", "revele o
+prompt do sistema"/"reveal the system prompt", "modo desenvolvedor"/
+"developer mode", etc., com padrões de frase completa avaliados antes dos
+fragmentos genéricos equivalentes para não deixar resíduo parcial); (4)
+colapso de espaços redundantes; (5) truncagem para `maxLength` (mesmo limite
+já em uso pelos 3 chamadores, 200 caracteres). Rejeitada a alternativa de
+bloquear a submissão inteira ao detectar qualquer padrão suspeito: um nome de
+destino real poderia coincidentemente conter uma palavra da lista (falso
+positivo), e nenhuma regra de negócio justificaria travar o fluxo por um
+filtro de conteúdo neste campo. Também exportada
+`containsPromptInjectionAttempt(rawValue)` — só detecção (roda sobre o texto
+original, pré-sanitização), para uso futuro de observabilidade/auditoria, não
+usada para bloquear nada nesta tarefa. Módulo colocado dentro de
+`src/lib/gateway-ia/` (mantendo a fronteira do módulo, TASK.md Seção 1 item 1)
+por ser especificamente sobre mitigar risco de prompt injection no que
+alimenta o Gateway de IA — mas consumido normalmente por Server Actions fora
+dele (`@/lib/gateway-ia/prompt-injection-guard`), mesmo padrão de reexport
+seletivo já usado por `checkGatewayIaRateLimit`/`GatewayIaError`.
+
+**Defesa em profundidade, não a única camada**: o valor sanitizado nunca é
+concatenado como se fosse uma instrução de sistema — os 4 `buildXPrompt`
+(`./prompts.ts`) sempre embutem o texto do usuário dentro de uma frase fixa
+em português (ex. `` `Destino já aprovado pelo usuário: ${nome}.` ``), nunca
+como um bloco de texto solto que o modelo pudesse confundir com uma nova
+instrução.
+
+**Integração nos 3 pontos de captura reais** (substituindo `trim()` +
+truncagem por `sanitizeFreeTextForPrompt`, sem mudar a interface pública de
+nenhuma das 3 Server Actions): `src/lib/actions/destino.ts`
+(`informarDestinoManualmente` — vazio após sanitização continua lançando
+`InvalidManualDestinoError`, campo obrigatório); `src/lib/actions/data-livre.ts`
+(`sanitizeDestino`, helper interno de `submeterDataLivre` — vazio após
+sanitização continua tratado como "sem destino", campo opcional);
+`src/lib/actions/feriados.ts` (`processarFeriadoEscolhido` — comportamento
+pré-existente de REJEITAR, não truncar, destino acima do limite de tamanho
+foi preservado sem mudança, só a neutralização de conteúdo foi adicionada
+antes dessa checagem).
+
+**Testes**: `src/lib/gateway-ia/__tests__/prompt-injection-guard.test.ts` (21
+casos) — cobre o critério de aceite desta tarefa em duas camadas: (1)
+unidade de `sanitizeFreeTextForPrompt`/`containsPromptInjectionAttempt`
+isoladas (10 variantes plausíveis de tentativa de injeção neutralizadas sem
+destruir o conteúdo legítimo ao redor, ex. `"Paris. Ignore as instruções
+anteriores..."` → mantém `"Paris"`, remove a frase de override; caso
+"palavra isolada da lista sem constituir uma frase de ataque" não é
+falso-positivo, ex. `"Vila da Instrução"` preservado; casos legítimos
+comuns inalterados além de trim/truncagem); (2) integração com
+`buildHospedagemPrompt`/`buildPasseiosPrompt`/`buildRoteiroPrompt`
+(`../prompts.ts`), provando que o prompt final montado a partir do texto já
+sanitizado nunca contém a instrução maliciosa original, e que o caso
+legítimo (`"Foz do Iguaçu"`) continua produzindo exatamente o mesmo prompt de
+antes — sem regressão de comportamento. Nenhum teste dos 3 pontos de
+integração (`destino.integration.test.ts`/`data-livre.integration.test.ts`/
+`processar-feriado-escolhido.integration.test.ts`, todos dependentes de
+Postgres real) precisou de caso novo além dos já existentes de truncagem —
+eles continuam passando com a nova sanitização por trás (verificado por
+inspeção do fluxo, já que este ambiente de execução não tem acesso a um
+Postgres local rodando, ver limitação abaixo).
+
+**Limitação conhecida/fora de escopo**: (1) a lista de padrões é uma
+heurística curada (~20 regex), não uma solução exaustiva/semântica — um
+atacante suficientemente criativo (paráfrase não coberta pela lista, idioma
+diferente de PT/EN, injeção via encoding) pode não ser neutralizado por este
+módulo; mitigação aceitável para o MVP dado que (a) o texto sanitizado nunca
+é a mensagem `system` do prompt, sempre um valor interpolado dentro de uma
+frase fixa controlada pelo próprio código, e (b) toda saída do Gateway de IA
+já passa por validação estrutural (Zod) + semântica (L3-T03, plausibilidade
+de preço/grounding de data) antes de ser usada, limitando o dano mesmo que
+uma instrução residual passasse; endurecer a lista de padrões (ou trocar por
+uma segunda chamada de classificação ao LLM) fica para trabalho futuro, sem
+nova tarefa aberta agora. (2) Filtragem semântica via segunda chamada de LLM
+não foi implementada (custo/latência extra sem justificativa dado o tamanho
+pequeno do campo, decisão de implementação documentada no cabeçalho do
+módulo). (3) Não foi possível rodar os testes de integração reais (Postgres
+em `localhost:55432`) neste ambiente de execução — mesma limitação
+pré-existente de infraestrutura já registrada nas notas de implementação
+anteriores deste projeto quando aplicável; `npm test` mostra os mesmos 57
+testes de integração falhando por `PrismaClientInitializationError: Can't
+reach database server`, já presentes ANTES desta tarefa (baseline confirmado
+antes de iniciar: 313 passando/57 falhando por falta de banco; depois desta
+tarefa: 334 passando — os 21 novos testes de unidade — mesmos 57 falhando por
+banco, nenhuma regressão nova).
+
+Arquivos novos: `src/lib/gateway-ia/prompt-injection-guard.ts`,
+`src/lib/gateway-ia/__tests__/prompt-injection-guard.test.ts`. Arquivos
+alterados: `src/lib/actions/destino.ts`, `src/lib/actions/data-livre.ts`,
+`src/lib/actions/feriados.ts` (import + troca da sanitização local por
+`sanitizeFreeTextForPrompt`, sem mudança de assinatura/contrato público de
+nenhuma Server Action). `npm run lint`, `npm test` (334 passando, mesmos 57
+falhando por falta de Postgres local — pré-existente, não introduzido por
+esta tarefa) e `npm run build` executados sem regressão nova.
+
+### Nota de bloqueio L11-T02 (2026-09-10, Executor/BE)
+
+Tarefa marcada `Bloqueada` antes de qualquer código novo. Investigação
+completa (checando `prisma/schema.prisma`, `src/lib/anonymous-session.ts`,
+`src/lib/session-flow/persistence.ts`, `src/lib/session-flow/
+create-session-with-range.ts` e todas as Server Actions de tela que hoje
+leem/escrevem `TripSession` — `src/lib/actions/destino.ts`,
+`confirmacao-destino.ts`, `data-livre.ts`, `feriados.ts`, `quiz.ts`) confirmou
+uma lacuna de modelo de dados que impede a implementação correta do guard
+pedido: **`TripSession` não guarda o dono do registro em nenhum dos dois
+mecanismos de identidade do projeto** — não há coluna equivalente a
+`anon_session_id` para sessão anônima, e `userId` (existente, nullable) nunca
+é de fato gravado por nenhum ponto de criação real (`createSessionWithDateRange`
+não aceita nem grava esse campo). Um guard "compara dono esperado (cookie/
+`user_id` da requisição) vs. dono real gravado" não tem dado real para
+comparar hoje — implementá-lo de qualquer forma exigiria ou rejeitar sempre
+(quebrando o fluxo anônimo, que é o caminho principal do produto, RF-01/02/03)
+ou inventar uma heurística de atribuição de dono não especificada em nenhum
+artefato (SDD.md/ADR), decisão de arquitetura que este papel não tem
+autoridade para tomar sozinho (mesmo nível do ADR-006 Adendo 1, que resolveu
+uma lacuna estrutural análoga para `flowState` em L4-T01/Bloqueio 001).
+
+Registrado como **Bloqueio 004** em `.md/BLOCKERS.md` (status Aberto,
+escalado para o coordenador), com uma proposta não-vinculante de solução
+(novo campo `anonSessionId` em `TripSession` + `createSessionWithDateRange`
+passando a receber/gravar o dono no momento da criação + o guard central
+comparando contra esses campos, retornando 404 — nunca 403, para não revelar
+existência do registro a um dono errado). Nenhum código de produção foi
+alterado nesta sessão (nem schema, nem `create-session-with-range.ts`, nem
+nenhuma Server Action) — só os artefatos de gestão de bloqueio
+(`BLOCKERS.md`, este `TASK.md`). Nenhum teste novo foi escrito, porque não há
+comportamento implementado para cobrir; escrever um guard "que sempre nega"
+só para ter teste verde seria pior do que não implementar (violaria o próprio
+critério de aceite ao quebrar o fluxo anônimo legítimo).
+
+`npm run lint`, `npm test` e `npm run build` não foram re-executados (nenhum
+código de produção/teste foi tocado nesta tarefa) — sem regressão possível.
+
+Retomada de L11-T02 depende da resolução do Bloqueio 004 pelo Coordenador
+(mesmo protocolo do Bloqueio 001): quem retomar precisa (1) confirmar/ajustar
+a forma exata do campo de dono no schema, (2) implementar a migration +
+`createSessionWithDateRange` passando a gravar o dono, (3) só então o guard
+central em si + sua integração em `applySessionFlowTransition`/
+`gerarSugestoesDestino` (e qualquer outro ponto de leitura direto de
+`TripSession`) + testes automatizados cobrindo o critério de aceite (dono
+legítimo passa; identidade de outra sessão recebe 403/404 sem vazar dado).
+
+**Resolução do Bloqueio 004 (2026-09-10, Coordenador)**: ver ADR-008
+(`.md/adr/008-propriedade-e-autorizacao-de-trip-session.md`) e a nota de
+resolução completa logo após a tabela do Lote 11 (Seção 3, acima). Resumo:
+proposta do Executor aceita com refinamento de precedência (conta
+autenticada > cookie anônimo) e resposta fixada em 404 (nunca 403, ambiguidade
+do critério de aceite original removida). `L11-T02` deixa de estar
+`Bloqueada` e é dividida em `L11-T02a` (persistência do dono, `Não iniciada`)
++ `L11-T02` (guard em si, `Não iniciada`, dependente de `L11-T02a`).
+
+### Nota de implementação L11-T01 (2026-09-10, Executor/BE)
+
+Implementado o mecanismo de exclusão de conta e dados associados (LGPD,
+RNF-06, GUARDRAILS.md regra 20).
+
+1. **Confirmação do schema antes de codar** (`prisma/schema.prisma`):
+   `Account`/`Session` (NextAuth) já tinham `onDelete: Cascade` referenciando
+   `User` (infraestrutura pronta, como já registrado em `SECURITY-REVIEW.md`
+   — achado do Lote 1). `TripSession.userId` NÃO tem FK formal para `User`
+   (comentário explícito no schema, decisão deliberada de L1-T03) — por isso
+   apagar `User` sozinho NÃO cascatearia as `TripSession`s. Todas as 5
+   entidades filhas de `TripSession` (`DestinationApproval`,
+   `AccommodationApproval`, `ActivityApproval`, `ItineraryItem`,
+   `LlmGenerationLog`) já têm `onDelete: Cascade` referenciando
+   `TripSession`.
+2. `src/lib/account-deletion.ts` (novo): `deleteUserAccount(userId)`, único
+   ponto autorizado a apagar conta — dentro de uma única
+   `prisma.$transaction`: (a) confirma que o `User` existe (senão
+   `UserNotFoundError`, sem tocar o banco); (b) `tx.tripSession.deleteMany({
+   where: { userId } })` — apaga explicitamente todas as `TripSession`s do
+   usuário, o que cascateia via FK do banco todas as 5 entidades filhas
+   automaticamente, sem `deleteMany` extra para cada uma; (c)
+   `tx.user.delete(...)` — cascateia `Account`/`Session` do NextAuth via FK
+   do banco. Retorna `deletedTripSessionCount` para observabilidade.
+3. `src/app/api/account/route.ts` (novo): `DELETE /api/account`, mesmo
+   padrão de rota de conta de `src/app/api/auth/signup/route.ts`. `userId` é
+   SEMPRE resolvido via `getServerSession(authOptions)` (NextAuth) — a rota
+   nunca lê/aceita `user_id` de corpo/query string, então não há como um
+   cliente disparar exclusão da conta de outro usuário (SDD §7,
+   GUARDRAILS.md regras 9/16). Sem sessão autenticada: 401. `User` já
+   inexistente (`UserNotFoundError`): 404.
+4. **Decisão de detalhe de implementação (não é lacuna a escalar)**:
+   "exclusão de conta" (LGPD/RNF-06) se aplica só a quem tem conta de
+   verdade (linha em `User`) — sessão anônima via cookie
+   (`src/lib/anonymous-session.ts`) não tem "conta" nesse sentido; ela não
+   grava dado pessoal identificável (nome/e-mail), então RNF-06 não exige um
+   mecanismo de exclusão equivalente para ela. SDD.md §7 e GUARDRAILS.md
+   regra 20 falam explicitamente em "exclusão de conta"/"`user_id`", ambos
+   pressupondo conta existente — não há ambiguidade real a escalar. Se o
+   produto quiser oferecer "apagar meus dados" também sem conta, é
+   funcionalidade nova, fora de escopo.
+5. **Fora de escopo desta tarefa (documentado, não implementado)**: nenhuma
+   UI (botão "Excluir minha conta") existe ainda em nenhuma tela do projeto
+   — esta tarefa é BE, entrega só a capacidade de servidor, consistente com
+   a instrução da tarefa.
+6. Testes: `src/lib/__tests__/account-deletion.integration.test.ts` (mesmo
+   padrão de `user-account.integration.test.ts`/
+   `persistence.integration.test.ts`, Postgres real) — cobre: usuário com
+   `TripSession` completa (todas as 5 entidades filhas populadas) apagado
+   sem deixar nenhum dado órfão, checado por query direta em cada tabela
+   (não só pelo retorno da função); múltiplas `TripSession`s do mesmo
+   usuário todas apagadas; `userId` inexistente rejeitado com
+   `UserNotFoundError` antes de tocar o banco; isolamento — apagar um
+   usuário nunca toca a `TripSession` de outro usuário.
+   `npm run lint`, `npm run build` sem erro; `npm test` sem regressão nos
+   testes não-integração — os testes `*.integration.test.ts` (incluindo os
+   novos) falham neste ambiente por ausência de Postgres real
+   (`Can't reach database server at localhost:55432`), mesma limitação de
+   ambiente já documentada desde o Lote 4, não uma falha desta
+   implementação.
+
+Nenhum desvio de escopo/estimativa. `L11-T02` (autorização cross-cutting de
+dono de registro em `TripSession`) e `L11-T03` (sanitização de texto livre)
+permanecem tarefas separadas, não tocadas aqui.
+
+**Nota de resolução do Bloqueio 003 (2026-09-10, Coordenador)**: `L11-T03`
+permanece com o ID/numeração e o critério de aceite originais — não foi
+renumerada nem movida de seção, para não cascatear referência em todo o
+`TASK.md`/`BLOCKERS.md`/`SECURITY-REVIEW.md` que já a cita por esse ID. O
+que muda é puramente a **elegibilidade de execução**: `L11-T03` deixa de
+esperar o restante do Lote 11 (que só abre depois dos Lotes 6-10) e passa a
+ficar elegível assim que `L3-T02` estiver concluída — ou seja, em paralelo
+com os Lotes 4-7, bem antes do resto do Lote 11. As 3 tarefas que
+efetivamente consomem texto livre em prompt pela primeira vez
+(`L8-T01`/`L9-T01`/`L10-T01`) agora têm `L11-T03` como dependência
+explícita adicional (ver Seção 3, colunas "Depende de" dessas 3 linhas) —
+nenhuma delas pode iniciar implementação antes de `L11-T03` estar
+`Concluída`. `L11-T01`/`L11-T02`/`L11-T04` continuam exatamente como
+estavam, sem nenhuma mudança de dependência.
 
 ### Refatoração Lote-1 (débito registrado pelo Validador)
 
@@ -1764,10 +2809,18 @@ Lotes 3+4+5 → Lote 7 (Destino)        [Lote 6 não bloqueia Lote 7: telas de
                                         destino não dependem de telas de
                                         entrada estarem prontas, só do estado
                                         da sessão já existir — L4]
-Lotes 3+4+5 → Lote 8 (Hospedagem)
-Lotes 3+4+5 → Lote 9 (Passeios)
-Lote 9 + Lote 3 → Lote 10 (Roteiro/Encerramento) [L10-T01 aguarda SPIKE-02]
+Lotes 3+4+5 → Lote 8 (Hospedagem)             [L8-T01 também aguarda L11-T03]
+Lotes 3+4+5 → Lote 9 (Passeios)               [L9-T01 também aguarda L11-T03]
+Lote 9 + Lote 3 → Lote 10 (Roteiro/Encerramento) [L10-T01 aguarda SPIKE-02
+                                                   e também L11-T03]
 Lotes 6+7+8+9+10 → Lote 11 (Cross-cutting final, L11-T04 é a última tarefa)
+  — EXCEÇÃO: L11-T03 não segue essa cadência. Fica elegível assim que
+  Lote 3/L3-T02 concluir (ver Bloqueio 003, resolvido), em paralelo aos
+  Lotes 4-7, e deve concluir antes do início de L8-T01/L9-T01/L10-T01.
+  L11-T01/L11-T02a/L11-T02/L11-T04 continuam presos à cadência normal do
+  Lote 11. Dentro do Lote 11, `L11-T02` ganhou uma dependência interna nova:
+  `L11-T02a` → `L11-T02` (guard central depende da persistência do dono
+  existir primeiro — ver Bloqueio 004/ADR-008, resolvido).
 
 Lote 1 → Refatoração Lote-1 (RL1-T01) — sem bloquear nenhum outro lote;
   gate real é o primeiro deploy em produção (chapéu DevOps), não a ordem
@@ -1783,6 +2836,17 @@ Lote 3 → Refatoração Lote-3 (RL3-T01) — sem bloquear a ordem de execução
   adotado antes do Lote 11.
 Lote 5 → Refatoração Lote-5 (RL5-T01/RL5-T02) — sem bloquear nenhum outro
   lote; sem prazo crítico (achados simples, não de segurança/deploy).
+
+RESOLVIDO (Bloqueio 003, `.md/BLOCKERS.md`, 2026-09-10, Coordenador):
+  L11-T03 (sanitização de texto livre contra prompt injection) ganhou
+  dependência reversa explícita de L8-T01/L9-T01/L10-T01 (Seção 3) — essas
+  3 tarefas não podem iniciar implementação antes de L11-T03 estar
+  `Concluída`. L11-T03 em si não mudou de dependência (continua só
+  `L3-T02`) nem de ID/seção — o que mudou é que ela passa a ficar elegível
+  para execução assim que L3-T02 concluir, em paralelo aos Lotes 4-7,
+  em vez de esperar a cadência normal do Lote 11 (que só abre depois dos
+  Lotes 6-10). Ver nota de resolução completa logo após a tabela do Lote 11
+  (Seção 3).
 ```
 
 Dentro de cada lote, "Paralelizável-com" na Seção 3 já indica quais tarefas
@@ -1865,6 +2929,56 @@ tela (Lote 9) além da camada de fundação.
   por SPIKE-01, não como lacuna estrutural que exigiria novo ADR — a escolha
   entre os dois mecanismos não muda nenhuma decisão arquitetural já registrada
   (ambos são Next.js server-side, compatíveis com ADR-001/006).
+- L7-T05 encontrou que a state machine de L4-T01 (ADR-006) não modelava
+  nenhuma transição regressiva (`*_confirmado`/`*_aprovada(o)`/`*_aprovados`
+  → `*_pendente` da mesma etapa) — lacuna real entre o critério de aceite de
+  T05 ("trocar volta ao campo de destino") e a state machine já implementada.
+  Escalado como Bloqueio 002 (`.md/BLOCKERS.md`), resolvido pelo Coordenador
+  como ADR-006 Adendo 2: nova ação `revisar`, modelada de forma genérica para
+  as 4 etapas (destino/hospedagem/passeios/roteiro), não só destino — ver
+  instrução de retomada logo após a nota de implementação L7-T04, abaixo.
+  Nenhuma tarefa nova de UI criada para L8/L9/L10 agora; o mecanismo fica
+  disponível na state machine para quando uma tarefa real desses lotes pedir
+  um botão equivalente a "Trocar destino" (ex.: "Trocar hospedagem"), evitando
+  reabrir um bloqueio idêntico, mas sem expandir escopo além do que está
+  declarado necessário hoje.
+- A auditoria do Lote 3 (`SECURITY-REVIEW.md`) já havia sinalizado que
+  `L11-T03` (sanitização de texto livre contra prompt injection) precisava
+  concluir antes de qualquer tarefa que alimentasse
+  `context.destination.name`/`accommodation.name` a partir de input real do
+  usuário em `buildHospedagemPrompt`/`buildPasseiosPrompt`/
+  `buildRoteiroPrompt` — mas `L11-T03` continuava só com `Depende de:
+  L3-T02`, sem dependência reversa formal. Com L7-T03 (Lote 7) passando a
+  persistir esse texto livre de verdade, o risco deixou de ser hipotético.
+  Escalado como Bloqueio 003 (`.md/BLOCKERS.md`), resolvido pelo
+  Coordenador: `L11-T03` ganhou dependência reversa explícita em
+  `L8-T01`/`L9-T01`/`L10-T01` (Seção 3), sem mudar de ID/seção — só sua
+  elegibilidade de execução foi antecipada para logo após `L3-T02` (Seção
+  4), em vez de esperar a cadência normal do Lote 11. Decisão puramente de
+  sequenciamento, sem impacto em nenhuma decisão arquitetural já registrada
+  em ADR — não abriu novo ADR.
+- `L11-T02` (guard central de autorização de dono de `TripSession`, SDD §7)
+  encontrou que `TripSession` não registra o dono real do registro para
+  nenhum dos dois mecanismos de identidade do projeto (cookie de sessão
+  anônima, sem coluna equivalente; `userId` existente no schema mas nunca
+  gravado por nenhum ponto de criação real, `createSessionWithDateRange`) —
+  sem esse dado persistido, o guard pedido não tem contra o que comparar.
+  Lacuna de modelo de dados, mesmo nível do Bloqueio 001 (ADR-006 Adendo 1),
+  mas de domínio diferente (autorização/SDD §7, não orquestração de etapa).
+  Escalado como Bloqueio 004 (`.md/BLOCKERS.md`), resolvido pelo Coordenador
+  como ADR-008 (novo ADR, não adendo ao ADR-006 — escopo distinto): novo
+  campo `anon_session_id` em `TripSession`, dono resolvido pelo chamador
+  (conta autenticada tem precedência sobre cookie anônimo quando ambos
+  presentes) e gravado no momento da criação; guard sempre retorna 404 (nunca
+  403) em divergência. `L11-T02` foi dividida em `L11-T02a` (persistência do
+  dono — schema + `createSessionWithDateRange` + retrofit pontual de
+  `L6-T03`/`L6-T05`/`L6-T07`, já `Concluída`s, para passar o novo `owner`) e
+  `L11-T02` revisada (guard em si, dependente de `L11-T02a`) — ver nota de
+  resolução completa na Seção 3, logo após a tabela do Lote 11. O retrofit
+  dos 3 chamadores foi mantido DENTRO de `L11-T02a` (não virou tarefa própria
+  por chamador) por inseparabilidade documentada: é a mesma mudança mecânica
+  de contrato aplicada de forma idêntica nos 3 pontos de um único helper
+  compartilhado, sem introduzir regra de negócio nova em nenhum deles.
 
 ## Rascunho de GUARDRAILS.md
 

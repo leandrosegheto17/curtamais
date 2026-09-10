@@ -53,6 +53,7 @@ import type { CreateSessionWithDateRangeResult } from "@/lib/session-flow";
 import type { QuizAnswers } from "@/components/quiz/quiz-wizard";
 import { resolveSuggestedDateRange } from "./quiz-date-range";
 import type { SuggestedDateRange } from "./quiz-date-range";
+import { resolveSessionOwner } from "./resolve-session-owner";
 
 // A lógica pura de geração do range (algoritmo, decisões de duração/janela
 // de busca de feriado) vive em `./quiz-date-range.ts`, NÃO neste arquivo:
@@ -88,6 +89,7 @@ export async function submitQuizAnswers(
   }
 
   const { start, end, source } = resolveSuggestedDateRange(answers.periodo);
+  const owner = await resolveSessionOwner();
 
   const result = await createSessionWithDateRange({
     entryPath: "quiz",
@@ -95,6 +97,7 @@ export async function submitQuizAnswers(
     dateRangeEnd: end,
     // Quiz nunca coleta destino (RF-03.1) — sempre o ramo "sem destino" de
     // RF-01.2, avançando para destino_pendente/RF-04.
+    owner,
   });
 
   return { ...result, dateRangeSource: source };

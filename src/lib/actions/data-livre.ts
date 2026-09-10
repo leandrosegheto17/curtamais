@@ -40,7 +40,9 @@
 // não coleta orçamento).
 
 import { createSessionWithDateRange } from "@/lib/session-flow";
+import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
 import { InvalidDataLivreInputError } from "./data-livre-errors";
+import { resolveSessionOwner } from "./resolve-session-owner";
 
 /**
  * Mesmo texto de `DATE_ORDER_ERROR_MESSAGE`
@@ -99,14 +101,18 @@ function parseIsoDateOrThrow(value: string, label: string): Date {
   return date;
 }
 
-/** Trim + limite de tamanho; string vazia (ou só espaços) vira `""`, tratado
- * como "sem destino" pelo chamador (mesma regra do form client-side, que já
- * envia `""` quando o campo opcional fica em branco, e do próprio helper
- * `createSessionWithDateRange`, que também trata string vazia/só espaços como
- * "sem destino"). */
+/** Trim + limite de tamanho + sanitização contra prompt injection
+ * (L11-T03, SDD.md Seção 7 / GUARDRAILS.md regra 18 — via
+ * `sanitizeFreeTextForPrompt`, `@/lib/gateway-ia/prompt-injection-guard`);
+ * string vazia (ou só espaços, ou reduzida a vazio pela sanitização) vira
+ * `""`, tratado como "sem destino" pelo chamador (mesma regra do form
+ * client-side, que já envia `""` quando o campo opcional fica em branco, e
+ * do próprio helper `createSessionWithDateRange`, que também trata string
+ * vazia/só espaços como "sem destino"). */
 function sanitizeDestino(rawDestino: string | undefined): string {
-  const trimmed = (rawDestino ?? "").trim();
-  return trimmed.slice(0, DESTINO_MAX_LENGTH);
+  return sanitizeFreeTextForPrompt(rawDestino, {
+    maxLength: DESTINO_MAX_LENGTH,
+  });
 }
 
 /**
@@ -135,12 +141,14 @@ export async function submeterDataLivre(
   }
 
   const destino = sanitizeDestino(input.destino);
+  const owner = await resolveSessionOwner();
 
   const result = await createSessionWithDateRange({
     entryPath: "data_livre",
     dateRangeStart,
     dateRangeEnd,
     destino,
+    owner,
   });
 
   if (destino.length === 0) {

@@ -45,4 +45,5 @@ export { createSessionWithDateRange } from "./create-session-with-range";
 export type {
   CreateSessionWithDateRangeInput,
   CreateSessionWithDateRangeResult,
+  SessionOwner,
 } from "./create-session-with-range";

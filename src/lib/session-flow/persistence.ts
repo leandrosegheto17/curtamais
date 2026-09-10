@@ -38,6 +38,17 @@
 // só atualiza `flowState`/`status` da própria `TripSession`. Nenhuma
 // `DestinationApproval`/`AccommodationApproval`/`ActivityApproval`/
 // `ItineraryItem` já gravada em aprovações anteriores é tocada.
+//
+// L7-T05 (retomada, ADR-006 Adendo 2) — ação `revisar`: o oposto de
+// `encerrar` em termos de escrita — na MESMA transação, apaga a(s) linha(s)
+// da entidade filha da PRÓPRIA etapa que está sendo revisada (nunca de outra
+// etapa) antes de gravar o novo `flowState` regressivo decidido por
+// `transitionSessionFlow`. `DestinationApproval`/`AccommodationApproval` são
+// 0..1 por sessão; `ActivityApproval`/`ItineraryItem` são 0..n — por isso o
+// apagamento usa `deleteMany({ where: { sessionId } })` para as quatro
+// etapas (nunca lança se não houver linha, o que também cobre o caso —
+// hoje inatingível pela state machine, mas defensivo — de `revisar` ser
+// chamado sem nenhuma aprovação prévia gravada).
 
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -125,6 +136,25 @@ const APPROVAL_STAGE_BY_PENDING_STATE: Partial<
   roteiro_pendente: "roteiro",
 };
 
+/**
+ * Etapa cuja entidade filha deve ser apagada quando `revisar` é solicitada a
+ * partir do estado indexado (ADR-006 Adendo 2) — o inverso de
+ * `APPROVAL_STAGE_BY_PENDING_STATE` acima: aqui a chave é o estado
+ * "aprovado/confirmado" de ORIGEM da transição regressiva, não o `*_pendente`
+ * de destino. Mesma cobertura de `REVISAR_TRANSITIONS`
+ * (`./state-machine.ts`): só `destino_confirmado` tem uma Server
+ * Action/UI consumidora hoje (`trocarDestino`, L7-T05); as outras 3 ficam
+ * disponíveis para L8/L9/L10.
+ */
+const REVISAR_STAGE_BY_APPROVED_STATE: Partial<
+  Record<SessionFlowState, ApproveStageChildData["stage"]>
+> = {
+  destino_confirmado: "destino",
+  hospedagem_aprovada: "hospedagem",
+  passeios_aprovados: "passeios",
+  roteiro_aprovado: "roteiro",
+};
+
 export type SessionFlowTransitionInput =
   | { sessionId: string; action: Exclude<SessionFlowAction, "aprovar"> }
   | { sessionId: string; action: "aprovar"; childData: ApproveStageChildData };
@@ -169,6 +199,15 @@ export async function applySessionFlowTransition(
           expectedStage ?? "(nenhuma)",
           input.childData?.stage,
         );
+      }
+    }
+
+    // L7-T05 (retomada) — `revisar`: apaga a entidade filha da PRÓPRIA etapa
+    // sendo revisada ANTES de gravar o novo `flowState`, na mesma transação.
+    if (input.action === "revisar") {
+      const stageToDelete = REVISAR_STAGE_BY_APPROVED_STATE[currentState];
+      if (stageToDelete) {
+        await deleteRevisarChildData(tx, input.sessionId, stageToDelete);
       }
     }
 
@@ -269,6 +308,41 @@ async function persistApprovedChildData(
     default: {
       // Exaustividade de tipo — nunca alcançado em runtime.
       const exhaustiveCheck: never = childData;
+      throw exhaustiveCheck;
+    }
+  }
+}
+
+/**
+ * Apaga a(s) linha(s) da entidade filha da etapa sendo revisada (ação
+ * `revisar`, ADR-006 Adendo 2). Usa `deleteMany` (nunca `delete`) para as
+ * quatro etapas, uniformemente: cobre tanto as etapas 0..1
+ * (`DestinationApproval`/`AccommodationApproval`) quanto as 0..n
+ * (`ActivityApproval`/`ItineraryItem`), e nunca lança se não houver nenhuma
+ * linha para a sessão. Sempre filtrado por `sessionId` — nunca apaga linha de
+ * outra sessão nem de outra etapa.
+ */
+async function deleteRevisarChildData(
+  tx: PrismaTransactionClient,
+  sessionId: string,
+  stage: ApproveStageChildData["stage"],
+): Promise<void> {
+  switch (stage) {
+    case "destino":
+      await tx.destinationApproval.deleteMany({ where: { sessionId } });
+      return;
+    case "hospedagem":
+      await tx.accommodationApproval.deleteMany({ where: { sessionId } });
+      return;
+    case "passeios":
+      await tx.activityApproval.deleteMany({ where: { sessionId } });
+      return;
+    case "roteiro":
+      await tx.itineraryItem.deleteMany({ where: { sessionId } });
+      return;
+    default: {
+      // Exaustividade de tipo — nunca alcançado em runtime.
+      const exhaustiveCheck: never = stage;
       throw exhaustiveCheck;
     }
   }
