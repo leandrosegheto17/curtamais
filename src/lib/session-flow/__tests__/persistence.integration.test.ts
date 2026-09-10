@@ -8,22 +8,66 @@
 //
 // Requer DATABASE_URL apontando para um Postgres com a migration aplicada
 // (mesmo banco usado pelos demais testes de integração do projeto).
-import { afterAll, describe, expect, it } from "vitest";
+//
+// L11-T02 (ADR-008): `applySessionFlowTransition` agora chama o guard
+// central de autorização (`assertSessionOwnership`) logo após checar que a
+// sessão existe, o que exige resolver o dono esperado da requisição corrente
+// via `resolveSessionOwner` — `next-auth`/`next/headers` são mockados (mesmo
+// padrão de `src/lib/actions/__tests__/data-livre.integration.test.ts`,
+// L11-T02a), simulando por padrão o caminho anônimo. `createTestSession`
+// agora grava `anonSessionId: ANON_ID` (o mesmo id devolvido pelo cookie
+// mockado) para que toda sessão criada nos testes já nasça pertencendo ao
+// "solicitante" simulado — sem isso, o guard negaria (404) toda chamada
+// subsequente a `applySessionFlowTransition`, já que nenhuma sessão teria
+// dono gravado (edge case coberto por `authorization.test.ts`).
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
   applySessionFlowTransition,
   InvalidChildDataError,
 } from "@/lib/session-flow";
-import { InvalidTransitionError } from "@/lib/session-flow/errors";
+import {
+  InvalidTransitionError,
+  SessionNotFoundError,
+} from "@/lib/session-flow/errors";
+
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
+const ANON_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 async function createTestSession() {
   return prisma.tripSession.create({
-    data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20") },
+    data: {
+      entryPath: "data_livre",
+      dateRangeEnd: new Date("2026-12-20"),
+      anonSessionId: ANON_ID,
+    },
   });
 }
 
 describe("applySessionFlowTransition — integração real com Postgres (L4-T02)", () => {
   const sessionIds: string[] = [];
+
+  beforeEach(() => {
+    getServerSessionMock.mockReset();
+    cookieGetMock.mockReset();
+    cookieSetMock.mockReset();
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_ID });
+  });
 
   afterAll(async () => {
     await prisma.tripSession.deleteMany({ where: { id: { in: sessionIds } } });
@@ -408,5 +452,56 @@ describe("applySessionFlowTransition — integração real com Postgres (L4-T02)
       where: { sessionId: session.id },
     });
     expect(accommodation).toBeNull();
+  });
+
+  describe("L11-T02 (ADR-008) — guard central de autorização", () => {
+    it("dono legítimo (mesmo cookie anônimo gravado na criação) continua autorizado sem regressão", async () => {
+      const session = await createTestSession();
+      sessionIds.push(session.id);
+
+      const result = await applySessionFlowTransition({
+        sessionId: session.id,
+        action: "iniciar",
+      });
+
+      expect(result.flowState).toBe("destino_pendente");
+    });
+
+    it("requisição com cookie de outra sessão anônima recebe SessionNotFoundError (sempre 404, nunca 403), sem vazar dado da sessão", async () => {
+      const session = await createTestSession();
+      sessionIds.push(session.id);
+
+      // Simula um solicitante ilegítimo: cookie de sessão anônima diferente
+      // do dono real (`ANON_ID`) gravado por `createTestSession`.
+      cookieGetMock.mockReturnValue({
+        value: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      });
+
+      await expect(
+        applySessionFlowTransition({ sessionId: session.id, action: "iniciar" }),
+      ).rejects.toBeInstanceOf(SessionNotFoundError);
+
+      // Nada foi persistido pela tentativa não autorizada.
+      const stored = await prisma.tripSession.findUniqueOrThrow({
+        where: { id: session.id },
+      });
+      expect(stored.flowState).toBe("entrada_selecionada");
+    });
+
+    it("registro sem nenhum dono gravado (edge case defensivo, ex.: dado pré-L11-T02a) recebe SessionNotFoundError mesmo para um solicitante anônimo válido", async () => {
+      const session = await prisma.tripSession.create({
+        data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20") },
+      });
+      sessionIds.push(session.id);
+
+      await expect(
+        applySessionFlowTransition({ sessionId: session.id, action: "iniciar" }),
+      ).rejects.toBeInstanceOf(SessionNotFoundError);
+
+      const stored = await prisma.tripSession.findUniqueOrThrow({
+        where: { id: session.id },
+      });
+      expect(stored.flowState).toBe("entrada_selecionada");
+    });
   });
 });

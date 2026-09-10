@@ -24,6 +24,11 @@ export {
   InvalidChildDataError,
 } from "./errors";
 export { applySessionFlowTransition } from "./persistence";
+export {
+  assertSessionOwnership,
+  isSameSessionOwner,
+} from "./authorization";
+export type { TripSessionOwnerRecord } from "./authorization";
 export type {
   SessionFlowTransitionInput,
   SessionFlowTransitionResult,

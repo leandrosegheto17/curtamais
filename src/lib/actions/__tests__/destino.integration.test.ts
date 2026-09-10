@@ -10,10 +10,34 @@
 // Cobre o critério de aceite de L7-T03: "Aprovar avança para confirmação;
 // rejeitar todas permite nova rodada ou entrada manual; encerrar preserva
 // destino aprovado."
+//
+// L11-T02 (ADR-008): `gerarSugestoesDestino`/`applySessionFlowTransition`
+// (via as demais Server Actions deste arquivo) agora aplicam o guard central
+// de autorização — `next-auth`/`next/headers` são mockados (mesmo padrão de
+// `data-livre.integration.test.ts`, L11-T02a), simulando por padrão o mesmo
+// solicitante anônimo (`ANON_ID`) que "criou" as sessões de teste via
+// `createSessionWithDateRange`.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createSessionWithDateRange } from "@/lib/session-flow";
 import { InvalidTransitionError } from "@/lib/session-flow";
+
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
+const ANON_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 import {
   aprovarDestinoSugerido,
   encerrarResolucaoDestino,
@@ -63,9 +87,9 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
       dateRangeStart: new Date("2026-11-10T00:00:00.000Z"),
       dateRangeEnd: new Date("2026-11-15T00:00:00.000Z"),
       // ADR-008/L11-T02a: owner obrigatório desde o retrofit desta tarefa;
-      // valor fixo de sessão anônima, irrelevante ao critério de aceite de
-      // L7-T03 (fora de escopo deste teste comparar dono).
-      owner: { type: "anonymous", anonSessionId: "destino-test-anon" },
+      // mesmo id anônimo mockado (`ANON_ID`) usado pelo guard central
+      // (L11-T02) para autorizar as Server Actions deste arquivo.
+      owner: { type: "anonymous", anonSessionId: ANON_ID },
     });
     sessionIds.push(result.sessionId);
     expect(result.flowState).toBe("destino_pendente");
@@ -78,7 +102,7 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
       dateRangeStart: new Date("2026-11-10T00:00:00.000Z"),
       dateRangeEnd: new Date("2026-11-15T00:00:00.000Z"),
       destino: "Foz do Iguaçu",
-      owner: { type: "anonymous", anonSessionId: "destino-test-anon" },
+      owner: { type: "anonymous", anonSessionId: ANON_ID },
     });
     sessionIds.push(result.sessionId);
     expect(result.flowState).toBe("destino_confirmado");
@@ -87,6 +111,11 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
 
   beforeEach(() => {
     generateStructuredCompletionWithRetryMock.mockReset();
+    getServerSessionMock.mockReset();
+    cookieGetMock.mockReset();
+    cookieSetMock.mockReset();
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_ID });
   });
 
   afterAll(async () => {

@@ -12,7 +12,13 @@
 // `destino_pendente` via a nova ação `revisar` e apaga a `DestinationApproval`
 // já aprovada — cobrindo a parte "trocar volta ao campo de destino" do
 // critério de aceite.
-import { afterAll, describe, expect, it } from "vitest";
+//
+// L11-T02 (ADR-008): `applySessionFlowTransition` agora aplica o guard
+// central de autorização internamente — `next-auth`/`next/headers` são
+// mockados (mesmo padrão de `data-livre.integration.test.ts`, L11-T02a),
+// simulando por padrão o mesmo solicitante anônimo (`ANON_ID`) dono de toda
+// sessão criada por `createSessionAtDestinoConfirmado`.
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { applySessionFlowTransition } from "@/lib/session-flow";
 import { InvalidTransitionError } from "@/lib/session-flow/errors";
@@ -22,9 +28,38 @@ import {
 } from "@/lib/actions/confirmacao-destino";
 import { InvalidConfirmacaoDestinoInputError } from "@/lib/actions/confirmacao-destino-errors";
 
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
+const ANON_ID = "14141414-1414-4141-8141-141414141414";
+
+beforeEach(() => {
+  getServerSessionMock.mockReset();
+  cookieGetMock.mockReset();
+  cookieSetMock.mockReset();
+  getServerSessionMock.mockResolvedValue(null);
+  cookieGetMock.mockReturnValue({ value: ANON_ID });
+});
+
 async function createSessionAtDestinoConfirmado() {
   const session = await prisma.tripSession.create({
-    data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20") },
+    data: {
+      entryPath: "data_livre",
+      dateRangeEnd: new Date("2026-12-20"),
+      anonSessionId: ANON_ID,
+    },
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
   await applySessionFlowTransition({
@@ -75,7 +110,7 @@ describe("confirmarDestino — integração real com Postgres (L7-T05)", () => {
 
   it("rejeita confirmar a partir de um estado que não é destino_confirmado (sem pular etapa)", async () => {
     const session = await prisma.tripSession.create({
-      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20") },
+      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), anonSessionId: ANON_ID },
     });
     sessionIds.push(session.id);
     // Sessão ainda em entrada_selecionada — nunca chegou a destino_confirmado.
@@ -129,7 +164,7 @@ describe("trocarDestino — integração real com Postgres (L7-T05, retomada)", 
 
   it("rejeita trocar a partir de um estado que não é destino_confirmado (sem pular etapa)", async () => {
     const session = await prisma.tripSession.create({
-      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20") },
+      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), anonSessionId: ANON_ID },
     });
     sessionIds.push(session.id);
     // Sessão ainda em entrada_selecionada — nunca chegou a destino_confirmado.

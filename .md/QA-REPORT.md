@@ -1208,3 +1208,290 @@ segurança sobre uma dependência futura ainda não implementada
 lote de fechar mas precisa de decisão do Coordenador antes do início do
 Lote 8. **O lote está liberado para a auditoria de segurança completa do
 chapéu DevSecOps** (mesma sessão, ver `SECURITY-REVIEW.md` abaixo).
+
+## Lote 8 — Hospedagem (T06)
+
+Status geral: **Aprovado com ressalva simples**. As 3 tarefas (L8-T01 a
+L8-T03) passam nos critérios de aceite literais do `TASK.md`, confirmados
+por leitura direta do código (`src/lib/stage-rules/hospedagem.ts`,
+`src/lib/actions/hospedagem.ts`/`hospedagem-errors.ts`,
+`src/components/hospedagem/hospedagem-sugestoes-screen.tsx`) e pela leitura
+cruzada de `src/lib/session-flow/state-machine.ts` — não pela nota de
+implementação do Executor — e por execução real da suíte (`npx vitest run`)
+e do `git diff`. Uma reprovação **simples** encontrada (gap de RF-05.3,
+ver abaixo), que não reverte nenhuma tarefa para `Em andamento` e vira
+`RL8-T01` em `Refatoração Lote-8` (`TASK.md` Seção 3). Nenhuma reprovação
+crítica.
+
+### Suíte executada
+
+| Comando | Resultado |
+|---|---|
+| `npm run lint` | Passou — nenhum warning/erro |
+| `npx vitest run src/lib/stage-rules/__tests__/hospedagem.test.ts src/components/hospedagem/__tests__/hospedagem-sugestoes-screen.test.tsx` | 18/18 passam (7 + 11) — os dois únicos arquivos de teste do lote que não dependem de Postgres real, confirmados 100% passando, execução direta desta sessão de validação |
+| `npx vitest run src/lib/stage-rules src/lib/actions src/components/hospedagem src/lib/session-flow` | 90 testes passam, 59 falham — **todas** as 59 falhas são `*.integration.test.ts` (incluindo `hospedagem.integration.test.ts`, L8-T03), todas com `PrismaClientInitializationError: Can't reach database server at localhost:55432`, confirmado por inspeção — mesma limitação de ambiente já documentada e aceita desde Lote 1/4/7. Nenhuma outra classe de falha encontrada nesta execução |
+
+### L8-T01 — Regra RF-06 (geração de 3 opções de hospedagem + filtro de orçamento)
+
+Critério de aceite: "Sempre 3 opções, cada uma com nome/tipo, faixa de
+preço por diária, característica distintiva."
+
+- `src/lib/stage-rules/hospedagem.ts`: `generateAccommodationSuggestions`
+  chama `generateStructuredCompletionWithRetry` (L3-T04, retry+log) com o
+  prompt/schema já registrados da etapa `hospedagem` (L3-T02) —
+  `hospedagemOpcoesSchema` já garante `.length(3)` na saída do Gateway de
+  IA, confirmado por leitura de `src/lib/gateway-ia/schemas.ts`. Aplica
+  `applyBudgetFilter` (L4-T03) sobre as 3 opções — reordena/sinaliza
+  excedente, nunca remove item (RF-10.1/RN-04), confirmado por leitura de
+  `budget-filter.ts`, então o resultado desta função também tem sempre 3
+  opções. `AccommodationSuggestionResult` sempre expõe
+  `name`/`type`/`pricePerNightMin`/`pricePerNightMax`/`distinctiveFeature`.
+- 7 casos unitários (`src/lib/stage-rules/__tests__/hospedagem.test.ts`,
+  `@vitest-environment node`, Gateway de IA mockado via `importOriginal`,
+  todos passando nesta execução): sempre 3 opções com os 5 campos exigidos
+  presentes e não vazios/numéricos; chamada correta ao Gateway
+  (sessionId/stage/schemaName/mensagens, destino no prompt); sem orçamento
+  nunca bloqueia (RF-10.3/RN-04); com orçamento reordena mantendo as 3
+  opções (RF-10.1); nenhuma opção no orçamento devolve a mais barata
+  primeiro com `exceedsBudget: true`, ainda com as 3 opções (RF-06.2/
+  RF-10.2); erro sem destino aprovado (RN-01/RF-11); erro do Gateway
+  propaga sem ser mascarado.
+- **Aprovado.**
+
+### L8-T02 — T06 UI (cartões, aprovar/ajustar, rodapé)
+
+Critério de aceite: "'Ajustar' regenera a mesma etapa sem avançar
+(RF-05.3); rodapé oferece continuar/encerrar (RF-05.4)."
+
+- `src/components/hospedagem/hospedagem-sugestoes-screen.tsx`: os estados
+  aplicáveis a T06 (Carregando/Erro/Sucesso — "Vazio" corretamente
+  ausente, UX-SPEC.md §4 marca T06 como "Não aplicável" para esse estado)
+  via `LoadingStream`/`ErrorRetryState`/`SuggestionCard` (L5-T03/T04)
+  reaproveitados sem duplicar lógica de estado, confirmado.
+  `BudgetInsufficientBanner` exibido quando `exceedsBudget`, sem desabilitar
+  os botões de aprovar (RN-04). "Ajustar" abre um campo de feedback textual
+  por cartão (`textarea` com `label`/`aria-describedby`, exigido por
+  UX-SPEC.md T06) e, ao submeter, chama `gerarSugestoesHospedagem` de novo
+  (mesma função do carregamento inicial) — nenhuma chamada de transição de
+  estado acontece, a sessão permanece em `hospedagem_pendente`: confirmado
+  contra `state-machine.ts` (`ajustar` é self-loop em `hospedagem_pendente`,
+  linha 132), então "regenera sem avançar" (RF-05.3, na leitura literal do
+  critério de aceite desta tarefa) está cumprido. Rodapé, só depois de uma
+  aprovação, oferece "Continuar para passeios" (navegação client-side, sem
+  chamada de servidor adicional — o servidor já confirmou o avanço dentro
+  de `aprovarHospedagem`) e "Só queria decidir até aqui — encerrar aqui"
+  (`encerrarResolucaoHospedagem` + navegação só após a Promise resolver) —
+  ambos presentes (RF-05.4).
+- Acessibilidade: foco no título ao montar (`headingRef`), erros com
+  `role="alert"` + ícone + texto, `min-h-11` nos botões principais,
+  `aria-busy` nos estados pendentes — mesmo padrão de T04/T05.
+- 11 casos em `hospedagem-sugestoes-screen.test.tsx` (Server Actions
+  substituídas via `actionsOverride`, nenhum mock de módulo inteiro),
+  todos passando nesta execução — cobrindo os 3 estados, "Ajustar"
+  regenerando sem avançar, `BudgetInsufficientBanner` não bloqueando,
+  rodapé com as duas ações do RF-05.4.
+- **Achado simples (RF-05.3, ver seção dedicada abaixo)**: o campo de
+  feedback textual é capturado pela UI (exigido por UX-SPEC.md T06) mas o
+  texto não chega ao prompt de regeneração — vira `RL8-T01`. Não reprova
+  esta tarefa (ver raciocínio abaixo).
+- **Aprovado, com ressalva simples registrada em `RL8-T01`.**
+
+### L8-T03 — T06 Server Actions (aprovar/ajustar/encerrar)
+
+Critério de aceite: "Aprovar persiste `AccommodationApproval` e avança
+para passeios."
+
+- `src/lib/actions/hospedagem.ts`: `gerarSugestoesHospedagem` valida
+  `flowState === "hospedagem_pendente"` antes de gastar uma chamada ao
+  Gateway de IA (`HospedagemEtapaInvalidaError` caso contrário) e resolve o
+  contexto mínimo (range de datas + `DestinationApproval` já aprovado) com
+  guardas defensivas (`HospedagemContextoIncompletoError`) — confirmado por
+  leitura. `aprovarHospedagem` **revalida** o payload da sugestão no
+  servidor (`assertValidAccommodationPayload`: nome/tipo/característica não
+  vazios, faixa numérica/não-negativa/não-invertida/dentro de teto de
+  sanidade) antes de persistir — nunca confia cegamente no payload devolvido
+  pelo cliente (mesmo padrão de `destino.ts`/L7-T03, item relevante também
+  para `SECURITY-REVIEW.md`). Toda persistência passa por
+  `applySessionFlowTransition` (L4-T02) — nenhuma escrita direta no Prisma
+  para `TripSession`/`AccommodationApproval`, confirmado por leitura
+  completa do arquivo (as únicas leituras diretas são
+  `prisma.tripSession.findUnique`/`prisma.destinationApproval.findUnique`
+  em `gerarSugestoesHospedagem`, para montar contexto).
+- **Encadeamento `aprovar` + `avancar` numa única Server Action
+  (desvio intencional do padrão de `destino.ts`, sinalizado pelo próprio
+  Executor)**: confirmado contra `state-machine.ts` — a partir de
+  `hospedagem_pendente`, `aprovar` só leva a `hospedagem_aprovada` (linha
+  130-132), e `hospedagem_aprovada` só tem a transição `avancar` →
+  `passeios_pendente` (linha 134-136), nenhuma outra ação disponível nesse
+  estado. Não há uma tela de confirmação intermediária para hospedagem
+  (diferente de destino/T05, que tem T05 entre `aprovar` e `avancar`) —
+  RF-06.3 exige literalmente "aprovar avança para passeios", sem uma etapa
+  extra. Encadear as duas chamadas sequenciais de
+  `applySessionFlowTransition` dentro da mesma Server Action é, portanto,
+  a única forma de cumprir RF-06.3 sem inventar uma tela de confirmação
+  fora de escopo — não viola RN-01 (nenhuma etapa é pulada: a sessão passa
+  literalmente por `hospedagem_aprovada` antes de `passeios_pendente`,
+  cada `applySessionFlowTransition` é uma transição válida e atômica da
+  tabela oficial) nem duplica a lógica de transição (delega 100% a
+  `applySessionFlowTransition`, mesma função de sempre). Mesmo padrão já
+  teria sido exercitado em `persistence.integration.test.ts` (L4-T02, "duas
+  chamadas sequenciais"), citado corretamente pela nota do Executor.
+  Concordo com a decisão.
+- `encerrarResolucaoHospedagem` só chama
+  `applySessionFlowTransition({ action: "encerrar" })`, preservando
+  `DestinationApproval`/`AccommodationApproval` já gravados (RN-03)
+  estruturalmente — mesma garantia já confirmada em L4-T02/L7-T03.
+- 8 casos de integração real com Postgres
+  (`hospedagem.integration.test.ts`) — não confirmados nesta sessão de
+  validação (mesma limitação de ambiente do restante da suíte), mas lidos
+  linha a linha: cobrem exatamente o critério de aceite desta tarefa
+  (`AccommodationApproval` persistido + `flowState` avança para
+  `passeios_pendente`, com asserção direta em `prisma.accommodationApproval.
+  findUniqueOrThrow`/`prisma.tripSession.findUniqueOrThrow`), mais os casos
+  negativos (etapa errada, payload adulterado, RN-03 preservado em
+  `encerrar`) — o teste testaria corretamente o que o critério de aceite
+  exige, se rodasse contra um banco real. Nenhuma lacuna de cobertura
+  encontrada para o critério de aceite desta tarefa.
+- **Achado simples (RF-05.3), mesmo já descrito na L8-T02 acima**: nem
+  `StageContext`/`buildHospedagemPrompt` nem `generateAccommodationSuggestions`
+  têm hoje um campo para incorporar o texto de feedback ao prompt — vira
+  `RL8-T01`. Não reprova esta tarefa (ver raciocínio abaixo).
+- **Aprovado, com ressalva simples registrada em `RL8-T01`.**
+
+### Achado: feedback textual de "Ajustar" não incorporado ao prompt (RF-05.3)
+
+RF-05.3 (`PRD-TECNICO.md`) exige literalmente: "gerar uma nova sugestão
+para a mesma etapa, **incorporando o feedback do usuário**, sem avançar
+para a etapa seguinte." UX-SPEC.md T06 também exige explicitamente um
+"campo de feedback textual curto" na ação Ajustar. Confirmado por leitura
+completa do fluxo: a `HospedagemSugestoesScreen` (L8-T02) captura o texto
+digitado no `textarea` (`feedbackValue`), mas `handleAdjustSubmit` só o usa
+para um `console.info` em modo dev — a chamada real
+(`actions.gerarSugestoesHospedagem(sessionId)`) não recebe o texto.
+Confirmado também em `gerarSugestoesHospedagem`/`generateAccommodationSuggestions`
+(L8-T03/L8-T01): nenhum dos dois tem parâmetro para um feedback textual;
+`buildHospedagemPrompt` (`@/lib/gateway-ia`, L3-T02) não tem espaço para
+esse dado no prompt.
+
+Diferente do gap já presente em T04 (L7-T03, "nova rodada"/RF-04.4), que
+**não** exige incorporar feedback (RF-04.4 só fala em "gerar uma nova
+rodada de sugestões ou permitir entrada manual", sem menção a feedback
+textual, e T04 nem tem um campo de "Ajustar" por bloco, só um fluxo de
+rejeição total — confirmado em `UX-SPEC.md` linhas 77-83 vs. 97-102) —
+este é um gap real e específico de T06 contra a letra de RF-05.3 e de
+UX-SPEC.md T06, não um caso já silenciosamente aceito em lote anterior.
+
+**Classificação: achado simples, não crítico.** Razões:
+1. O critério de aceite desta tarefa, como escrito pelo Coordenador no
+   `TASK.md` ("'Ajustar' regenera a mesma etapa sem avançar"), não exige
+   textualmente a incorporação do feedback — só o "sem avançar", que está
+   cumprido. O requisito mais amplo (incorporar feedback) é parte de
+   RF-05.3 mas não foi decomposto como parte explícita do critério de
+   aceite desta tarefa específica — não é um caso de reinterpretar o
+   critério, é reconhecer que o critério como escrito já é mais estreito
+   que o requisito de origem.
+2. Não compromete o critério de aceite central de nenhuma das 3 tarefas do
+   lote (RF-06.1/.2/.3, todos cumpridos) nem bloqueia outra tarefa do lote
+   — Lote 9 (Passeios) não depende deste comportamento.
+3. Baixo esforço de correção: estender `StageContext`/`buildHospedagemPrompt`
+   (L3-T02) com um campo opcional e repassá-lo em
+   `generateAccommodationSuggestions`/`gerarSugestoesHospedagem` — sem
+   mudança de arquitetura.
+4. Já transparentemente documentado pelo próprio Executor (cabeçalho de
+   `hospedagem.ts` e da tela), com aviso de dev visível em vez de descarte
+   silencioso — reduz o risco de a lacuna passar despercebida.
+
+Por isso, as 3 tarefas do lote **permanecem `Concluída`** e o achado vira
+`RL8-T01` em `Refatoração Lote-8` (`TASK.md` Seção 3), com nota apontando
+que o mesmo padrão de "ajustar com feedback" volta a aparecer em T07
+(Lote 9) — vale avaliar resolução conjunta. Este achado **não** escala ao
+Coordenador (não é um padrão recorrente de bug de decomposição, é um único
+gap específico de RF-05.3/T06 já isolado e corrigível numa tarefa própria).
+
+### Testes de integração cruzada entre as tarefas do lote (fluxo ponta a ponta)
+
+Fluxo completo confirmado por leitura + testes automatizados existentes,
+encadeando os módulos reais sem reimplementação local:
+
+1. `gerarSugestoesHospedagem` (L8-T03) → `generateAccommodationSuggestions`
+   (L8-T01) → Gateway de IA (Lote 3) + `applyBudgetFilter` (Lote 4) —
+   sugestões chegam a `HospedagemSugestoesScreen` (L8-T02) via `fetchImpl`
+   (mesmo bridge de `LoadingStream` de T04).
+2. `aprovarHospedagem` (L8-T03) → `applySessionFlowTransition` × 2 (Lote 4)
+   → `hospedagem_pendente` → `hospedagem_aprovada` (persistindo
+   `AccommodationApproval`) → `passeios_pendente` — a UI (L8-T02) navega
+   para `/passeios` só depois da Promise resolver, sem transição otimista.
+3. "Ajustar" (L8-T02) → `gerarSugestoesHospedagem` de novo (L8-T03), sem
+   transição de estado — confirmado consistente com o self-loop `ajustar`
+   em `hospedagem_pendente` da state machine.
+4. `encerrarResolucaoHospedagem` (L8-T03) → `applySessionFlowTransition` →
+   `encerrada_parcial`, preservando `DestinationApproval`/
+   `AccommodationApproval` já gravados (RN-03).
+- Nenhuma das 3 tarefas reimplementa lógica de outra (Diretriz de
+  Implementação 3/11) — confirmado por leitura cruzada dos 3 arquivos
+  principais.
+- Integração com Lotes 3/4/5/7/11: Lote 3 (Gateway de IA) e Lote 4
+  (Orquestração/Orçamento) consumidos só via suas fronteiras públicas
+  (`@/lib/gateway-ia`, `@/lib/session-flow`), nenhum arquivo interno
+  importado diretamente. Lote 5 (Design System) reaproveitado sem
+  duplicação (`SuggestionCard`/`LoadingStream`/`ErrorRetryState`/
+  `BudgetInsufficientBanner`). `L11-T03` (sanitização de texto livre)
+  corretamente tratada como pré-requisito já satisfeito — o nome do
+  destino consumido por `buildHospedagemPrompt` já chega sanitizado do
+  ponto de captura em `destino.ts`/`data-livre.ts`/`feriados.ts`,
+  confirmado por leitura do cabeçalho de `hospedagem.ts` e por
+  `Refatoração`/Bloqueio 003 já resolvido antes do início deste lote (ver
+  Lote 7 acima). Lote 7 (Destino) é pré-requisito funcional direto: a
+  sessão só chega a `hospedagem_pendente` depois de `destino_confirmado` +
+  `avancar` — testado explicitamente em `hospedagem.integration.test.ts`
+  via `createSessionAtHospedagemPendente`.
+
+### Requisitos não funcionais relevantes ao lote
+
+- **RN-04** (orçamento nunca bloqueia): confirmado em `applyBudgetFilter`
+  (Lote 4, revalidado) e em `HospedagemSugestoesScreen` (botão de aprovar
+  nunca desabilitado por `BudgetInsufficientBanner`, só pelo estado local
+  de "já aprovado nesta tela"/"aprovação em andamento").
+  RN-01 (nunca pula etapa): confirmado no encadeamento `aprovar`+`avancar`
+  de `aprovarHospedagem` (ver L8-T03 acima) e nas guardas de
+  `flowState`/`InvalidTransitionError` em toda Server Action do lote.
+- **Acessibilidade (WCAG AA, UX-SPEC §5)**: foco gerenciado ao montar;
+  erros sempre `role="alert"` + ícone + texto; alvo de toque `min-h-11`
+  nos botões principais; campo de feedback com `label`/`aria-describedby`
+  ligando erro ao campo. Nenhuma checagem automatizada de contraste/leitor
+  de tela real executada nesta validação (fora do escopo de `npm test`/
+  `npm run build`) — mesma limitação já aceita nos Lotes 5/7, revisão final
+  cross-tela reservada para `L11-T04`.
+- **RNF-05 (retry único)**: reaproveitado de L3-T04 via
+  `generateStructuredCompletionWithRetry`, nenhuma reimplementação.
+
+### Fechamento estrutural do Lote 8 (checagem do Validador)
+
+- Todas as 3 tarefas do lote (`L8-T01`, `L8-T02`, `L8-T03`) estão
+  `Concluída` no `TASK.md`.
+- Nenhuma dependência da Seção 4 órfã ou inconsistente relativa a este
+  lote: `Lotes 3+4+5 → Lote 8` e `L8-T01 também aguarda L11-T03` — ambos
+  pré-requisitos já `Concluída`/`Validado` antes do início deste lote,
+  confirmado.
+- Nenhuma tarefa `Bloqueada` sem resolução dentro do lote.
+- Achado simples registrado como `RL8-T01` em `Refatoração Lote-8`
+  (`TASK.md` Seção 3), com posição na fila de dependências (Seção 4)
+  atualizada (`Lote 8 → Refatoração Lote-8 (RL8-T01)`, sem bloquear a
+  ordem de execução dos demais lotes, sem prazo crítico).
+- Nenhuma inconsistência que exija redesenho de dependência/decomposição
+  encontrada — checagem de rotina concluída sem necessidade de reabrir o
+  Coordenador.
+
+## Veredito de Release-Readiness do Lote 8
+
+**Lote 8 pode fechar como `Validado com ressalvas`.** As 3 tarefas (L8-T01
+a L8-T03) passam nos critérios de aceite literais do `TASK.md`, `npm run
+lint` passa sem regressão, a suíte não-integração passa integralmente
+(18/18 nos dois arquivos deste lote; 90/149 no escopo mais amplo, com as
+59 falhas restantes 100% explicadas pela indisponibilidade de Postgres
+neste ambiente), a composição entre as tarefas (regra → Server Actions →
+UI) funciona como projetada e é consistente com a state machine (Lote 4).
+A ressalva é o achado simples de RF-05.3 acima (`RL8-T01`), que não
+bloqueia o fechamento do lote nem o início do Lote 9. **O lote está
+liberado para a auditoria de segurança completa do chapéu DevSecOps**
+(ver `SECURITY-REVIEW.md`).

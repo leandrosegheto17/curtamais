@@ -35,7 +35,9 @@ import type { SessionFlowState } from "./state-machine";
 // inferido aqui — este helper só grava o que recebe. Discriminado por
 // `type` para que o guard central de `L11-T02` (ainda não implementado)
 // tenha, em tempo de compilação, a garantia de que os dois ramos são
-// mutuamente exclusivos.
+// mutuamente exclusivos. O guard central (`L11-T02`, `./authorization.ts`)
+// já usa esse mesmo tipo para comparar o dono esperado da requisição contra
+// o `userId`/`anonSessionId` persistido.
 export type SessionOwner =
   | { type: "user"; userId: string }
   | { type: "anonymous"; anonSessionId: string };

@@ -44,13 +44,22 @@
 // (RF-11, L7-T04/L7-T05) — `aprovarDestinoSugerido`/
 // `informarDestinoManualmente` apenas indicam `proximaEtapa:
 // "confirmacao_destino"`, a navegação/tela em si é de outra tarefa;
-// autorização de dono de sessão (L11-T02) — todas as funções abaixo recebem
-// `sessionId` já resolvido pelo chamador, sem checar dono.
+// autorização de dono de sessão: `applySessionFlowTransition` já aplica o
+// guard internamente (L11-T02, `@/lib/session-flow/authorization.ts`) —
+// cobre `aprovarDestinoSugerido`/`informarDestinoManualmente`/
+// `encerrarResolucaoDestino` abaixo, todas delegadas. `gerarSugestoesDestino`
+// lê `TripSession` diretamente (fora do módulo `session-flow`), então chama
+// `assertSessionOwnership` explicitamente logo após a checagem de
+// existência.
 
 import { prisma } from "@/lib/prisma";
 import { generateDestinationSuggestions } from "@/lib/stage-rules";
 import type { DestinationSuggestionResult } from "@/lib/stage-rules";
-import { applySessionFlowTransition, SessionNotFoundError } from "@/lib/session-flow";
+import {
+  applySessionFlowTransition,
+  assertSessionOwnership,
+  SessionNotFoundError,
+} from "@/lib/session-flow";
 import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
 import {
   DestinoContextoIncompletoError,
@@ -95,12 +104,18 @@ export async function gerarSugestoesDestino(
       dateRangeEnd: true,
       budgetAmount: true,
       budgetCurrency: true,
+      userId: true,
+      anonSessionId: true,
     },
   });
 
   if (!session) {
     throw new SessionNotFoundError(sessionId);
   }
+
+  // L11-T02/ADR-008 — leitura direta de `TripSession` fora do módulo
+  // `session-flow`: guard central chamado explicitamente aqui.
+  await assertSessionOwnership(sessionId, session);
 
   if (session.flowState !== "destino_pendente") {
     throw new DestinoEtapaInvalidaError(session.flowState);

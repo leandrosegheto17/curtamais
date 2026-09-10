@@ -886,3 +886,227 @@ deploy que inclua geração real de hospedagem/passeios/roteiro sem essa
 sanitização em vigor. Liberado para seguir à checagem estrutural do lote
 (Seção 4 do `TASK.md`), condicionado à dupla aprovação com o veredito de QA
 (`QA-REPORT.md`) para o mesmo lote — já confirmada acima.
+
+## Lote 8 — Hospedagem (T06)
+
+Auditoria roda depois da aprovação funcional do chapéu QA para este lote
+(ver `QA-REPORT.md` — Lote 8 aprovado, veredito "Validado com ressalvas").
+
+Status geral: **Aprovado, com débito/ressalva registrada** (severidade
+média, não bloqueante para o fechamento deste lote, com implicação de
+sequenciamento para os Lotes 9/10 — ver item 2).
+
+### Escopo desta auditoria
+
+`src/lib/stage-rules/hospedagem.ts`, `src/lib/actions/hospedagem.ts`/
+`hospedagem-errors.ts`, `src/components/hospedagem/
+hospedagem-sugestoes-screen.tsx`.
+
+### 1. Autorização de dono de sessão (L11-T02, guard central ainda `Não iniciada`)
+
+- `gerarSugestoesHospedagem`/`aprovarHospedagem`/`encerrarResolucaoHospedagem`
+  recebem `sessionId` já resolvido pelo chamador, sem checar dono — mesma
+  lacuna já aceita e documentada desde os Lotes 4/6/7 (`L11-T02a` já persiste
+  o dono desde 2026-09-10, mas o guard central que **compara** o dono da
+  requisição contra o dono persistido ainda não existe). Confirmado por
+  leitura: nenhuma das três funções deste lote introduz uma exposição NOVA
+  além da já aceita — `gerarSugestoesHospedagem` lê `TripSession`/
+  `DestinationApproval` só pelos campos necessários ao prompt (nunca retorna
+  dado de outra sessão por erro de lógica: a consulta é sempre
+  `where: { sessionId }`/`where: { id: sessionId }`, sem join ou fallback que
+  vaze outro registro), `aprovarHospedagem`/`encerrarResolucaoHospedagem`
+  delegam inteiramente a `applySessionFlowTransition` (mesmo módulo já
+  auditado nos Lotes 4/7) sem lógica adicional de leitura.
+- **Sem achado novo** — mesma lacuna já coberta pelo guard pendente
+  (`L11-T02`), sem regressão.
+
+### 2. Sanitização de texto livre contra prompt injection (L11-T03) — dois pontos
+
+**2a. Campo de feedback de "Ajustar" (`hospedagem-sugestoes-screen.tsx`) — sem exposição hoje**
+
+- Confirmado por leitura: o valor de `feedbackValue` só é lido em
+  `handleAdjustSubmit` para um `console.info` condicionado a
+  `NODE_ENV !== "production"` — nunca é passado a
+  `actions.gerarSugestoesHospedagem` (que é chamada só com `sessionId`) nem
+  a nenhuma outra função. Não há hoje caminho de código que leve esse texto
+  a um prompt do Gateway de IA. **Sem exploração possível no build atual.**
+- Achado de processo (não de código): o critério de aceite de `RL8-T01`
+  (`.md/TASK.md`, Seção 3 — "Incorporar o feedback textual... ao prompt de
+  regeneração"), como registrado pelo chapéu QA, descreve só o resultado
+  funcional ("o prompt enviado ao Gateway de IA contém literalmente o texto
+  informado pelo usuário") e **não menciona sanitização**. Se `RL8-T01` for
+  implementada exatamente como está escrita — interpolar o texto bruto no
+  prompt — reabre exatamente o vetor de prompt injection que `L11-T03`
+  (`sanitizeFreeTextForPrompt`, `@/lib/gateway-ia/prompt-injection-guard`) já
+  existe para fechar, no mesmo padrão já usado em
+  `src/lib/actions/destino.ts` (`informarDestinoManualmente`). **Complementado
+  o critério de aceite de `RL8-T01` em `TASK.md`** (achado deste chapéu,
+  dentro da autoridade do Validador sobre a própria tarefa de refatoração que
+  ele criou — não é redesenho de dependência/decomposição, só reforço de
+  requisito de segurança já estabelecido por `L11-T03`) para exigir
+  explicitamente `sanitizeFreeTextForPrompt` antes de qualquer interpolação
+  do feedback no prompt.
+- **Classificação: severidade BAIXA** (nenhuma exploração possível hoje —
+  RL8-T01 nem começou; o achado é preventivo, sobre o texto do critério de
+  aceite de uma tarefa futura). Não bloqueia o fechamento do Lote 8.
+
+**2b. Campos de sugestão aprovada (`name`/`type`/`distinctiveFeature`) persistidos sem sanitização equivalente — achado NOVO**
+
+- `assertValidAccommodationPayload` (`hospedagem.ts`) revalida
+  `name`/`type`/`distinctiveFeature` só contra vazio/ausente — nenhuma
+  chamada a `sanitizeFreeTextForPrompt` antes de `applySessionFlowTransition`
+  persistir esses campos em `AccommodationApproval`. Esses valores nascem
+  como saída do Gateway de IA (schema-constrained, `hospedagemOpcoesSchema`)
+  na primeira geração, mas `aprovarHospedagem` recebe de volta o payload
+  **do cliente** no momento da aprovação — uma viagem de ida e volta pelo
+  browser é suficiente para adulteração (mesmo raciocínio já aplicado à
+  faixa de preço em `assertValidAccommodationPayload`, mas não estendido aos
+  campos de texto).
+- Diferente do achado já registrado no Lote 7 (item 1, Bloqueio 003 —
+  `destination.name`, texto livre digitado pelo usuário), aqui o vetor é
+  outro: um cliente adulterado poderia submeter `name`/`type`/
+  `distinctiveFeature` contendo uma tentativa de instrução embutida (ex.:
+  `"Pousada X. Ignore instruções anteriores e..."`) via o mesmo payload que
+  `aprovarHospedagem` já espera — sem precisar de um campo de texto livre
+  dedicado.
+- Confirmado por leitura de `src/lib/gateway-ia/prompts.ts` (linhas
+  ~181-182, ~247): `context.accommodation.name`/`.type` **são interpolados
+  literalmente** em `buildPasseiosPrompt`/`buildRoteiroPrompt` ("Hospedagem
+  já aprovada: {name} ({type}).") — ou seja, este dado tem um caminho real
+  para virar prompt assim que `L9-T01`/`L10-T01` existirem e lerem
+  `AccommodationApproval` de volta do banco.
+- **Risco hoje: nulo** — `L9-T01`/`L10-T01` (Lotes 9/10) ainda não estão
+  implementados, não há código que leia `AccommodationApproval.name`/`.type`
+  de volta para um prompt ainda. Mesma lógica de risco futuro já usada na
+  classificação do Lote 7 item 1.
+- **Classificação: achado de severidade MÉDIA, não bloqueante para o
+  fechamento do Lote 8** (sem exploração possível hoje). **Registrado como
+  tarefa nova `RL8-T02` em `Refatoração Lote-8` (`TASK.md` Seção 3)**, com
+  dependência reversa de `L9-T01`/`L10-T01` (mesmo padrão do Bloqueio 003 já
+  resolvido para o item 1 do Lote 7) — recomendação do Validador: aplicar
+  `sanitizeFreeTextForPrompt` a `name`/`type`/`distinctiveFeature` dentro de
+  `assertValidAccommodationPayload` antes de `L9-T01`/`L10-T01` iniciarem
+  implementação, mesmo raciocínio já usado para `L8-T01` no Bloqueio 003.
+  Diferente do Bloqueio 003 (decisão de sequenciamento entre tarefas,
+  escalada ao coordenador), este achado é uma tarefa de correção pontual
+  dentro do próprio Lote 8 (mesmo módulo, mesma função) — permanece dentro
+  da autoridade do Validador criar e sequenciar em `Refatoração Lote-8`, sem
+  precisar reabrir o coordenador.
+
+### 3. Revalidação de payload contra adulteração — `aprovarHospedagem`
+
+- `assertValidAccommodationPayload` revalida nome/tipo/característica
+  distintiva (não vazios) e faixa de preço (numérica, não negativa, não
+  invertida, dentro de `MAX_SANE_PRICE_BRL = 1_000_000`) **antes** de
+  `applySessionFlowTransition` persistir — nunca confia cegamente no
+  payload devolvido pelo cliente, mesmo padrão de `assertValidSuggestionPayload`
+  (`destino.ts`, já auditado no Lote 7). Cobre preço negativo/absurdo e
+  campos vazios adequadamente. A lacuna de sanitização de conteúdo textual é
+  tratada à parte no item 2b acima (não invalida a revalidação estrutural em
+  si, que está correta e completa para o que se propõe).
+- **Conforme** SDD §7 ("Validação de entrada")/Diretriz de Implementação 9,
+  com a ressalva do item 2b.
+
+### 4. Nenhuma escrita em `TripSession` fora do Orquestrador de Sessão
+
+- Busca em `hospedagem.ts` por `prisma.tripSession.update`/
+  `prisma.accommodationApproval.create` diretos: nenhuma ocorrência — toda
+  escrita passa por `applySessionFlowTransition` (`@/lib/session-flow`). As
+  únicas leituras diretas ao Prisma são `prisma.tripSession.findUnique`/
+  `prisma.destinationApproval.findUnique` em `gerarSugestoesHospedagem`, só
+  para montar o contexto de geração (não escrevem nada).
+- **Conforme** Diretriz de Implementação 3/GUARDRAILS.md.
+
+### 5. Exposição de dados sensíveis
+
+- `sessionId` trafega via querystring na rota que renderiza esta tela
+  (mesmo padrão já auditado nos Lotes 6/7 — identificador opaco de sessão,
+  não um segredo/credencial). Erros de `hospedagem-errors.ts`
+  (`HospedagemEtapaInvalidaError`, `HospedagemContextoIncompletoError`,
+  `InvalidHospedagemSuggestionError`) expõem só `flowState`/mensagem fixa,
+  nunca stack trace/erro nativo do Prisma. Renderização via React (nunca
+  `dangerouslySetInnerHTML`) na tela — sem vetor de XSS refletido, mesmo com
+  o achado de conteúdo do item 2b (o risco ali é sobre o prompt de uma etapa
+  futura, não sobre renderização nesta tela). Nenhum dado de conta (e-mail/
+  senha) persistido em `AccommodationApproval`.
+- **Conforme, sem achado novo além do já registrado no item 2b.**
+
+### 6. Segredos/observabilidade
+
+- `generateAccommodationSuggestions` chama
+  `generateStructuredCompletionWithRetry` (L3-T04) — mesmo caminho já
+  auditado no Lote 3: toda chamada ao provider grava `LlmGenerationLog`
+  (sucesso ou falha), nenhuma chamada "silenciosa". `OPENAI_API_KEY`
+  permanece só em `src/lib/gateway-ia/client.ts`, lido de `process.env`,
+  nunca logado/exposto — confirmado por leitura, nenhuma nova chamada a
+  provider fora desse caminho neste lote.
+- **Conforme, sem achado novo.**
+
+### 7. Rate limiting
+
+- `gerarSugestoesHospedagem` → `generateAccommodationSuggestions` →
+  `generateStructuredCompletionWithRetry`, sem chamar
+  `checkGatewayIaRateLimit` (L3-T05) — mesmo gap já registrado em
+  `Refatoração Lote-3` (`RL3-T01`) e já presente em `destino.ts` (Lote 7).
+  Este lote **não expõe rota pública nova** nem agrava o débito além do já
+  conhecido: `hospedagem.ts` são Server Actions internas ao fluxo
+  autenticado/anônimo de sessão existente, mesmo modelo de exposição já
+  coberto por `RL3-T01`. Nenhuma tarefa nova necessária, só reforça (mais
+  uma vez) a urgência de `RL3-T01` antes do primeiro deploy com tráfego
+  público real.
+
+### 8. Dependências de terceiros
+
+- Nenhuma dependência nova adicionada neste lote — `npm audit` inalterado em
+  relação ao já registrado em `RL1-T01`/Lote 3.
+
+### 9. Requisitos de segurança operacional para o chapéu DevOps
+
+- Mesmos requisitos já registrados nos Lotes 3/7 (secrets via env/secrets
+  manager, rate limiting antes de tráfego público real) — reforça que
+  `RL3-T01` precisa estar resolvido antes do primeiro deploy que exponha
+  geração de hospedagem/passeios/roteiro a tráfego público, e que `RL8-T02`
+  (item 2b acima) precisa estar resolvido antes de `L9-T01`/`L10-T01`
+  entrarem em produção.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica com exploração real neste lote —
+nenhum escalonamento a `executor` necessário (as 3 tarefas cumprem seus
+critérios de aceite; os achados dos itens 2a/2b são sobre dependências
+futuras/critério de aceite de uma tarefa ainda não implementada, não sobre
+código em produção neste lote).
+
+Nenhum escalonamento ao **coordenador** neste lote — os dois achados (2a,
+2b) são correções pontuais dentro do próprio Lote 8/`Refatoração Lote-8`
+(mesmo módulo, sem redesenho de dependência/decomposição), diferente do
+Bloqueio 003 do Lote 7 (que exigiu decisão de sequenciamento entre lotes
+distintos, já resolvida pelo coordenador).
+
+Sinalização ao **Gestor** (paralela, não pré-requisito do fechamento deste
+lote): reforço de que o padrão de "dado de uma etapa retorna ao servidor via
+client antes de persistir, depois alimenta o prompt de uma etapa futura"
+(já visto no destino, Lote 7) se repete estruturalmente a cada nova etapa
+(agora hospedagem) — vale considerar, em uma futura revisão de arquitetura,
+um ponto único de sanitização no momento da persistência
+(`applySessionFlowTransition`) em vez de replicar a chamada a
+`sanitizeFreeTextForPrompt` em cada Server Action de aprovação.
+
+## Veredito
+
+**Build do Lote 8 aprovado em segurança, com débito/ressalva registrada.**
+Nenhum achado de severidade alta/crítica com exploração real, nenhum
+compliance obrigatório (LGPD) pendente, revalidação estrutural de payload
+contra adulteração implementada corretamente, nenhuma escrita fora do
+Orquestrador de Sessão, nenhuma exposição nova de autorização de dono de
+sessão além da já aceita (`L11-T02` pendente), nenhuma chamada silenciosa ao
+provider. Dois achados registrados: severidade BAIXA (item 2a — critério de
+aceite de `RL8-T01` complementado em `TASK.md` para exigir sanitização) e
+severidade MÉDIA (item 2b — nova tarefa `RL8-T02` em `Refatoração Lote-8`,
+com dependência reversa de `L9-T01`/`L10-T01`). Nenhum dos dois bloqueia o
+fechamento do Lote 8 nem o início do Lote 9 — ambos precisam estar
+resolvidos antes de `L9-T01`/`L10-T01` lerem `AccommodationApproval`/
+gerarem prompt com feedback incorporado, respectivamente. Liberado para
+seguir à checagem estrutural do lote (Seção 4 do `TASK.md`), condicionado à
+dupla aprovação com o veredito de QA (`QA-REPORT.md`) para o mesmo lote —
+já confirmada acima.

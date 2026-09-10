@@ -13,24 +13,32 @@
 // - Server Actions de tela (L6-T03/T05/T07, L7-T03/T05, L8-T03, L9-T03,
 //   L10-T03) — ainda não existem, vão chamar este módulo.
 // - Regra de orçamento (RF-10, L4-T03) — ortogonal, não tratada aqui.
-// - Autorização cross-cutting de dono de sessão (L11-T02, ainda não
-//   implementada) — este módulo recebe `sessionId` já resolvido pelo
-//   chamador, sem checar dono.
+//
+// L11-T02 (ADR-008 item 4) — Autorização cross-cutting de dono de sessão:
+// `assertSessionOwnership` (`./authorization.ts`) é chamada logo após a
+// checagem de existência da sessão, ANTES de qualquer decisão de transição —
+// nenhuma ação (mesmo uma transição estruturalmente válida) é sequer
+// avaliada para uma sessão que não pertence ao solicitante da requisição
+// corrente. Dono divergente lança o MESMO `SessionNotFoundError` de "sessão
+// inexistente" (nunca um erro 403 dedicado) — ver `./authorization.ts` para
+// o raciocínio completo.
 //
 // Ordem de validação, sempre ANTES de qualquer escrita (critério de aceite
 // "transição inválida não persiste nada"):
 //   1. `TripSession` existe? (senão `SessionNotFoundError`)
-//   2. `transitionSessionFlow(currentState, action)` decide o próximo estado
+//   2. Dono da sessão bate com o dono esperado da requisição corrente?
+//      (senão `SessionNotFoundError` — L11-T02, ver acima)
+//   3. `transitionSessionFlow(currentState, action)` decide o próximo estado
 //      ou lança `InvalidTransitionError` (pular etapa, ação inválida no
 //      estado atual, ação a partir de estado terminal).
-//   3. Se `action === "aprovar"`: o `childData.stage` informado corresponde à
+//   4. Se `action === "aprovar"`: o `childData.stage` informado corresponde à
 //      etapa da `TripSession.flowState` atual? Senão `InvalidChildDataError`
 //      (dados ausentes ou de etapa errada).
-//   Só depois desses três passos o `tx.tripSession.update` + (quando
+//   Só depois desses quatro passos o `tx.tripSession.update` + (quando
 //   aplicável) `tx.<entidadeFilha>.create(...)` acontecem, dentro da MESMA
 //   transação Prisma — qualquer erro lançado antes do fim do callback do
 //   `$transaction` garante rollback automático, então nada fica
-//   parcialmente gravado mesmo se a checagem 3 viesse depois de alguma
+//   parcialmente gravado mesmo se alguma checagem viesse depois de alguma
 //   escrita (não vem, mas a transação é a rede de segurança adicional).
 //
 // RN-03 ("encerrar em qualquer ponto preserva o já aprovado"): a ação
@@ -58,6 +66,7 @@ import {
   type SessionFlowState,
 } from "./state-machine";
 import { InvalidChildDataError, SessionNotFoundError } from "./errors";
+import { assertSessionOwnership } from "./authorization";
 
 type PrismaTransactionClient = Omit<
   PrismaClient,
@@ -179,18 +188,29 @@ export async function applySessionFlowTransition(
   return prisma.$transaction(async (tx) => {
     const session = await tx.tripSession.findUnique({
       where: { id: input.sessionId },
-      select: { flowState: true, status: true },
+      select: {
+        flowState: true,
+        status: true,
+        userId: true,
+        anonSessionId: true,
+      },
     });
     if (!session) {
       throw new SessionNotFoundError(input.sessionId);
     }
+
+    // Passo 2 (L11-T02/ADR-008) — dono da sessão bate com o dono esperado da
+    // requisição corrente? Lança `SessionNotFoundError` (nunca 403) antes de
+    // qualquer decisão de transição/escrita.
+    await assertSessionOwnership(input.sessionId, session);
+
     const currentState = session.flowState as SessionFlowState;
 
-    // Passo 2 — decisão pura (L4-T01). Lança `InvalidTransitionError` antes
+    // Passo 3 — decisão pura (L4-T01). Lança `InvalidTransitionError` antes
     // de qualquer escrita para pular etapa/ação inválida/estado terminal.
     const nextState = transitionSessionFlow(currentState, input.action);
 
-    // Passo 3 — payload da entidade filha, só para `aprovar`.
+    // Passo 4 — payload da entidade filha, só para `aprovar`.
     if (input.action === "aprovar") {
       const expectedStage = APPROVAL_STAGE_BY_PENDING_STATE[currentState];
       if (!expectedStage || input.childData?.stage !== expectedStage) {

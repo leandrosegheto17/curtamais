@@ -2317,25 +2317,513 @@ por esta nota (mantida conforme já registrado na tabela do Lote 7).
 
 ### Lote 8 — Hospedagem (T06)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L8-T01 | Regra RF-06 — geração de 3 opções de hospedagem via Gateway de IA + filtro de orçamento (RF-06.1/.2) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03** | — | Sempre 3 opções, cada uma com nome/tipo, faixa de preço por diária, característica distintiva |
-| L8-T02 | T06 UI — cartões, aprovar/ajustar (com feedback textual), rodapé de decisão | FE | 1 dia | L5-T03, L5-T04, L8-T01 | L8-T03 | "Ajustar" regenera a mesma etapa sem avançar (RF-05.3); rodapé oferece continuar/encerrar (RF-05.4) |
-| L8-T03 | T06 Server Actions — aprovar avança (RF-06.3), ajustar regenera, encerrar aqui | BE | 1 dia | L4-T02, L8-T01 | L8-T02 | Aprovar persiste `AccommodationApproval` e avança para passeios |
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L8-T01 | Regra RF-06 — geração de 3 opções de hospedagem via Gateway de IA + filtro de orçamento (RF-06.1/.2) | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03** | — | Concluída | Sempre 3 opções, cada uma com nome/tipo, faixa de preço por diária, característica distintiva |
+| L8-T02 | T06 UI — cartões, aprovar/ajustar (com feedback textual), rodapé de decisão | FE | 1 dia | L5-T03, L5-T04, L8-T01 | L8-T03 | Concluída | "Ajustar" regenera a mesma etapa sem avançar (RF-05.3); rodapé oferece continuar/encerrar (RF-05.4) |
+| L8-T03 | T06 Server Actions — aprovar avança (RF-06.3), ajustar regenera, encerrar aqui | BE | 1 dia | L4-T02, L8-T01 | L8-T02 | Concluída | Aprovar persiste `AccommodationApproval` e avança para passeios |
+
+Nota de implementação L8-T01 (2026-09-10, Executor/BE): implementada a regra
+RF-06.1/.2 como função pura assíncrona `generateAccommodationSuggestions` em
+`src/lib/stage-rules/hospedagem.ts` (novo arquivo), reexportada por
+`src/lib/stage-rules/index.ts`, seguindo exatamente o mesmo padrão já
+estabelecido por `generateDestinationSuggestions` (L7-T01,
+`src/lib/stage-rules/destino.ts`): (1) chama
+`generateStructuredCompletionWithRetry` (`@/lib/gateway-ia`, L3-T04) para a
+etapa `"hospedagem"` usando o registro central de prompt/schema já existente
+(`buildHospedagemPrompt`/`hospedagemOpcoesSchema`, L3-T02, que já garante
+exatamente 3 opções via `.length(3)` no schema Zod — RF-06.1); (2) adapta o
+shape específico do schema da etapa (`precoPorDiariaMin`/`precoPorDiariaMax`)
+para o shape genérico `PriceRangedSuggestion` (`precoMin`/`precoMax`)
+exigido por `applyBudgetFilter` (RF-10/RF-06.2, L4-T03,
+`src/lib/session-flow/budget-filter.ts`), reutilizado sem alteração —
+`applyBudgetFilter` só reordena/sinaliza excedente, nunca remove item, então
+as 3 opções do schema permanecem sempre 3 na saída final (verificado em
+teste). `input.destination` é obrigatório no tipo de entrada
+(`GenerateAccommodationSuggestionsInput.destination`, não opcional) — reforça
+em compile-time a regra RN-01 já aplicada em runtime por
+`buildHospedagemPrompt` (lança `Error` se `context.destination` estiver
+ausente).
+
+Decisão de detalhe (pequena, resolvida sem escalar): sanitização de texto
+livre contra prompt injection (L11-T03,
+`sanitizeFreeTextForPrompt`/`@/lib/gateway-ia/prompt-injection-guard`) **não**
+foi reaplicada dentro de `generateAccommodationSuggestions` sobre
+`destination.name`. Motivo: esse valor chega como um destino JÁ APROVADO
+(`DestinationApproval`), e a sanitização de L11-T03 já acontece no ponto de
+captura original do texto livre do usuário — nas Server Actions
+`src/lib/actions/destino.ts` (`informarDestinoManualmente`),
+`data-livre.ts` e `feriados.ts` (campo `destino` de entrada manual) — antes
+da persistência; o mesmo raciocínio documentado no cabeçalho de
+`prompt-injection-guard.ts` ("a sanitização acontece ANTES do valor entrar
+em `StageContext`, no ponto de captura, não dentro do Gateway de IA")
+já cobre esta etapa também. Reaplicar a sanitização aqui seria redundante
+(o valor sanitizado já está em repouso, sem nova entrada de usuário) e
+poderia, no limite, truncar/alterar um nome de destino que um usuário via IA
+(não texto livre) nunca fez passar por esse campo — decisão de escopo
+pequena, não uma reinterpretação de UX-SPEC/ADR.
+
+Testes (TDD, `src/lib/stage-rules/__tests__/hospedagem.test.ts`, 7 casos, sem
+I/O real — `generateStructuredCompletionWithRetry` mockada, mesmo padrão de
+`destino.test.ts`): sempre 3 opções com nome/tipo/faixa de preço por
+diária/característica distintiva (critério de aceite); chamada ao Gateway de
+IA com `sessionId`/`stage: "hospedagem"`/`schemaName` corretos e destino
+interpolado no prompt; sem orçamento nunca bloqueia (RF-10.3/RN-04); com
+orçamento reordena mantendo as 3 opções (RF-10.1); nenhuma opção cabe no
+orçamento → mais barata primeiro com `exceedsBudget: true`, ainda 3 opções
+(RF-06.2/RF-10.2); erro claro quando chamada sem `destination` (RN-01,
+delegado a `buildHospedagemPrompt`); erro do Gateway de IA propagado sem
+mascarar.
+
+Fora de escopo desta tarefa (fica para L8-T02/L8-T03, já registrado nas
+diretrizes originais destas tarefas): Server Action de tela, persistência de
+`AccommodationApproval` via `applySessionFlowTransition`, UI de
+cartões/aprovar/ajustar/rodapé de decisão, e a integração real ponta a ponta
+com banco (Postgres não disponível neste ambiente de execução — mesma
+limitação já documentada nas notas de L4-T02/L7-T01/L7-T03: testes
+`*.integration.test.ts` existentes continuam falhando só por falta de
+`localhost:55432`, nenhuma regressão nova introduzida por esta tarefa,
+confirmado rodando a suíte completa antes e depois desta mudança).
+
+`npm run build` (lint + type-check + build) passou sem erro; suíte de testes
+unitários/de componente 100% verde (só os testes `*.integration.test.ts`
+dependentes de Postgres real continuam falhando, comportamento pré-existente
+e documentado, não uma regressão desta tarefa). Nenhum desvio de
+escopo/estimativa; nenhuma lacuna de arquitetura/UX-SPEC encontrada — nada
+registrado em `BLOCKERS.md` por esta tarefa.
+
+Nota de implementação L8-T02 (2026-09-10, Executor/FE): `HospedagemSugestoesScreen`
+(`src/components/hospedagem/hospedagem-sugestoes-screen.tsx`), mesmo padrão de
+`DestinoSugestoesScreen` (T04, L7-T02): estados obrigatórios aplicáveis a T06
+(UX-SPEC.md §4 — Carregando/Erro/Sucesso; "Vazio" explicitamente "Não
+aplicável" para T06, sempre há 3 opções por definição de RF-06.1) via
+`LoadingStream`/`ErrorRetryState` (L5-T03, reaproveitados, nenhuma lógica de
+estado duplicada — Diretriz de Implementação 11), `BudgetInsufficientBanner`
+(RF-10.2/RN-04) e `SuggestionCard` (L5-T04) para os 3 cartões (nome/tipo,
+`PriceRangeBadge` com `unitLabel="por diária"`, característica distintiva).
+
+Paralelismo com L8-T03 (mesmo lote, mesmo padrão já usado em L6-T02/T03 e
+L7-T02/T03): no momento em que esta tarefa começou, `@/lib/actions/hospedagem`
+ainda não existia — a tela foi desenhada contra uma interface documentada no
+cabeçalho do arquivo. O módulo real (`src/lib/actions/hospedagem.ts`) passou a
+existir ainda durante esta mesma tarefa (a instância paralela de L8-T03
+terminou primeiro), então a tela final já importa e consome
+`gerarSugestoesHospedagem`/`aprovarHospedagem`/`encerrarResolucaoHospedagem`
+reais (com `actionsOverride` só para teste, mesmo padrão de
+`DestinoSugestoesScreen`), em vez de manter uma prop de ações especulativa —
+reduz risco de divergência. Dois ajustes ao contrato inicialmente documentado,
+resolvidos a favor do contrato real da Server Action (fonte da verdade da
+regra de negócio, TASK.md Seção 1 item 3): (1) `aprovarHospedagem` já encadeia
+`aprovar`+`avancar` (RF-06.3 — aprovar sempre avança para passeios, sem tela
+de confirmação intermediária como T05 de destino) — "Continuar para passeios"
+no rodapé é só navegação client-side para a etapa já confirmada pelo
+servidor, nenhuma chamada adicional; (2) não existe uma função dedicada de
+"ajustar com feedback" — RF-05.3 é satisfeita chamando `gerarSugestoesHospedagem`
+de novo (self-loop da ação `ajustar` em `hospedagem_pendente`,
+`state-machine.ts`), critério de aceite ("Ajustar regenera a mesma etapa sem
+avançar") continua satisfeito. A tela mantém o campo de feedback textual
+exigido por UX-SPEC.md T06 (label "O que você gostaria de ajustar nesta
+opção?"), mas o texto ainda não chega ao prompt do Gateway de IA — GAP
+CONHECIDO já documentado por L8-T03 no cabeçalho de
+`@/lib/actions/hospedagem.ts` (mesma lacuna pré-existente em `gerarSugestoesDestino`/
+RF-04.4), não introduzido nem resolvido por esta tarefa; sinalizado (não
+decidido sozinho) para o Coordenador avaliar abertura de tarefa dedicada que
+estenda `StageContext`/`buildHospedagemPrompt` para incorporar texto livre —
+não bloqueia esta tarefa porque o critério de aceite de L8-T02 é sobre
+comportamento de UI (regenerar sem avançar), não sobre o prompt em si.
+
+Rodapé de decisão (RF-05.4, critério de aceite): depois de aprovar um cartão
+(desabilita Aprovar/Ajustar dos demais, mesmo padrão de T04), aparece
+"Continuar para passeios" (navega para `/passeios`, rota de T07/Lote 9 ainda
+não criada — mesmo padrão de T04 apontando para `/destino/confirmacao` antes
+de T05 existir, fora de escopo desta tarefa) e "Só queria decidir até aqui —
+encerrar aqui" (chama `encerrarResolucaoHospedagem`, navega para
+`/encerramento`, também ainda não criada).
+
+Acessibilidade (UX-SPEC §5, Diretriz de Implementação 10): foco vai para o
+título ao montar (`useEffect` + `headingRef.current?.focus()`, mesmo padrão
+de `DestinoConfirmacaoScreen`/L7-T04 e `FeriadosScreen`/L6-T04 — ausente em
+`DestinoSugestoesScreen`/L7-T02, não corrigido aqui por ser arquivo de outra
+tarefa já concluída); label associado ao campo de feedback via `htmlFor`/`id`
+e erro conectado via `aria-describedby`; nenhuma informação só por cor (erro
+usa ícone + texto/`role="alert"`, igual ao restante do design system); alvo
+de toque `min-h-11` nos botões principais (RNF-04); ordem de tab natural
+(nenhum `tabIndex` manual fora do título).
+
+Testes: `src/components/hospedagem/__tests__/hospedagem-sugestoes-screen.test.tsx`
+(11 casos) — skeleton de carregamento; 3 cartões com preço por diária;
+`BudgetInsufficientBanner` sem desabilitar botões (RN-04); aprovar chama
+`aprovarHospedagem` e mostra rodapé; botões dos demais cartões desabilitados
+após aprovar; "Continuar para passeios" navega com `flowState` já avançado
+pelo servidor; "encerrar aqui" chama `encerrarResolucaoHospedagem` e navega
+para `/encerramento`; "Ajustar" abre o campo, regenera via
+`gerarSugestoesHospedagem` e substitui a lista sem navegar (RF-05.3,
+critério de aceite); "Cancelar" fecha sem regenerar; foco no título ao
+montar; `ErrorRetryState` após falha com "Tentar novamente" funcional.
+
+`npm run lint`/`npx eslint src/components/hospedagem` e os 11 testes novos
+(mais a suíte completa de testes unitários/de componente, sem regressão —
+só os testes `*.integration.test.ts` dependentes de Postgres real continuam
+falhando, comportamento pré-existente e documentado desde L4-T02, não uma
+regressão desta tarefa) passam sem erro. `npx tsc --noEmit` não reporta
+nenhum erro nos arquivos desta tarefa (`hospedagem-sugestoes-screen.tsx`,
+`hospedagem-sugestoes-screen.test.tsx`) — os 3 erros pré-existentes do
+projeto (`destino/confirmacao/__tests__/page.test.tsx`,
+`budget-insufficient-banner.test.tsx`, `auth-callbacks.test.ts`) não têm
+relação com esta tarefa. `npm run build` não foi possível concluir (mesmo
+padrão documentado em L6-T02): a etapa de type-check do Next.js reporta
+"Compiled successfully", mas a fase seguinte ("Collecting page data") falha
+com `ENOENT .next/server/pages-manifest.json` — erro de infraestrutura de
+build compartilhada (`.next/`) por escrita concorrente da instância paralela
+de L8-T03, reproduzido em 2 tentativas seguidas, sem relação com os arquivos
+desta tarefa (confirmado via `tsc --noEmit` acima); não corrigido aqui por
+ser diretório de build compartilhado entre instâncias em edição simultânea.
+
+Fora de escopo desta tarefa (não criado aqui, deliberadamente): rota real
+`src/app/hospedagem/page.tsx` — como o componente foi escrito para consumir
+diretamente as Server Actions reais (ver acima), a página é um wrapper trivial
+(resolver `sessionId` da querystring/sessão e renderizar
+`<HospedagemSugestoesScreen sessionId={...} />`, mesmo padrão de
+`src/app/destino/page.tsx`); deixada de fora por não fazer parte do critério
+de aceite desta tarefa (UI de cartões/aprovar/ajustar/rodapé) e para não
+arriscar conflito de arquivo com a instância paralela de L8-T03, que também
+pode precisar tocar roteamento. Nenhum desvio de escopo/estimativa; nenhuma
+lacuna de arquitetura/UX-SPEC encontrada que impedisse a implementação — o
+único gap encontrado (feedback textual não incorporado ao prompt) já estava
+sinalizado por L8-T03 antes desta tarefa terminar, não registrado de novo em
+`BLOCKERS.md` para evitar duplicidade (mesmo achado, mesma causa raiz).
+
+Nota de implementação L8-T03 (2026-09-10, Executor/BE): implementadas as 3
+Server Actions de tela de T06 em `src/lib/actions/hospedagem.ts` (novo
+arquivo, `"use server"`) + `src/lib/actions/hospedagem-errors.ts` (novo
+arquivo de erros dedicados, sem `"use server"`, mesmo motivo já documentado
+em `destino-errors.ts`), seguindo exatamente o mesmo padrão já estabelecido
+por `src/lib/actions/destino.ts` (L7-T03). Assinaturas exatas (estáveis —
+confirmado pela nota de L8-T02 acima: a instância paralela consumiu estes
+três nomes de `@/lib/actions/hospedagem` sem qualquer ajuste):
+- `gerarSugestoesHospedagem(sessionId: string): Promise<AccommodationSuggestionResult[]>`
+  — RF-06.1/.2, delega a `generateAccommodationSuggestions` (L8-T01) com o
+  destino já aprovado (`DestinationApproval`) e range/orçamento da sessão;
+  exige `flowState === "hospedagem_pendente"`
+  (`HospedagemEtapaInvalidaError` senão); reusada também para "Ajustar"
+  (RF-05.3) — mesmo padrão de `gerarSugestoesDestino`/RF-04.4 (L7-T03): a
+  ação `ajustar` da state machine é um self-loop em `hospedagem_pendente`,
+  então nenhuma chamada a `applySessionFlowTransition` é necessária para "não
+  avançar".
+- `aprovarHospedagem({ sessionId: string; suggestion: AccommodationSuggestionResult }): Promise<{ proximaEtapa: "passeios"; sessionId: string; flowState: "passeios_pendente"; hospedagem: string }>`
+  — RF-06.3, critério de aceite desta tarefa. Revalida o payload recebido do
+  cliente (`assertValidAccommodationPayload`, mesmo raciocínio de
+  `destino.ts`) e encadeia DUAS chamadas sequenciais a
+  `applySessionFlowTransition` (`@/lib/session-flow`, L4-T02): `"aprovar"`
+  (persiste `AccommodationApproval`, `hospedagem_pendente` →
+  `hospedagem_aprovada`) seguida de `"avancar"` (`hospedagem_aprovada` →
+  `passeios_pendente`) — mesmo padrão de duas chamadas sequenciais já usado
+  em `persistence.integration.test.ts` (L4-T02). Desvio estrutural
+  INTENCIONAL em relação a `destino.ts`: destino tem uma tela de confirmação
+  própria entre aprovar e avançar (T05/`confirmarDestino`, L7-T05);
+  hospedagem não tem etapa equivalente (UX-SPEC.md T06: "'Aprovar' por bloco
+  avança" — direto), por isso `aprovarHospedagem` já entrega
+  `flowState: "passeios_pendente"` numa única chamada, sem uma Server Action
+  de tela separada para o "avancar".
+- `encerrarResolucaoHospedagem(sessionId: string): Promise<{ proximaEtapa: "encerramento"; sessionId: string; flowState: "encerrada_parcial" }>`
+  — RF-05.4/RN-03, delega a `applySessionFlowTransition("encerrar")`.
+  Disponível a partir de `hospedagem_pendente` (destino já aprovado) ou de
+  qualquer estado posterior — preserva `DestinationApproval`/
+  `AccommodationApproval` já gravados.
+
+Gap conhecido (mesmo já descrito/confirmado pela nota de L8-T02 acima — não
+duplicado em `BLOCKERS.md`): RF-05.3 (PRD-TECNICO.md) descreve "ajustar" como
+"incorporando o feedback do usuário", e UX-SPEC.md T06 menciona um "campo de
+feedback textual curto" na ação Ajustar. Nem `StageContext`/
+`buildHospedagemPrompt` (`@/lib/gateway-ia`, L3-T02) nem
+`generateAccommodationSuggestions` (`@/lib/stage-rules`, L8-T01) têm hoje um
+campo para incorporar esse texto ao prompt — mesma lacuna já presente (e não
+sinalizada) no "nova rodada" de T04 (RF-04.4, `gerarSugestoesDestino`,
+L7-T03). `gerarSugestoesHospedagem` segue o MESMO padrão já estabelecido
+(regenera sem incorporar feedback) por consistência com o precedente já em
+produção — não uma reinterpretação nova de UX-SPEC feita por esta tarefa.
+Recomendação: o Coordenador decidir se abre uma tarefa dedicada (provavelmente
+abrangendo também T04/T07/T08, já que a mesma lacuna existe nas outras
+etapas) em vez de resolver isso ad-hoc numa tarefa isolada.
+
+Testes (TDD, `src/lib/actions/__tests__/hospedagem.integration.test.ts`, 11
+casos, mesmo padrão de `confirmacao-destino.integration.test.ts`/
+`destino.integration.test.ts` — Postgres real esperado em `localhost:55432`,
+Gateway de IA mockado via `generateStructuredCompletionWithRetry`): gera 3
+opções usando o destino já aprovado; rejeita gerar fora de
+`hospedagem_pendente` sem chamar o Gateway de IA; aprovar persiste
+`AccommodationApproval` e avança para `passeios_pendente` preservando
+`DestinationApproval` (critério de aceite); rejeita aprovar fora de
+`hospedagem_pendente` (`InvalidTransitionError`, nada persistido); rejeita
+payload adulterado (faixa de preço invertida) sem persistir nada; encerrar a
+partir de `hospedagem_pendente` e a partir de `passeios_pendente` (depois de
+`aprovarHospedagem`) preservam o já aprovado (RN-03); rejeita encerrar sem
+nenhuma etapa aprovada. Mesma limitação já documentada em L4-T02/L7-T01/
+L7-T03/L8-T01 e outras: Postgres não acessível neste ambiente de execução
+(`localhost:55432` recusa conexão) — os 11 casos falham com
+`PrismaClientInitializationError` (não erro de lógica/asserção), mesmo
+comportamento pré-existente da suíte inteira (69 testes de integração
+falhando por este motivo antes e depois desta mudança, confirmado rodando
+`npx vitest run` completo); a cobertura da lógica em si está garantida pelos
+testes (TDD) e pela leitura de código, não pela execução real contra banco
+neste ambiente.
+
+`npx eslint` limpo nos arquivos desta tarefa (2 erros pré-existentes e não
+relacionados em `prisma/__tests__/schema.integration.test.ts`/
+`tailwind.config.ts`, fora do escopo desta tarefa); `npx tsc --noEmit` sem
+erro nos arquivos desta tarefa (erros pré-existentes em outros arquivos, não
+tocados por esta tarefa). `npm run build` compilou/type-checou/gerou as 14
+páginas com sucesso (a primeira tentativa falhou com `ENOENT
+.next/build-manifest.json`, sintoma de escrita concorrente em `.next/` pela
+instância paralela de L8-T02, mesmo tipo de erro relatado na nota dela acima;
+a segunda execução, sem concorrência no momento, passou limpa). Integração de
+ponta a ponta com L8-T02 confirmada por leitura cruzada das duas notas desta
+seção: nenhum ajuste de assinatura foi necessário dos dois lados. Nenhum
+desvio de escopo/estimativa; nenhum bloqueio registrado em `BLOCKERS.md` por
+esta tarefa — o gap de feedback textual acima é sinalizado como recomendação
+de tarefa futura, não como impedimento desta.
 
 ### Lote 9 — Passeios (T07)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L9-T01 | Regra RF-07 — geração de lista de passeios/atividades, garantindo ao menos 1 opção gratuita quando existir (RF-07.1/.2) + filtro de orçamento | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03** | — | Cada item com nome, faixa de preço (podendo ser R$ 0), duração aproximada; ao menos 1 item gratuito quando relevante ao destino |
-| L9-T02 | T07 UI — lista com checkbox, remoção antes de aprovar, badge "Gratuito", validação "ao menos um item" | FE | 1 dia | L5-T02, L5-T03, L9-T01 | L9-T03 | Botão "Aprovar seleção" desabilita/some se todos os itens forem removidos, com mensagem explicativa |
-| L9-T03 | T07 Server Actions — aprovar seleção (RF-07.3), remover item, encerrar aqui | BE | 1 dia | L4-T02, L9-T01 | L9-T02 | Aprovar persiste `ActivityApproval` só dos itens não removidos e avança para roteiro |
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L9-T01 | Regra RF-07 — geração de lista de passeios/atividades, garantindo ao menos 1 opção gratuita quando existir (RF-07.1/.2) + filtro de orçamento | BE | 1 dia | L3-T02, L3-T03, L3-T04, L4-T03, **L11-T03**, **RL8-T02** | — | Concluída | Cada item com nome, faixa de preço (podendo ser R$ 0), duração aproximada; ao menos 1 item gratuito quando relevante ao destino — **Nota de implementação (2026-09-10)**: ver nota detalhada logo após esta tabela. |
+| L9-T02 | T07 UI — lista com checkbox, remoção antes de aprovar, badge "Gratuito", validação "ao menos um item" | FE | 1 dia | L5-T02, L5-T03, L9-T01 | L9-T03 | Concluída | Botão "Aprovar seleção" desabilita/some se todos os itens forem removidos, com mensagem explicativa — **Nota de implementação L9-T02 (2026-09-10)**: ver nota detalhada logo após esta tabela. |
+| L9-T03 | T07 Server Actions — aprovar seleção (RF-07.3), remover item, encerrar aqui | BE | 1 dia | L4-T02, L9-T01 | L9-T02 | Concluída | Aprovar persiste `ActivityApproval` só dos itens não removidos e avança para roteiro — **Nota de implementação L9-T03 (2026-09-10)**: ver nota detalhada logo após esta tabela. |
+
+**Nota de implementação L9-T01 (2026-09-10):** `generatePasseiosSuggestions`
+criada em `src/lib/stage-rules/passeios.ts` (reexportada via
+`src/lib/stage-rules/index.ts`), mesmo padrão de `./hospedagem.ts` (L8-T01)/
+`./destino.ts` (L7-T01) — chama `generateStructuredCompletionWithRetry`
+(L3-T04) para a etapa `"passeios"` com `buildPasseiosPrompt`/
+`passeiosOpcoesSchema` (`@/lib/gateway-ia`, L3-T02), depois aplica
+`applyBudgetFilter` (RF-10, L4-T03) sobre o resultado. Diferenças confirmadas
+em relação a hospedagem, conforme escopo: (1) `passeiosOpcoesSchema.passeios`
+é lista de tamanho **variável** (`.min(1)`, sem teto superior,
+`src/lib/gateway-ia/schemas.ts`) — esta função não impõe nenhuma quantidade
+fixa, o critério de aceite foi lido como "ao menos 1 item", não um número
+específico; (2) RF-07.2 ("ao menos 1 item gratuito quando existir/relevante
+ao destino") é tratada exclusivamente pelo PROMPT (`buildPasseiosPrompt` já
+instrui o LLM a incluir uma opção gratuita "quando existir algo relevante e
+gratuito... nunca invente gratuidade só para cumprir isso, é preferível não
+incluir se não existir opção real plausível") — confirmado por leitura de
+`src/lib/gateway-ia/prompts.ts`; esta regra de negócio NUNCA força/inventa um
+item gratuito artificial quando o LLM não retorna nenhum (coberto por teste
+dedicado); (3) `applyBudgetFilter` já trata corretamente itens com
+`precoMin = 0` sem nenhuma alteração no módulo — um item gratuito satisfaz
+`precoMin <= budget.amount` para qualquer orçamento não-negativo, então é
+sempre `withinBudget: true`/`exceedsBudget: false`, mesmo quando nenhum item
+pago cabe no orçamento (RF-10.2 só sinaliza excedente quando NENHUM item,
+gratuito ou pago, cabe — cenário impossível de fato sempre que existe ao
+menos 1 item gratuito na lista); `budget-filter.ts` não foi modificado,
+apenas confirmado via teste, conforme instrução da tarefa. Contexto de
+hospedagem aprovada (`accommodation?.name`/`.type`) é repassado como opcional
+(mesmo campo `StageContext.accommodation` já existente, L3-T02) — não
+obrigatório para a etapa, `buildPasseiosPrompt` já lida com a ausência.
+Sanitização (L11-T03/RL8-T02): `input.destination.name` e
+`input.accommodation.name`/`.type` chegam já sanitizados dos pontos de
+captura (`sanitizeFreeTextForPrompt` em `src/lib/actions/destino.ts`/
+`data-livre.ts`/`feriados.ts` para destino, e em
+`assertValidAccommodationPayload`/`src/lib/actions/hospedagem.ts`, RL8-T02,
+para hospedagem) — esta função não sanitiza de novo, mesmo raciocínio já
+adotado em `hospedagem.ts`/`destino.ts`. Teste novo (TDD, 12 casos):
+`src/lib/stage-rules/__tests__/passeios.test.ts` — cobre lista com ao menos 1
+item/shape completo, preservação do item gratuito retornado pelo LLM,
+ausência de invenção de gratuidade quando o LLM não traz nenhuma, chamada ao
+Gateway de IA com `sessionId`/`stage`/`schemaName` corretos e destino no
+prompt, repasse de hospedagem aprovada ao prompt, comportamento sem
+orçamento (RF-10.3/RN-04), item gratuito sempre dentro do orçamento mesmo com
+teto muito baixo, reordenação com orçamento informado (RF-10.1), item
+gratuito nunca sinalizado como excedente mesmo quando nenhum item pago cabe,
+sinalização de excedente correta quando não há nenhum item gratuito na lista
+(RF-10.2), erro claro sem destino aprovado (RN-01), e propagação de erro do
+Gateway de IA sem mascarar. `npm run lint` limpo; `npx tsc --noEmit` sem
+novos erros (os 2 erros pré-existentes em `auth-callbacks.test.ts`/
+`budget-insufficient-banner.test.tsx` e `destino/confirmacao/page.test.tsx`
+não são desta tarefa, não tocados); `npm run build` (`next build`) compila,
+type-checa e gera as 14 páginas com sucesso; `npx vitest run` — 374 de 446
+testes passam (os 72 restantes são só os testes de integração Prisma que
+exigem Postgres em `localhost:55432`, indisponível neste ambiente, mesma
+limitação já documentada nas notas de RL8-T01/RL8-T02, nenhuma regressão
+introduzida por esta tarefa). Nenhum desvio de escopo/estimativa; nenhum
+bloqueio registrado em `BLOCKERS.md`.
+
+**Nota de implementação L9-T02 (2026-09-10, Executor/FE):**
+`PasseiosSugestoesScreen` criada em
+`src/components/passeios/passeios-sugestoes-screen.tsx` (mesmo padrão de
+`HospedagemSugestoesScreen`, L8-T02: `LoadingStream`/`ErrorRetryState`
+via `fetchImpl` bridge, `SuggestionCard`, `BudgetInsufficientBanner`,
+`StepperProgress`, foco gerenciado no `<h1>` ao montar). Interação
+deliberadamente diferente de T06 (não copiado o padrão "aprovar
+individualmente por cartão"): lista com seleção múltipla via checkbox
+(marcado por padrão) + botão único "Remover" por item + um único "Aprovar
+seleção" no rodapé. Semântica adotada para o critério de aceite (UX-SPEC.md
+T07 não detalha a distinção checkbox vs. remoção, então documentada aqui como
+decisão de detalhe de implementação, dentro da margem do Executor — não
+escalada): checkbox desmarcado exclui o item da seleção sem tirá-lo da lista
+(reversível); "Remover" tira o item da lista visível por completo
+(irreversível nesta tela). `selecionados = itens visíveis (não removidos) E
+marcados` é o conjunto enviado a `aprovarSelecaoPasseios`. Critério de
+aceite central: "Aprovar seleção" fica `disabled` (nunca some do DOM — mais
+previsível para teclado/leitor de tela) com mensagem inline
+("Ao menos um passeio precisa permanecer selecionado para seguir ao
+roteiro — ou encerre por aqui.") associada via `aria-describedby` quando
+`selecionados` é vazio — tanto por remoção total quanto por desmarcar todos
+os checkboxes (os dois mecanismos convergem para o mesmo estado, cobertos
+por dois testes distintos); "encerrar aqui" continua disponível nesse caso
+(fora do bloco condicional de aprovação), conforme UX-SPEC T07. Estado
+"todos removidos" tratado como aviso inline, nunca `EmptyState` de página
+inteira (UX-SPEC §4, confirmado explicitamente na especificação — `EmptyState`
+não é usado nesta tela). `PriceRangeBadge` já tinha suporte a `free`
+(badge "Gratuito" com texto, L5-T02) — nenhuma alteração necessária nesse
+componente; `isFree` de `PasseiosSuggestionResult` (L9-T01) mapeado
+diretamente para a prop `free`. Acessibilidade: cada checkbox tem rótulo
+acessível próprio via `<label>` com texto `sr-only` ("Incluir "Nome" na
+aprovação") — nenhuma informação só por cor; `aria-live`/foco herdados dos
+componentes compartilhados.
+
+Contrato da Server Action de L9-T03 (tarefa paralela, ainda não existente no
+momento desta tarefa) documentado em bloco de cabeçalho dedicado no próprio
+arquivo (`passeios-sugestoes-screen.tsx`): três funções esperadas em
+`@/lib/actions/passeios` —
+`gerarSugestoesPasseios(sessionId): Promise<PasseiosSuggestionResult[]>`,
+`aprovarSelecaoPasseios({ sessionId, selecionados }): Promise<AprovarSelecaoPasseiosResult>`
+(`{ proximaEtapa: "roteiro"; sessionId; flowState: "roteiro_pendente"; passeios: string[] }`,
+mesmo padrão de `aprovarHospedagem` encadeando aprovar+avançar numa única
+chamada, já que passeios também não tem tela de confirmação intermediária) e
+`encerrarResolucaoPasseios(sessionId): Promise<EncerrarResolucaoPasseiosResult>`
+(mesmo formato de `EncerrarResolucaoHospedagemResult`). Diferente de
+`HospedagemSugestoesScreen`/`DestinoSugestoesScreen` (que já importam as
+Server Actions reais diretamente, com `actionsOverride` opcional só para
+teste), esta tela recebe `actions: PasseiosScreenActions` como prop
+**obrigatória** — decisão deliberada para não importar um módulo
+(`@/lib/actions/passeios`) que não existia no momento em que este arquivo foi
+escrito/compilado/testado (evita quebrar build/type-check por uma
+dependência que a outra instância paralela ainda estava produzindo). Quando
+L9-T03 existir, o composable/rota que monta esta tela (fora do escopo desta
+tarefa — nenhuma rota `/passeios` foi criada, mesmo padrão de T06 apontar
+para `/passeios` antes de T07 existir) deve trocar para o padrão
+`actionsOverride` opcional + import direto, mesmo precedente de T06 — deixado
+explícito no comentário de cabeçalho do arquivo para reduzir risco de
+divergência. Sem "Ajustar"/feedback textual nesta etapa: UX-SPEC.md T07 não
+menciona regeneração com feedback (diferente de T06/RL8-T01), então nenhum
+campo equivalente foi adicionado.
+
+Teste novo (TDD, 13 casos):
+`src/components/passeios/__tests__/passeios-sugestoes-screen.test.tsx` —
+cobre estado Carregando (skeleton), estado Sucesso (lista com checkbox
+marcado por padrão, badge "Gratuito", `PriceRangeBadge`), `BudgetInsufficientBanner`
+sem desabilitar o botão principal (RN-04), desmarcar checkbox excluindo da
+seleção enviada, remover item tirando-o da lista, os dois testes do critério
+de aceite central (remoção total e desmarcar todos, ambos desabilitando
+"Aprovar seleção" com a mensagem explicativa e mantendo "encerrar aqui"
+disponível), aprovar seleção mostrando o rodapé continuar/encerrar, navegação
+de "Continuar para roteiro" preservando `sessionId`/`flowState` já avançado
+pelo servidor, "encerrar aqui" antes de aprovar (RN-03), foco no título ao
+montar (UX-SPEC §5), estado Erro com retry, e erro ao aprovar mantendo a
+lista visível com mensagem inline. `npm run lint` limpo nos arquivos desta
+tarefa; `npx tsc --noEmit` sem novos erros nos arquivos desta tarefa (os
+mesmos erros pré-existentes de `auth-callbacks.test.ts`/
+`budget-insufficient-banner.test.tsx`/`destino/confirmacao/page.test.tsx` já
+documentados em L9-T01, não tocados); `npm run build` (`next build`) compila,
+type-checa e gera as 14 páginas com sucesso (nenhuma rota nova adicionada
+por esta tarefa); `npx vitest run` — os 13 testes novos desta tarefa passam
+integralmente; as 82 falhas observadas na suíte completa são todas dos
+testes de integração Prisma pré-existentes que exigem Postgres em
+`localhost:55432` (indisponível neste ambiente, mesma limitação já
+documentada em L9-T01/RL8-T01/RL8-T02), nenhuma regressão introduzida por
+esta tarefa. Nenhum desvio de escopo/estimativa; nenhum bloqueio registrado
+em `BLOCKERS.md`. Execução em paralelo com a instância de L9-T03 sem
+conflito de arquivo — escopos não se sobrepõem (`src/components/passeios/`
+vs. `src/lib/actions/passeios.ts`).
+
+**Nota de implementação L9-T03 (2026-09-10):** três Server Actions criadas
+em `src/lib/actions/passeios.ts` (novo arquivo, erros dedicados em
+`src/lib/actions/passeios-errors.ts`, sem `"use server"`, mesmo motivo de
+`hospedagem-errors.ts`/`destino-errors.ts`), mesmo padrão exato de
+`hospedagem.ts` (L8-T03)/`destino.ts` (L7-T03): resolve `TripSession` +
+`DestinationApproval`/`AccommodationApproval` já aprovados, chama
+`generatePasseiosSuggestions` (`@/lib/stage-rules`, L9-T01), persiste/avança
+via `applySessionFlowTransition` (`@/lib/session-flow`, L4-T02). Assinatura
+exata (alinhada de propósito ao contrato já assumido por
+`PasseiosScreenActions`/`passeios-sugestoes-screen.tsx`, L9-T02, tarefa
+paralela — confirmado lendo o bloco "CONTRATO ESPERADO DA SERVER ACTION DE
+L9-T03" no cabeçalho daquele arquivo antes de nomear as funções aqui, para
+reduzir risco de divergência):
+- `gerarSugestoesPasseios(sessionId: string): Promise<PasseiosSuggestionResult[]>`
+  — RF-07.1/.2, gera a lista variável de passeios; nenhuma transição de
+  estado, sessão permanece em `passeios_pendente` (reaproveitada também para
+  qualquer nova geração, já que T07 não tem campo de feedback textual, UX-SPEC
+  confirmado nesta tarefa).
+- `aprovarSelecaoPasseios(input: { sessionId: string; selecionados: PasseiosSuggestionResult[] }): Promise<AprovarPasseiosResult>`
+  (`AprovarPasseiosResult` também exportado com o alias
+  `AprovarSelecaoPasseiosResult`, mesmo shape `{ proximaEtapa: "roteiro";
+  sessionId: string; flowState: "roteiro_pendente"; passeios: string[] }`) —
+  RF-07.3, recebe só os itens JÁ FILTRADOS pelo client (não removidos/ainda
+  marcados — decisão de contrato: mesmo padrão de `aprovarHospedagem`/
+  `aprovarDestinoSugerido`, que recebem o que já foi decidido pela UI, não a
+  lista completa + flag por item), revalida cada item individualmente
+  (nome/duração vazios, faixa de preço não numérica/negativa/invertida/acima
+  de `MAX_SANE_PRICE_BRL`) e sanitiza `name`/`durationApprox` contra prompt
+  injection via `sanitizeFreeTextForPrompt` (L11-T03/RL8-T02, aplicado nesta
+  tarefa desde o início, não como débito — mesmo raciocínio de
+  `assertValidAccommodationPayload`/RL8-T02) ANTES de persistir. Lança
+  `EmptyPasseiosSelectionError` (novo) se `selecionados` vier vazio — guarda
+  server-side para o caso (defensivo) de a UI falhar em impedir aprovação sem
+  nenhum item. Encadeia `aprovar` (grava um `ActivityApproval` por item via
+  `tx.activityApproval.createMany`, já suportado por `persistence.ts` desde
+  L4-T02 sem nenhuma mudança necessária ali — confirmado lendo o código antes
+  de assumir) + `avancar` (`passeios_pendente` → `passeios_aprovados` →
+  `roteiro_pendente`) na mesma Server Action — confirmado em UX-SPEC.md T07
+  ("Rodapé de decisão igual às etapas anteriores", sem tela de confirmação
+  intermediária própria de passeios) antes de copiar esse padrão de
+  hospedagem, em vez de assumir cegamente.
+- `encerrarResolucaoPasseios(sessionId: string): Promise<EncerrarResolucaoPasseiosResult>`
+  (`{ proximaEtapa: "encerramento"; sessionId: string; flowState:
+  "encerrada_parcial" }`) — disponível a partir de `passeios_pendente` ou
+  `passeios_aprovados` (RN-03, `STATES_WITH_AT_LEAST_ONE_APPROVAL`, L4-T01),
+  preserva destino/hospedagem/passeios já aprovados.
+
+Teste novo (TDD): `src/lib/actions/__tests__/passeios.integration.test.ts`,
+mesmo padrão de `hospedagem.integration.test.ts` (L8-T03) — Postgres real,
+Gateway de IA mockado. Cobre: geração usando destino+hospedagem aprovados
+(RF-07.1), rejeição de geração fora de `passeios_pendente`; aprovação
+persistindo só os itens selecionados como `ActivityApproval` e avançando
+para `roteiro_pendente` (critério de aceite central), rejeição de lista
+vazia (`EmptyPasseiosSelectionError`), rejeição de aprovar fora de
+`passeios_pendente` (`InvalidTransitionError`, sem pular etapa), rejeição de
+payload adulterado (faixa de preço invertida) sem persistir nada,
+sanitização de tentativa de prompt injection em `name`/`durationApprox`
+antes de persistir; encerrar preservando o já aprovado em ambos os pontos de
+saída (`passeios_pendente` e depois de aprovar), rejeição de encerrar sem
+nenhuma etapa aprovada. `npm run lint` limpo nos arquivos desta tarefa;
+`npx tsc --noEmit` sem novos erros nos arquivos desta tarefa (mesmos erros
+pré-existentes de `auth-callbacks.test.ts`/`budget-insufficient-banner.test.tsx`/
+`destino/confirmacao/page.test.tsx` já documentados em tarefas anteriores,
+não tocados); `npm run build` (`next build`) compila, type-checa e gera as
+14 páginas com sucesso (nenhuma rota nova adicionada por esta tarefa — mesmo
+padrão de L9-T02, rota `/passeios` continua fora do escopo). Testes de
+integração desta tarefa falham por `PrismaClientInitializationError`
+(`localhost:55432` indisponível neste ambiente) — mesma limitação já aceita
+e documentada em L8-T03/L4-T02/L9-T01/RL8-T01/RL8-T02; lógica de negócio
+equivalente sem banco já coberta por `src/lib/stage-rules/__tests__/
+passeios.test.ts` (L9-T01) e `src/lib/session-flow/__tests__/
+state-machine.test.ts` (L4-T01). Nenhum desvio de escopo/estimativa; nenhum
+bloqueio registrado em `BLOCKERS.md`. Execução em paralelo com a instância de
+L9-T02 sem conflito de arquivo — escopos não se sobrepõem
+(`src/components/passeios/` vs. `src/lib/actions/passeios.ts`); quando o
+composable/rota que monta `PasseiosSugestoesScreen` for criado (fora do
+escopo de L9-T02/L9-T03), deve importar `gerarSugestoesPasseios`/
+`aprovarSelecaoPasseios`/`encerrarResolucaoPasseios` diretamente de
+`@/lib/actions/passeios`, trocando o padrão de `actions` prop obrigatória
+por `actionsOverride` opcional — mesmo precedente de T06, já deixado
+explícito no cabeçalho de `passeios-sugestoes-screen.tsx`.
 
 ### Lote 10 — Roteiro Final e Encerramento (T08, T-END)
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
 |---|---|---|---|---|---|---|
-| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1.5 dia (ver Seção 6 — justificativa de tamanho; sem estimativa final até SPIKE-02 resolver) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02, **L11-T03** | L10-T04 | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir |
+| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1.5 dia (ver Seção 6 — justificativa de tamanho; sem estimativa final até SPIKE-02 resolver) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02, **L11-T03**, **RL8-T02** | L10-T04 | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir |
 | L10-T02 | T08 UI — blocos por dia (acordeão em mobile), horário + justificativa de timing | FE | 1 dia | L5-T03, L10-T01 | L10-T03 | Um bloco por dia da viagem, dividido em manhã/tarde/noite; justificativa exibida quando presente |
 | L10-T03 | T08 Server Action — aprovar roteiro (RF-08.4): grava `ItineraryItem`, marca sessão `concluida`, aciona RF-09 | BE | 1 dia | L4-T02, L10-T01 | L10-T02 | Aprovação persiste todos os itens do roteiro e marca `TripSession.status = completed` |
 | L10-T04 | T-END UI — resumo (completo ou parcial), reutilizada em todo ponto de saída (RN-03) | FE | 1 dia | L5-T01 | L10-T01, L10-T02, L10-T03 | Rótulo "Viagem decidida!" (completo) ou "Parte da sua viagem está decidida" (parcial), nunca como erro |
@@ -2346,7 +2834,7 @@ por esta nota (mantida conforme já registrado na tabela do Lote 7).
 |---|---|---|---|---|---|---|---|
 | L11-T01 | Exclusão de conta e dados associados (LGPD, RNF-06) — endpoint + cascade delete de `TripSession` e entidades filhas por `user_id` | BE | 1 dia | L1-T02, L1-T03 | L11-T02a, L11-T02, L11-T03 | Concluída | Excluir conta remove todas as sessões e entidades filhas associadas; nenhum dado órfão remanescente |
 | L11-T02a **(nova, ver Bloqueio 004/ADR-008)** | Persistência do dono da sessão — schema (`anon_session_id`), `createSessionWithDateRange` passa a exigir `owner` (usuário autenticado ou sessão anônima) e grava no `INSERT`, com retrofit pontual de `submeterDataLivre`/L6-T03, `processarFeriadoEscolhido`/L6-T05 e `submitQuizAnswers`/L6-T07 para resolver e passar `owner` (SDD §5/§7, ADR-008) | BE | 1 dia | L1-T03, L4-T02 | L11-T01, L11-T03 | Concluída | Toda `TripSession` criada grava exatamente um dono (`user_id` OU `anon_session_id`, nunca os dois, nunca nenhum); as 3 Server Actions de criação continuam funcionando sem regressão (fluxo anônimo e autenticado), cobertas por teste automatizado |
-| L11-T02 | Autorização cross-cutting — guard central que resolve o dono esperado da requisição (mesma regra de precedência de `L11-T02a`) e compara contra o dono persistido em `TripSession` (SDD §7, ADR-008); integrado a `applySessionFlowTransition`/`gerarSugestoesDestino`/toda leitura direta de `TripSession` | BE | 0.5 dia | L11-T02a | L11-T01, L11-T03 | Não iniciada | Requisição com cookie/`user_id` de outra sessão recebe sempre **404** (nunca 403), nunca expõe dado de terceiro; dono legítimo (mesmo cookie/`user_id` gravado na criação) continua autorizado sem regressão |
+| L11-T02 | Autorização cross-cutting — guard central que resolve o dono esperado da requisição (mesma regra de precedência de `L11-T02a`) e compara contra o dono persistido em `TripSession` (SDD §7, ADR-008); integrado a `applySessionFlowTransition`/`gerarSugestoesDestino`/toda leitura direta de `TripSession` | BE | 0.5 dia | L11-T02a | L11-T01, L11-T03 | Concluída | Requisição com cookie/`user_id` de outra sessão recebe sempre **404** (nunca 403), nunca expõe dado de terceiro; dono legítimo (mesmo cookie/`user_id` gravado na criação) continua autorizado sem regressão |
 | L11-T03 **(elegível a partir do Lote 3 — ver nota abaixo)** | Validação/sanitização de entrada de texto livre (orçamento, destino manual) contra prompt injection (SDD §7) | BE | 0.5 dia | L3-T02 | L11-T01, L11-T02a, L11-T02 | Concluída | Entrada com tentativa de instrução embutida não altera o comportamento do prompt da etapa |
 | L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Não iniciada | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
 
@@ -2493,6 +2981,88 @@ si permanece fora de escopo, é `L11-T02`).
   (`npx prisma migrate deploy`) da migration `anon_session_id` continua
   pendente em qualquer ambiente com Postgres real, antes de `L11-T02` rodar
   testes de integração que dependam do campo estar de fato na tabela.
+
+**Nota de implementação L11-T02 (2026-09-10, Executor/BE)**: implementado
+exatamente conforme ADR-008 item 4, reaproveitando `SessionOwner`/
+`resolveSessionOwner` de `L11-T02a` sem duplicar a regra de precedência.
+
+- **`src/lib/session-flow/authorization.ts` (novo)**: guard central.
+  `isSameSessionOwner(record, expectedOwner)` — comparação pura, sem I/O,
+  testável em isolamento — e `assertSessionOwnership(sessionId, record)`, que
+  resolve o dono esperado via `resolveSessionOwner()` (importado de
+  `@/lib/actions/resolve-session-owner`, decisão de organização de módulo já
+  antecipada pela nota de `L11-T02a`) e lança `SessionNotFoundError` (nunca
+  um erro 403 dedicado) sempre que `record` for nulo, sem nenhum dos dois
+  campos de dono gravado, ou de dono divergente — as três situações tratadas
+  de forma idêntica, para que um solicitante ilegítimo nunca distinga "sessão
+  não existe" de "sessão existe mas não é sua" (critério "sempre 404" do
+  ADR-008 item 4). Reexportado por `src/lib/session-flow/index.ts`
+  (`assertSessionOwnership`/`isSameSessionOwner`/`TripSessionOwnerRecord`),
+  mesma convenção de barrel único do módulo.
+- **Integração em `applySessionFlowTransition`** (`src/lib/session-flow/persistence.ts`):
+  o `select` do `findUnique` inicial passa a incluir `userId`/`anonSessionId`;
+  logo após a checagem de existência (`SessionNotFoundError` se `!session`),
+  `assertSessionOwnership(input.sessionId, session)` é chamada — ANTES de
+  `transitionSessionFlow` decidir a transição e antes de qualquer escrita, na
+  mesma transação Prisma. Isso cobre automaticamente toda Server Action que só
+  delega para `applySessionFlowTransition` sem ler `TripSession` diretamente
+  (`confirmarDestino`/`trocarDestino`, `aprovarDestinoSugerido`/
+  `informarDestinoManualmente`/`encerrarResolucaoDestino`, `aprovarHospedagem`/
+  `encerrarResolucaoHospedagem`, `aprovarSelecaoPasseios`/
+  `encerrarResolucaoPasseios`) — nenhuma chamada adicional necessária nelas.
+- **Integração nos 3 pontos de leitura direta de `TripSession` fora de
+  `session-flow`** (`gerarSugestoesDestino`/`src/lib/actions/destino.ts`,
+  `gerarSugestoesHospedagem`/`src/lib/actions/hospedagem.ts`,
+  `gerarSugestoesPasseios`/`src/lib/actions/passeios.ts` — a mesma superfície
+  já mapeada pela investigação do Bloqueio 004/ADR-008): cada `select` ganhou
+  `userId`/`anonSessionId`, e `assertSessionOwnership(sessionId, session)` é
+  chamada logo após a checagem de existência, antes de qualquer outra
+  validação de etapa. Nenhum outro `prisma.tripSession.findUnique`/`update`
+  fora de `session-flow` foi encontrado (confirmado via busca por
+  `prisma.tripSession` em todo `src/`; os únicos demais usos são em testes ou
+  em `deleteUserAccount`/L11-T01, que não lê por `sessionId` — apaga por
+  `userId` já autenticado/validado por aquela própria tarefa, fora do escopo
+  deste guard).
+- **Decisão de detalhe não coberta explicitamente pelo ADR-008**: dentro de
+  `applySessionFlowTransition`, `assertSessionOwnership` é chamada DENTRO da
+  transação Prisma (não antes de abri-la) — opção mais simples (um único
+  padrão de chamada, idêntico ao dos 3 pontos de leitura direta) em troca de
+  manter a transação aberta durante a resolução de `resolveSessionOwner()`
+  (I/O de cookie/NextAuth); dado o volume baixo de chamadas por sessão e a
+  ausência de qualquer requisito de performance/RNF associado a este guard,
+  tratado como detalhe de implementação, não escalado.
+- **Testes**: `src/lib/session-flow/__tests__/authorization.test.ts` (novo,
+  unitário, sem banco, `next-auth`/`next/headers` mockados) — 14 casos: a
+  comparação pura `isSameSessionOwner` (dono bate por cada mecanismo de
+  identidade, dono diverge, mecanismo diverge, registro sem nenhum dono,
+  registro nulo) e `assertSessionOwnership` fim a fim (dono legítimo
+  autenticado/anônimo autoriza; cookie/`user_id` de outra sessão lança
+  `SessionNotFoundError`; registro sem dono gravado lança mesmo para
+  solicitante anônimo válido; sessão inexistente lança o mesmo erro) — cobre
+  diretamente o critério de aceite desta tarefa. Integrações existentes
+  atualizadas para não regredir com o guard agora ativo (mesmo padrão de mock
+  `next-auth`/`next/headers` de `data-livre.integration.test.ts`,
+  `L11-T02a`): `persistence.integration.test.ts` (mais 3 casos novos cobrindo
+  o guard diretamente: dono legítimo, cookie de outra sessão, registro sem
+  dono), `create-session-with-range.integration.test.ts`,
+  `destino.integration.test.ts`, `hospedagem.integration.test.ts`,
+  `passeios.integration.test.ts`, `confirmacao-destino.integration.test.ts` —
+  toda sessão de teste criada via `prisma.tripSession.create` direto (fora de
+  `createSessionWithDateRange`) ganhou `anonSessionId` fixo batendo com o
+  cookie anônimo mockado no `beforeEach` do arquivo. `account-deletion.integration.test.ts`
+  não foi tocado (não passa por `applySessionFlowTransition`/leitura por
+  `sessionId`, fora do escopo deste guard). Todos os testes de integração
+  aqui listados continuam falhando neste ambiente por falta de Postgres local
+  (`localhost:55432` inacessível) — mesma limitação já documentada em
+  tarefas anteriores, não uma regressão desta tarefa; confirmado comparando
+  com o baseline via `git stash` (antes: 103 falhas/377 passando, todas
+  `PrismaClientInitializationError`; depois: 85 falhas/401 passando — menos
+  falhas e mais testes passando, por conta dos 14 testes novos de
+  `authorization.test.ts`, todos unitários sem banco).
+- `npm run lint`: sem erros nos arquivos tocados. `npx tsc --noEmit`: os
+  mesmos 3 erros residuais pré-existentes (`page.test.tsx`,
+  `budget-insufficient-banner.test.tsx`, `auth-callbacks.test.ts`), não
+  tocados por esta tarefa. `npm run build`: sucesso.
 
 **Ponto real de captura de texto livre que alimenta prompt** (investigação
 desta tarefa): hoje só existem 3 pontos do código que persistem
@@ -2793,6 +3363,19 @@ para o fechamento do Lote 5 (L5-T01 a L5-T05 permanecem `Concluída`).
 | RL5-T01 | Alinhar `background_color`/`theme_color` de `public/manifest.webmanifest` ao token real `--background` de `src/app/globals.css` (L5-T01, ~`#0a0a0b`), hoje divergente (`#0F172A`) | FE | 0.1 dia | L5-T01, L5-T05 | RL5-T02 | Pendente | `background_color`/`theme_color` do manifest correspondem ao valor real (hex equivalente) de `--background`; `pwa.test.ts` continua passando; sem regressão em `npm test`/`npm run build` |
 | RL5-T02 | `StepperProgress` (`src/components/design-system/stepper-progress.tsx`) — adicionar texto `sr-only` (ou `aria-label`) equivalente ao `title` de cada `StepDot`, garantindo que o status de cada etapa (concluída/atual/futura) seja exposto de forma confiável a leitores de tela, já que `title` sozinho tem suporte inconsistente em navegação por virtual cursor | FE | 0.25 dia | L5-T01 | RL5-T01 | Pendente | Cada `StepDot` expõe o status via elemento com texto acessível (`sr-only`/`aria-label`), não só via `title`; teste automatizado cobrindo a presença do texto acessível; `npm test` sem regressão |
 
+### Refatoração Lote-8 (débito registrado pelo Validador)
+
+Criada pelo Validador na checagem estrutural do Lote 8 (ver `QA-REPORT.md`,
+2026-09-10) — achado simples de cobertura funcional, não bloqueante para o
+fechamento do Lote 8 (L8-T01 a L8-T03 permanecem `Concluída`). `RL8-T02`
+acrescentada pelo Validador (chapéu DevSecOps) na auditoria de segurança do
+mesmo lote (2026-09-10, ver `SECURITY-REVIEW.md` — Lote 8, item 2b).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL8-T01 | Incorporar o feedback textual do campo "Ajustar" de T06 (RF-05.3, UX-SPEC.md T06) ao prompt de regeneração de hospedagem — estender `StageContext`/`buildHospedagemPrompt` (`@/lib/gateway-ia`, L3-T02) com um campo opcional de feedback e `generateAccommodationSuggestions` (`@/lib/stage-rules`, L8-T01) para repassá-lo; `gerarSugestoesHospedagem`/`HospedagemSugestoesScreen` passam a enviar o texto capturado em vez de só logá-lo em dev (mesmo gap, se confirmado, também presente em T04/"nova rodada" e a repetir em T07/L9-T02 — avaliar extensão conjunta) | BE+FE | 0.5 dia | L3-T02, L8-T01, L8-T02, L8-T03 | — | Concluída | Ao chamar "Ajustar" com texto no campo de feedback, o prompt enviado ao Gateway de IA (`messages`) contém literalmente o texto informado pelo usuário **, sempre passado por `sanitizeFreeTextForPrompt` (`@/lib/gateway-ia/prompt-injection-guard`, L11-T03) antes de compor a mensagem — mesmo padrão já usado em `informarDestinoManualmente` (`src/lib/actions/destino.ts`); nenhuma implementação que interpole o texto bruto sem essa sanitização é aceita (achado de segurança do Validador, `SECURITY-REVIEW.md` Lote 8 item 2a)**; teste automatizado cobrindo a inclusão do feedback sanitizado na mensagem, incluindo um caso com tentativa de instrução embutida que não deve alterar o comportamento do prompt; sem regressão em `npm test`/`npm run build`; sem prazo crítico (achado simples, não de segurança/deploy — mas a sanitização em si não é opcional). **Nota de implementação (2026-09-10):** `StageContext.adjustmentFeedback?: string \| null` adicionado (`src/lib/gateway-ia/prompts.ts`), consumido só por `buildHospedagemPrompt` (as demais etapas não são afetadas — campo opcional, sem quebra de chamadas existentes); `generateAccommodationSuggestions` (`src/lib/stage-rules/hospedagem.ts`) repassa `input.adjustmentFeedback` ao contexto; `gerarSugestoesHospedagem` (`src/lib/actions/hospedagem.ts`) ganhou o parâmetro opcional `feedback`, sanitizado via `sanitizeFreeTextForPrompt` (`FEEDBACK_MAX_LENGTH = 300`, mesmo raciocínio de `DESTINO_MAX_LENGTH`) ANTES de repassar — a sanitização acontece no mesmo módulo/ponto que já sanitiza para `informarDestinoManualmente`; `HospedagemSugestoesScreen.handleAdjustSubmit` (`src/components/hospedagem/hospedagem-sugestoes-screen.tsx`) passa `feedbackValue` como segundo argumento, removendo o `console.info` de placeholder. Testes novos: `src/lib/gateway-ia/__tests__/prompt-injection-guard.test.ts` (feedback sanitizado interpolado + tentativa de instrução embutida neutralizada + sem regressão quando ausente), `src/lib/stage-rules/__tests__/hospedagem.test.ts`, `src/lib/actions/__tests__/hospedagem.integration.test.ts` (fim a fim, incluindo tentativa de injeção) e `src/components/hospedagem/__tests__/hospedagem-sugestoes-screen.test.tsx` (UI repassa o texto digitado). Coexistiu em paralelo com RL8-T02 no mesmo arquivo `src/lib/actions/hospedagem.ts` sem conflito — RL8-T02 já tinha adicionado `sanitizeFreeTextForPrompt`/constantes `ACCOMMODATION_*_MAX_LENGTH`/sanitização de `assertValidAccommodationPayload` quando esta tarefa tocou o arquivo; só `gerarSugestoesHospedagem` e o cabeçalho de comentários foram alterados por esta tarefa. `npm run lint` limpo nos arquivos alterados; `npx tsc --noEmit` sem novos erros (erros pré-existentes não relacionados em outros arquivos); `npm run build` (`next build`) passa; testes unitários relevantes (122 testes em `gateway-ia`/`stage-rules`/`hospedagem` component) passam. Testes de integração Prisma (`hospedagem.integration.test.ts`) não puderam ser executados neste ambiente por falta de um Postgres local acessível (`localhost:55432`) — limitação de ambiente, não regressão introduzida por esta tarefa (mesmo teste falha por qualquer alteração nesse arquivo sem banco disponível); recomenda-se rodar em CI/ambiente com banco antes do próximo deploy. Gap remanescente documentado (fora de escopo desta tarefa): T04/"nova rodada" (RF-04.4) continua sem campo de feedback textual — nunca teve um na UX-SPEC, não é o mesmo gap. |
+| RL8-T02 | Aplicar `sanitizeFreeTextForPrompt` (`@/lib/gateway-ia/prompt-injection-guard`, L11-T03) a `name`/`type`/`distinctiveFeature` dentro de `assertValidAccommodationPayload` (`src/lib/actions/hospedagem.ts`, L8-T03) antes de `applySessionFlowTransition` persistir `AccommodationApproval` — hoje só a faixa de preço é revalidada contra adulteração, os campos de texto não; `context.accommodation.name`/`.type` já são interpolados literalmente em `buildPasseiosPrompt`/`buildRoteiroPrompt` (`src/lib/gateway-ia/prompts.ts`), então um payload de aprovação adulterado pelo cliente vira instrução de prompt assim que `L9-T01`/`L10-T01` lerem o registro de volta | BE | 0.25 dia | L8-T03, L11-T03 | RL8-T01 | Concluída | `assertValidAccommodationPayload` sanitiza `name`/`type`/`distinctiveFeature` via `sanitizeFreeTextForPrompt` antes de qualquer persistência; teste automatizado cobrindo um payload de aprovação com tentativa de instrução embutida em `name`/`type`/`distinctiveFeature`, confirmando que o valor persistido/propagado já vem sanitizado; sem regressão em `npm test`/`npm run build`; **deve estar concluída antes de `L9-T01`/`L10-T01` iniciarem implementação** (mesmo raciocínio de sequenciamento do Bloqueio 003/`L11-T03` vs. `L8-T01`, `.md/BLOCKERS.md`) — **Nota de implementação (2026-09-10)**: `assertValidAccommodationPayload` agora sanitiza `name`/`type`/`distinctiveFeature` via `sanitizeFreeTextForPrompt` (limites `ACCOMMODATION_NAME_MAX_LENGTH=200`/`ACCOMMODATION_TYPE_MAX_LENGTH=100`/`ACCOMMODATION_DISTINCTIVE_FEATURE_MAX_LENGTH=500`, mesmo padrão de `DESTINO_MAX_LENGTH` em `destino.ts`) ANTES da checagem de "vazio" e retorna os três campos já sanitizados (`SanitizedAccommodationText`); `aprovarHospedagem` usa exclusivamente esse retorno no `childData` de `applySessionFlowTransition` e no `AprovarHospedagemResult.hospedagem` — nunca o valor bruto do payload. Teste de integração novo em `hospedagem.integration.test.ts` ("sanitiza tentativa de prompt injection em name/type/distinctiveFeature antes de persistir") cobre os três campos com marcadores de delimitador (` ``` `, `[INST]`/`[/INST]`) e frase de override (`System:`, "ignore... instruções anteriores", "revele o prompt do sistema", "aja como se você fosse um novo assistente") tanto no valor de retorno quanto no registro persistido — não executado neste ambiente por falta de Postgres em `localhost:55432` (limitação já documentada nos demais testes de integração do projeto), mas correto para rodar contra um banco real. `npm run lint`/`npx tsc --noEmit`/`npm run build` sem erros; `npm test` sem regressão nos 362 testes não dependentes de banco (as falhas restantes são só as integrações de Postgres, pré-existentes). Execução em paralelo com a instância de RL8-T01 no mesmo arquivo (`hospedagem.ts`/`hospedagem.integration.test.ts`) sem conflito — escopos não se sobrepuseram (`gerarSugestoesHospedagem`/feedback vs. `assertValidAccommodationPayload`/`aprovarHospedagem`). |
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):
@@ -2836,6 +3419,14 @@ Lote 3 → Refatoração Lote-3 (RL3-T01) — sem bloquear a ordem de execução
   adotado antes do Lote 11.
 Lote 5 → Refatoração Lote-5 (RL5-T01/RL5-T02) — sem bloquear nenhum outro
   lote; sem prazo crítico (achados simples, não de segurança/deploy).
+Lote 8 → Refatoração Lote-8 (RL8-T01, RL8-T02) — sem bloquear nenhum outro
+  lote; RL8-T01 sem prazo crítico (achado simples, não de segurança/deploy,
+  mas com requisito de sanitização não opcional embutido no critério de
+  aceite); RL8-T02 (achado de segurança do Validador/chapéu DevSecOps,
+  `SECURITY-REVIEW.md` Lote 8 item 2b) tem dependência reversa de
+  `L9-T01`/`L10-T01` — precisa concluir antes dessas duas tarefas iniciarem
+  implementação, mesmo padrão do Bloqueio 003 já resolvido para `L11-T03`
+  vs. `L8-T01`.
 
 RESOLVIDO (Bloqueio 003, `.md/BLOCKERS.md`, 2026-09-10, Coordenador):
   L11-T03 (sanitização de texto livre contra prompt injection) ganhou

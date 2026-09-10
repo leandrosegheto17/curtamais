@@ -5,19 +5,78 @@
 // `createSessionWithDateRange`, cobrindo a ramificação de RF-01.2/RF-01.3
 // (idêntica para RF-02.3) de forma isolada da Server Action de qualquer
 // tela específica.
-import { afterAll, describe, expect, it } from "vitest";
+//
+// L11-T02 (ADR-008): `createSessionWithDateRange` chama
+// `applySessionFlowTransition` logo após o `INSERT` inicial (ação
+// `iniciar`, e opcionalmente `aprovar`), que agora aplica o guard central de
+// autorização — exige resolver o dono esperado da requisição corrente via
+// `resolveSessionOwner`, então `next-auth`/`next/headers` são mockados
+// (mesmo padrão de `src/lib/actions/__tests__/data-livre.integration.test.ts`,
+// L11-T02a) e ajustados por teste para bater com o `owner` passado a
+// `createSessionWithDateRange` — o mesmo "solicitante" que acabou de criar a
+// sessão deve seguir autorizado a transicioná-la na mesma requisição.
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createSessionWithDateRange } from "@/lib/session-flow";
 
+const getServerSessionMock = vi.fn();
+const cookieGetMock = vi.fn();
+const cookieSetMock = vi.fn();
+
+vi.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
+}));
+vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("next/headers", () => ({
+  cookies: () => ({
+    get: (...args: unknown[]) => cookieGetMock(...args),
+    set: (...args: unknown[]) => cookieSetMock(...args),
+  }),
+}));
+
 describe("createSessionWithDateRange — integração real com Postgres", () => {
   const sessionIds: string[] = [];
+
+  beforeEach(() => {
+    getServerSessionMock.mockReset();
+    cookieGetMock.mockReset();
+    cookieSetMock.mockReset();
+    // Default: caminho anônimo — sobrescrito por teste conforme o `owner`
+    // passado a `createSessionWithDateRange` (ver `mockOwner` abaixo).
+    getServerSessionMock.mockResolvedValue(null);
+  });
 
   afterAll(async () => {
     await prisma.tripSession.deleteMany({ where: { id: { in: sessionIds } } });
     await prisma.$disconnect();
   });
 
+  /**
+   * Alinha o mock de `resolveSessionOwner` com o `owner` que o teste vai
+   * passar a `createSessionWithDateRange` — mesmo "solicitante" resolvido
+   * duas vezes na mesma chamada (uma vez implicitamente pelo chamador real
+   * em produção, aqui simulado diretamente pelo teste; outra vez dentro de
+   * `applySessionFlowTransition`/guard central).
+   */
+  function mockOwner(
+    owner:
+      | { type: "user"; userId: string }
+      | { type: "anonymous"; anonSessionId: string },
+  ) {
+    if (owner.type === "user") {
+      getServerSessionMock.mockResolvedValue({ user: { id: owner.userId } });
+    } else {
+      getServerSessionMock.mockResolvedValue(null);
+      cookieGetMock.mockReturnValue({ value: owner.anonSessionId });
+    }
+  }
+
+  const ANON_1 = "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaa1";
+  const ANON_2 = "aaaaaaaa-2222-4aaa-8aaa-aaaaaaaaaaa2";
+  const ANON_3 = "aaaaaaaa-3333-4aaa-8aaa-aaaaaaaaaaa3";
+
   it("sem destino: cria a sessão com o range informado e fica em destino_pendente", async () => {
+    mockOwner({ type: "anonymous", anonSessionId: ANON_1 });
     const start = new Date("2026-11-05");
     const end = new Date("2026-11-08");
 
@@ -25,7 +84,7 @@ describe("createSessionWithDateRange — integração real com Postgres", () => 
       entryPath: "data_livre",
       dateRangeStart: start,
       dateRangeEnd: end,
-      owner: { type: "anonymous", anonSessionId: "range-test-anon-1" },
+      owner: { type: "anonymous", anonSessionId: ANON_1 },
     });
     sessionIds.push(result.sessionId);
 
@@ -45,11 +104,13 @@ describe("createSessionWithDateRange — integração real com Postgres", () => 
     expect(destination).toBeNull();
 
     // ADR-008: exatamente um dos dois campos de dono é gravado.
-    expect(stored.anonSessionId).toBe("range-test-anon-1");
+    expect(stored.anonSessionId).toBe(ANON_1);
     expect(stored.userId).toBeNull();
   });
 
   it("owner do tipo user: grava user_id, nunca anon_session_id (ADR-008)", async () => {
+    mockOwner({ type: "user", userId: "range-test-user-1" });
+
     const result = await createSessionWithDateRange({
       entryPath: "data_livre",
       dateRangeStart: new Date("2026-11-05"),
@@ -66,12 +127,14 @@ describe("createSessionWithDateRange — integração real com Postgres", () => 
   });
 
   it("com destino: registra DestinationApproval user_provided e avança para destino_confirmado", async () => {
+    mockOwner({ type: "anonymous", anonSessionId: ANON_2 });
+
     const result = await createSessionWithDateRange({
       entryPath: "feriado",
       dateRangeStart: new Date("2026-06-11"),
       dateRangeEnd: new Date("2026-06-14"),
       destino: "  Foz do Iguaçu  ",
-      owner: { type: "anonymous", anonSessionId: "range-test-anon-2" },
+      owner: { type: "anonymous", anonSessionId: ANON_2 },
     });
     sessionIds.push(result.sessionId);
 
@@ -88,13 +151,15 @@ describe("createSessionWithDateRange — integração real com Postgres", () => 
   });
 
   it("destino ausente/vazio/só espaços são todos tratados como 'sem destino'", async () => {
+    mockOwner({ type: "anonymous", anonSessionId: ANON_3 });
+
     for (const destino of [undefined, null, "", "   "]) {
       const result = await createSessionWithDateRange({
         entryPath: "quiz",
         dateRangeStart: new Date("2026-08-01"),
         dateRangeEnd: new Date("2026-08-05"),
         destino,
-        owner: { type: "anonymous", anonSessionId: "range-test-anon-3" },
+        owner: { type: "anonymous", anonSessionId: ANON_3 },
       });
       sessionIds.push(result.sessionId);
 

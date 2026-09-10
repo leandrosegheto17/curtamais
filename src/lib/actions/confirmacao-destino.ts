@@ -21,10 +21,10 @@
 // navegar de volta ao campo de destino da tela de origem DEPOIS da
 // confirmação do servidor, nunca antes/otimisticamente.
 //
-// Autorização de dono de sessão (L11-T02, ainda não implementada) e regra de
-// orçamento (RF-10, ortogonal) seguem fora de escopo, mesma lacuna já
-// documentada em `applySessionFlowTransition`/demais Server Actions do
-// projeto (ex. `submeterDataLivre`, L6-T03).
+// Autorização de dono de sessão (L11-T02, ADR-008): `applySessionFlowTransition`
+// já aplica o guard central internamente, antes de decidir qualquer
+// transição — nenhuma chamada adicional necessária aqui. Regra de orçamento
+// (RF-10, ortogonal) segue fora de escopo.
 
 import { applySessionFlowTransition } from "@/lib/session-flow";
 import { InvalidConfirmacaoDestinoInputError } from "./confirmacao-destino-errors";
