@@ -295,3 +295,525 @@ cobertura de teste (RNF-07) registrado como tarefa em `Refatoração
 Lote-2` (RL2-T01), sem bloquear o fechamento deste lote. Ver também
 `SECURITY-REVIEW.md` para o veredito do chapéu DevSecOps sobre o mesmo
 lote.
+
+## Lote 5 — Design System Base (componentes compartilhados)
+
+Status geral: **Aprovado com ressalvas**. As 5 tarefas do lote (L5-T01 a
+L5-T05) passam nos respectivos critérios de aceite, confirmados por
+leitura direta do código-fonte de cada componente (não pela nota do
+Executor) e por execução real da suíte. Dois achados **simples** foram
+encontrados na revisão cruzada (ver abaixo) — nenhum compromete o
+critério de aceite central de nenhuma tarefa, nenhum bloqueia outra
+tarefa do lote.
+
+### Suíte executada
+
+| Comando | Resultado |
+|---|---|
+| `npm run lint` | Passou — nenhum warning/erro |
+| `npm test` (`vitest run`) | Passou — 30 arquivos, **242 testes**, sem regressão |
+| `npm run build` (`next build`) | Passou — build de produção completo; `/offline` gerada como rota estática (`○`); `/api/gateway-ia/[etapa]` e demais rotas de API seguem dinâmicas (`ƒ`) |
+
+### L5-T01 — Tokens visuais + `StepperProgress`
+
+Critério de aceite: "Paleta semântica (sucesso/atenção/erro) definida;
+`StepperProgress` reflete estado vindo do servidor, nunca client-only."
+
+- Paleta semântica confirmada em `src/app/globals.css`
+  (`--success`/`--warning`/`--error`, com foreground dedicado cada) e
+  exposta em `tailwind.config.ts` (`success`/`warning`/`error`) — presente
+  e utilizável pelos componentes de L5-T02/L5-T03.
+- `StepperProgress` (`src/components/design-system/stepper-progress.tsx`):
+  único estado de entrada é a prop `currentState: SessionFlowState` (o
+  mesmo tipo de `src/lib/session-flow/state-machine.ts`, L4-T01) — nenhum
+  `useState`/lógica de navegação própria no componente; `getStepperStepStatuses`
+  é função pura, sem efeito colateral. Confirmado: componente é
+  estritamente controlado (mesma prop → mesmo markup), nunca decide
+  sozinho o próprio avanço — conforme "nunca client-only".
+- Contraste WCAG AA: os 7 pares texto/fundo citados na nota de
+  implementação (`foreground`/`background` 18.96:1 etc.) foram
+  reconferidos manualmente a partir dos valores HSL reais de
+  `globals.css` (conversão HSL→RGB→luminância relativa) — todos batem com
+  os valores documentados, folgados acima do mínimo de 4.5:1. **Conforme.**
+- **Aprovado.**
+
+### L5-T02 — `PriceRangeBadge` + `BudgetInsufficientBanner`
+
+Critério de aceite: "Badge sempre com ícone + texto 'aproximado'; banner
+nunca desabilita botões da tela."
+
+- `PriceRangeBadge`: todo caminho de código que produz `label` sempre
+  inclui `"(aproximado)"` para faixa normal (não há `return`/branch que
+  omita o texto), e o ícone `Tag` é renderizado incondicionalmente antes
+  do `label`, inclusive no caso "Gratuito" — confirmado lendo a função
+  inteira, não só os testes.
+- `BudgetInsufficientBanner`: contrato de props (`show`/`differenceLabel`/
+  `className`) não inclui nenhuma prop capaz de tocar um elemento irmão;
+  o componente é `role="status"` autocontido, sem `onDismiss` bloqueante.
+  RN-04 garantido estruturalmente (não só por convenção de uso) —
+  confirmado por teste dedicado (`toBeEnabled()` de um botão irmão nos
+  dois estados de `show`).
+- **Aprovado.**
+
+### L5-T03 — `LoadingStream` + `ErrorRetryState` + `EmptyState`
+
+Critério de aceite: "`LoadingStream` renderiza conteúdo progressivo real
+(não spinner genérico) conforme mecanismo escolhido no spike;
+`aria-live='polite'` presente."
+
+- `LoadingStream` consome exatamente o mecanismo do SPIKE-01 (`fetch` +
+  `response.body.getReader()` + `TextDecoder`), sem `Server Actions`/
+  `ai/rsc` — confirmado por leitura do `useEffect` inteiro. O estado
+  `streaming` acumula o texto real chegado (`accumulated += decoder.decode(...)`)
+  e é isso que é renderizado, não um placeholder genérico — teste
+  `loading-stream.test.tsx` prova entrega incremental real com
+  timestamps distintos.
+- `aria-live="polite"` presente na região única que cobre rótulo +
+  conteúdo; `aria-busy` reflete `connecting`/`streaming`. Trade-off de
+  granularidade de anúncio (documentado no próprio arquivo) é aceitável
+  para esta tarefa — nenhuma tela real consome o componente ainda para
+  validar com leitor de tela real.
+- `ErrorRetryState`/`EmptyState`: sem retry automático embutido (conforme
+  Diretriz de Implementação 7) — `onRetry` só é chamado pelo clique
+  explícito do usuário, nunca de forma automática/em loop. Confirmado por
+  teste ("`onRetry` chamado exatamente uma vez por clique e nunca
+  sozinho").
+- **Aprovado.**
+
+### L5-T04 — `SuggestionCard`
+
+Critério de aceite: "Estrutura visual idêntica entre os 3 usos, conteúdo
+variável, acessível por teclado."
+
+- Estrutura idêntica confirmada por teste dedicado que compara o
+  `className` do container raiz nos 3 casos simulados (T04/T06/T07).
+- Acessibilidade por teclado: o card não introduz `onClick`/`tabIndex`
+  próprio — toda a ordem de tab vem de `leading`/`actions` (elementos
+  nativos passados pelo chamador); teste com `userEvent.tab()` confirma a
+  ordem natural do DOM sem "trap" de foco.
+- **Aprovado.**
+
+### L5-T05 — PWA (Manifest + Service Worker)
+
+Critério de aceite: "App instalável; assets estáticos em cache; funciona
+offline apenas para shell da UI, não para geração de conteúdo."
+
+- Manifest com todos os campos de instalabilidade (`name`/`short_name`/
+  `start_url`/`display: "standalone"`/ícones 192/512) — confirmado por
+  leitura de `public/manifest.webmanifest` e reforçado pelo teste
+  automatizado (`pwa.test.ts`).
+- Service Worker (`public/sw.js`): shell estático (`/`, `/offline`,
+  manifest, ícones) precacheado; demais assets same-origin em cache-first
+  sob demanda; **nenhuma rota `/api/` é interceptada** (guard
+  `isNeverCachePath` roda antes de qualquer `caches.match`/`cache.put` e
+  retorna sem `event.respondWith` — confirmado por leitura direta do
+  handler `fetch`, não só pela nota do Executor). Isso cobre literalmente
+  o critério "não funciona offline para geração de conteúdo", já que toda
+  geração passa por `/api/gateway-ia/[etapa]`.
+- `/offline` é 100% estático (sem Server Action/DB/Gateway de IA) —
+  confirmado no output de `npm run build` (rota `○`, estática) e por
+  leitura do código (nenhum `fetch`/import de módulo de dado).
+- **Aprovado.**
+
+### Integração cruzada entre os 5 componentes do Lote 5
+
+- `SuggestionCard` (L5-T04) usa `PriceRangeBadge` (L5-T02) via spread de
+  props (`<PriceRangeBadge {...price} />`), sem reimplementar formatação
+  de preço — confirmado por leitura direta, consistente com a Diretriz de
+  Implementação 6 ("proibido renderizar preço fora dele").
+- `StepperProgress` (L5-T01) usa exclusivamente os tokens Tailwind do
+  próprio L5-T01 (`accent`, `border`, `background`, `foreground[-muted]`)
+  — nenhuma cor hardcoded fora da paleta definida, sem colisão com os
+  tokens semânticos consumidos por L5-T02/L5-T03 (`success`/`warning`/
+  `error`, usados só onde fazem sentido semanticamente — atenção/erro —,
+  nunca reaproveitados incorretamente pelo Stepper).
+- `LoadingStream`/`ErrorRetryState`/`EmptyState`/`SuggestionCard`
+  (L5-T03/L5-T04) usam a mesma classe base `border-border bg-surface` —
+  moldura visual consistente entre os componentes de bloco de conteúdo do
+  design system, sem um usar `card`/`popover` (aliases shadcn) enquanto
+  outro usa `surface` diretamente.
+- Service Worker (L5-T05) x Gateway de IA (Lote 3) e demais componentes
+  deste lote que dependem de rede: confirmado que **nenhuma** rota sob
+  `/api/` é interceptada pelo SW — isso cobre tanto
+  `/api/gateway-ia/[etapa]` (consumido futuramente por `LoadingStream`)
+  quanto `/api/auth/*`/`/api/anonymous-session` (Lote 1). Testado que o
+  guard de exclusão por prefixo roda antes de qualquer leitura/escrita de
+  cache, e que o path é resolvido via `URL.pathname` (normalizado pelo
+  parser — não há bypass trivial por `..`/variação de path para escapar
+  do prefixo `/api/`, ver também `SECURITY-REVIEW.md`).
+- **Achado simples 1 (inconsistência cross-componente L5-T01 ↔ L5-T05)**:
+  `public/manifest.webmanifest` define `background_color`/`theme_color`
+  como `"#0F172A"` (azul-marinho, próximo do `slate-900` padrão do
+  Tailwind) — mas o token real `--background` definido em L5-T01
+  (`src/app/globals.css`) é `240 5% 4%` (~`#0a0a0b`, quase preto, tema
+  "Concierge Noturno"). Isso não quebra nenhuma funcionalidade, mas a tela
+  de splash/status bar do PWA instalado (que usa esses dois campos do
+  manifest) vai mostrar uma cor visivelmente diferente do fundo real do
+  app assim que o conteúdo carregar — inconsistência visual perceptível,
+  não um requisito de UX-SPEC.md violado literalmente (o UX-SPEC.md não
+  fala de manifest), mas contraria a intenção de L5-T01 (tokens
+  centralizados, "nenhum sistema paralelo de cor").
+  - **Classificação: simples** — não compromete o critério de aceite
+    central de L5-T01 nem de L5-T05 (ambos satisfeitos, isoladamente,
+    hoje), não bloqueia nenhuma outra tarefa do lote (lote completo).
+    Ajuste pontual: alinhar `background_color`/`theme_color` do manifest
+    ao valor real de `--background` (~`#0a0a0b`).
+- **Achado simples 2 (acessibilidade — `StepperProgress`)**: cada
+  `StepDot` (`src/components/design-system/stepper-progress.tsx`) usa
+  ícone `Check` com `aria-hidden="true"` + atributo HTML `title` (ex.
+  "Etapa concluída") como o diferencial não-visual exigido pelo UX-SPEC
+  §5 ("nenhuma etapa comunicada só por cor"). O atributo `title` em um
+  `<span>` sem papel/atributo ARIA adicional não é anunciado de forma
+  confiável por todos os leitores de tela durante navegação por
+  virtual cursor/browse mode (funciona melhor como tooltip de hover para
+  usuário de mouse do que como texto acessível para usuário de leitor de
+  tela) — como o ícone que acompanha é `aria-hidden`, um usuário de
+  leitor de tela pode não receber nenhuma pista textual confiável do
+  status de cada etapa além da posição relativa no DOM. Não é uma
+  violação literal do UX-SPEC.md (que não especifica a técnica exata de
+  texto alternativo), e a intenção documentada no componente (ícone +
+  `title` além de cor) é correta — mas a implementação escolhida para o
+  "texto" tem suporte de AT inconsistente.
+  - **Classificação: simples** — não compromete o critério de aceite
+    central de L5-T01 (que não menciona leitor de tela explicitamente
+    para o Stepper) nem bloqueia outra tarefa do lote. Ajuste pontual:
+    adicionar um `<span className="sr-only">` com o mesmo texto de
+    `title` dentro de cada `StepDot` (ou `aria-label` no elemento pai),
+    garantindo que o status de cada etapa seja exposto de forma confiável
+    à árvore de acessibilidade independentemente de suporte a `title`.
+- Nenhum outro bug de integração cruzada encontrado.
+
+### Requisitos não funcionais relevantes ao lote
+
+- Acessibilidade WCAG AA (TASK.md Seção 1, item 10 — não-negociável),
+  conferida em todos os 6 componentes deste lote:
+  - Contraste: todos os pares texto/fundo usados pelos componentes do
+    Lote 5 (`foreground`/`background`, `foreground-muted`/`surface`,
+    `warning`/`surface`, `error`/`surface`, `accent`(-foreground)/
+    `accent`) reconferidos acima do mínimo AA (ver L5-T01).
+  - Navegação por teclado: nenhum componente deste lote introduz
+    elemento focável fora de ordem natural do DOM; `StepperProgress`
+    deliberadamente não é focável (justificado — não há navegação por
+    clique nele em nenhuma tela do UX-SPEC.md); `SuggestionCard`
+    confirmado por teste de tabulação.
+  - `aria-live`/`role`/`aria-current`: `LoadingStream`
+    (`aria-live="polite"` + `aria-busy`), `ErrorRetryState`
+    (`role="alert"`), `BudgetInsufficientBanner` (`role="status"`),
+    `StepperProgress` (`aria-current="step"` só na etapa ativa) — todos
+    presentes e usados na semântica correta (status não-urgente vs. alerta
+    imediato vs. progresso).
+  - Nenhuma informação só por cor: confirmado em todos os 6 componentes
+    (ícone + texto sempre, nunca só cor/borda) — **exceto** o achado
+    simples 2 acima (title vs. sr-only no `StepperProgress`), que é uma
+    lacuna de robustez de implementação da regra, não uma ausência da
+    regra.
+- Performance/streaming: não aplicável de forma mensurável neste lote
+  (sem endpoint real consumido por `LoadingStream` ainda — isso ocorre a
+  partir do Lote 7); o mecanismo (SPIKE-01) já foi validado
+  empiricamente no próprio spike.
+
+### Bugs encontrados
+
+Dois achados **simples** (ver "Integração cruzada" acima) — nenhuma
+reprovação crítica. Todas as 5 tarefas do Lote 5 **permanecem
+`Concluída`**.
+
+### Padrão recorrente sinalizado ao Coordenador
+
+Não aplicável — os dois achados são pontuais (um de dado de configuração
+estático, outro de técnica de acessibilidade num único componente), não
+um padrão recorrente de decomposição/diretriz de implementação.
+
+## Checagem Estrutural do Lote 5 (Validador, sem dispatch ao Coordenador)
+
+- As 5 tarefas do Lote 5 (L5-T01 a L5-T05) estão `Concluída` em `TASK.md`
+  (Seção 3) — confirmado.
+- Seção 4 (Dependências e Ordem de Execução): Lote 5 depende de Lote 1
+  (já `Validado`) e do SPIKE-01 (já `Resolvido`, ver Seção 2) — ambos
+  íntegros; os lotes que dependem do Lote 5 (Lotes 6, 7, 8, 9, 10, todos
+  ainda não iniciados) seguem consistentes na tabela — nenhuma dependência
+  órfã/inconsistente relativa a este lote.
+- Nenhuma tarefa `Bloqueada` sem resolução no Lote 5.
+- Dois achados simples (inconsistência de cor do manifest; robustez de
+  acessibilidade do `StepperProgress`) registrados em `Refatoração
+  Lote-5` (ver `TASK.md`) — não bloqueiam o fechamento deste lote.
+
+## Veredito de Release-Readiness do Lote 5
+
+**Lote 5 pode fechar como `Validado com ressalvas`.** Nenhuma reprovação
+crítica ou simples que exija retorno ao Executor. Dois achados simples
+(cor de manifest desalinhada do token real; robustez de acessibilidade de
+`title` vs. `sr-only` no `StepperProgress`) registrados como tarefas em
+`Refatoração Lote-5` (RL5-T01/RL5-T02), sem bloquear o fechamento deste
+lote. Ver também `SECURITY-REVIEW.md` para o veredito do chapéu DevSecOps
+sobre o mesmo lote (auditoria com atenção especial ao Service Worker,
+entre outros pontos do lote).
+
+## Lote 3 — Gateway de IA
+
+Status geral: **Aprovado**. As 5 tarefas do lote (L3-T01 a L3-T05) passam
+nos respectivos critérios de aceite, confirmados por leitura direta do
+código (`src/lib/gateway-ia/`, `src/app/api/gateway-ia/[etapa]/route.ts`) —
+não pela nota de implementação do Executor — e por execução real da suíte.
+Nenhuma reprovação crítica ou simples encontrada.
+
+### Suíte executada (ambiente local)
+
+| Comando | Resultado |
+|---|---|
+| `npm run lint` | Passou — nenhum warning/erro |
+| `npm test` (`vitest run`) | Passou — 41 arquivos, **300 testes** no total, incluindo as 9 suítes do módulo `gateway-ia` (`index.test.ts`, `stream.test.ts`, `generation-log.test.ts`, `rate-limit.test.ts`, `validation.test.ts`, `prompts.test.ts`, `schemas.test.ts`) e a suíte da rota (`src/app/api/gateway-ia/[etapa]/__tests__/route.test.ts`), todas com SDK da OpenAI/Prisma mockados (sem chamada de rede/banco real) |
+| `npm run build` (`next build`) | Passou — build de produção completo; `/api/gateway-ia/[etapa]` confirmada como rota dinâmica (`ƒ`), não estática (`○`), consistente com o achado do SPIKE-01 |
+
+### L3-T01 — Client OpenAI + interface interna abstrata do Gateway de IA
+
+Critério de aceite: "Chamada de teste retorna JSON validado contra schema
+simples; API key só via env."
+
+- `src/lib/gateway-ia/client.ts`: `getOpenAIClient()`/`getOpenAIModel()` só
+  leem `process.env.OPENAI_API_KEY`/`OPENAI_MODEL`; `readApiKeyFromEnv()`
+  lança erro explícito se a variável estiver ausente/vazia — nenhuma
+  chamada ao provider é feita sem chave configurada. Nenhum valor de
+  API key hardcoded em nenhum arquivo do módulo (confirmado por leitura de
+  `client.ts`, `index.ts`, `.env.example` — só placeholder `"sk-..."`).
+  `client.ts` não é reexportado por `index.ts` (fronteira interna mantida).
+- `generateStructuredCompletion` (`index.ts`) usa
+  `client.chat.completions.parse` + `zodResponseFormat` (SDK oficial da
+  OpenAI) — retorna `result.data` já validado contra o schema Zod
+  informado (não texto livre reempacotado); confirmado por
+  `index.test.ts`, primeiro caso: `destinoSchema.parse(result.data)` não
+  lança, e `callArgs.response_format.type === "json_schema"`.
+- Segundo caso de `index.test.ts` confirma que a ausência de
+  `OPENAI_API_KEY` lança erro explícito citando a variável, sem nenhuma
+  chamada ao SDK (`parseMock` não é chamado).
+- **Aprovado.**
+
+### L3-T02 — Prompt design por etapa + streaming (SPIKE-01)
+
+Critério de aceite: "Prompt de cada etapa documentado; schema de saída
+validado; mecanismo de streaming escolhido no spike aplicado."
+
+- `src/lib/gateway-ia/prompts.ts`: 4 `buildXPrompt` (destino, hospedagem,
+  passeios, roteiro), cada um documentado com o RF correspondente,
+  grounding de data (`formatDateRangeLine`) e orçamento
+  (`formatBudgetLine`, nunca bloqueante — RF-10.3, confirmado pelo caso de
+  teste "orçamento não informado nunca bloqueia" em `prompts.test.ts`).
+  Etapas com pré-condição (hospedagem precisa de destino; roteiro precisa
+  de destino+hospedagem) lançam erro explícito quando chamadas sem ela —
+  12 casos em `prompts.test.ts` cobrindo cada etapa + os erros de
+  pré-condição.
+- `src/lib/gateway-ia/schemas.ts`: 4 schemas Zod (`destinoSugestoesSchema`
+  2-4 itens, `hospedagemOpcoesSchema` exatamente 3, `passeiosOpcoesSchema`
+  mín. 1 podendo ter preço 0, `roteiroEstruturadoSchema` dias com
+  manhã/tarde/noite) — 13 casos em `schemas.test.ts` cobrindo payload
+  válido e inválido de cada um.
+- Streaming: `streamStructuredCompletion` (`index.ts`) usa
+  `client.chat.completions.stream(...)` (SDK oficial), o mesmo
+  `response_format` de `generateStructuredCompletion`, encapsulado num
+  `ReadableStream<Uint8Array>` que emite deltas via `content.delta` e
+  fecha via `finalChatCompletion()` — mecanismo Route Handler +
+  `ReadableStream` decidido em SPIKE-01, efetivamente aplicado, não só
+  citado em comentário. `cancel()` aborta o `chatStream` do SDK
+  (confirmado por caso dedicado em `stream.test.ts`, SDK mockado, 4 casos:
+  entrega incremental real por timestamps diferentes, propagação de
+  `GatewayIaError` em recusa/erro, abort no `cancel()`).
+- `src/app/api/gateway-ia/[etapa]/route.ts`: `export const dynamic =
+  "force-dynamic"` presente (repete o achado do SPIKE-01 — sem essa
+  diretiva o Next 14 estatiza a rota em build); confirmado empiricamente
+  pelo `npm run build` acima (rota listada como `ƒ`, não `○`). Valida o
+  corpo contra `stageContextSchema` (400 em contexto inválido/pré-condição
+  não atendida), resolve a etapa via `GATEWAY_IA_STAGES` (404 em etapa
+  desconhecida), devolve 502 em falha do Gateway de IA — 5 casos em
+  `route.test.ts`, incluindo entrega incremental do corpo 200 (chunks em
+  timestamps diferentes, mesmo padrão de prova do SPIKE-01). Nenhum
+  `import` de `openai` fora do módulo `gateway-ia` (fronteira mantida,
+  confirmado por leitura do arquivo).
+- **Aprovado.**
+
+### L3-T03 — Validação de plausibilidade de preço + grounding de data
+
+Critério de aceite: "Resposta com preço fora de faixa plausível é
+rejeitada/reprocessada; datas geradas nunca conflitam com o range da
+sessão."
+
+- `src/lib/gateway-ia/validation.ts`: `validatePricePlausibility` rejeita
+  faixa invertida, acima de `MAX_PLAUSIBLE_PRICE_BRL`, "zero-zero" quando
+  não gratuito, e razão `max/min` acima de `MAX_PLAUSIBLE_PRICE_RATIO` —
+  aplicado às 3 etapas com preço (`destino`/`hospedagem`/`passeios`);
+  `validateDateGrounding` rejeita data fora do range ou não interpretável
+  como ISO, só para a etapa `roteiro`. 18 casos em `validation.test.ts`.
+- Integração confirmada dentro de `generateStructuredCompletion`
+  (`index.ts`): chamada de `validateGatewayIaOutput` acontece DEPOIS da
+  checagem de schema/recusa (`message.parsed`) e ANTES do `return` — ordem
+  correta (rejeita antes de expor ao chamador), lançando `GatewayIaError`
+  (mesmo tipo do módulo). Confirmado por leitura direta do código (linhas
+  236-271 de `index.ts`) e por 4 casos de integração em `index.test.ts`
+  (preço implausível rejeitado/plausível aceito na etapa destino; data
+  fora do range rejeitada/dentro do range aceita na etapa roteiro), usando
+  o schema real da etapa (não um schema de teste arbitrário).
+- A variante de streaming (`streamStructuredCompletion`) deliberadamente
+  não aplica esta validação — documentado no código como decisão de
+  design (streaming só entrega percepção de progresso; a decisão de
+  negócio real usa a variante não-streaming) — confirmado consistente:
+  nenhuma chamada a `validateGatewayIaOutput` dentro de
+  `streamStructuredCompletion`. Não é uma lacuna, é escopo correto.
+- **Aprovado.**
+
+### L3-T04 — Retry único automático + `LlmGenerationLog`
+
+Critério de aceite: "Falha simulada gera exatamente 1 retry automático;
+log gravado em sucesso e falha; erro exposto ao chamador após 2ª falha."
+
+- `generateStructuredCompletionWithRetry` (`index.ts`): laço com teto
+  rígido `MAX_GATEWAY_IA_ADDITIONAL_RETRIES = 1` (nunca loop aberto) ao
+  redor de `generateStructuredCompletion` (já incluindo a validação de
+  L3-T03) — falha por qualquer motivo (erro do provider OU rejeição de
+  `validateGatewayIaOutput`) dispara exatamente 1 tentativa adicional;
+  falha na 2ª propaga `GatewayIaError`. Confirmado por 5 casos em
+  `generation-log.test.ts` (SDK OpenAI e Prisma Client mockados, sem
+  chamada de rede/banco real): sucesso de 1ª sem retry (`parseMock` 1x);
+  falha simulada + sucesso na 2ª (`parseMock` 2x, `retryCount: 1`); falha
+  nas duas (`GatewayIaError`, log `status: "failed_after_retry"`,
+  `retryCount: 1`); rejeição de `validateGatewayIaOutput` (L3-T03) também
+  dispara o retry; falha ao gravar o log não derruba um resultado de
+  sucesso já obtido (não-fatal, `console.error` chamado).
+- `writeLlmGenerationLog` (`generation-log.ts`) grava todos os 9 campos
+  não-automáticos de `LlmGenerationLog` (`prisma/schema.prisma` linhas
+  275-296): `sessionId`, `stage`, `provider` ("openai" fixo, único
+  provider do ADR-002), `promptVersion` (reaproveita `schemaName`,
+  decisão documentada), `tokensInput`/`tokensOutput` (de `usage`, ou `0`
+  em falha antes de retornar `usage` — campos `Int` não anuláveis do
+  schema, decisão correta), `costEstimateUsd` (calculado,
+  `estimateGatewayIaCostUsd`), `latencyMs`, `retryCount`, `status` — nenhum
+  campo do modelo fica de fora (`createdAt` é `@default(now())`,
+  automático). Confirmado campo a campo por leitura cruzada de
+  `generation-log.ts` × `prisma/schema.prisma` × os `toMatchObject` dos 5
+  testes.
+- `latencyMs`: `startedAt = Date.now()` está ANTES do laço `for` em
+  `generateStructuredCompletionWithRetry` (não dentro dele) — mede a
+  chamada lógica inteira, incluindo eventual retry, não só a última
+  tentativa. Este é o ponto que já foi objeto de uma correção pós-revisão
+  registrada em `TASK.md` (nota "Correção pós-revisão inline"); confirmado
+  aqui que a correção está de fato aplicada no código atual, não é apenas
+  uma nota histórica.
+- Falha ao gravar o log é não-fatal (`try/catch`, nunca lança) — confirmado
+  por teste dedicado e por leitura do `catch` em `writeLlmGenerationLog`.
+- **Aprovado.**
+
+### L3-T05 — Rate limiting por sessão/IP
+
+Critério de aceite: "Limite configurável; excesso retorna erro tratável,
+não exceção não capturada."
+
+- `src/lib/gateway-ia/rate-limit.ts`: contador em memória por processo,
+  janela fixa de 60s por chave; `getGatewayIaRateLimitPerMinute()` lê
+  `AI_GATEWAY_RATE_LIMIT_PER_MINUTE` a cada chamada, com fallback seguro
+  de 10/min se ausente/inválida (documentado e reservado em
+  `.env.example`). `registerGatewayIaCall` nunca lança — só retorna
+  `true`/`false`. `checkGatewayIaRateLimit` (`index.ts`) traduz `false`
+  para `GatewayIaError` (mesmo tipo do módulo, nunca exceção não tratada).
+  7 casos em `rate-limit.test.ts`: limite respeitado dentro da janela,
+  configurável via env, contadores independentes por chave, expiração de
+  janela, excesso tratável tanto no contador de baixo nível quanto na
+  guarda pública.
+- **Aprovado.**
+
+### Testes de integração cruzada entre as tarefas do lote
+
+- L3-T02 usa o client de L3-T01: `generateStructuredCompletion` e
+  `streamStructuredCompletion` (ambos em `index.ts`, escritos/estendidos
+  em L3-T02) chamam `getOpenAIClient()`/`getOpenAIModel()` de `./client.ts`
+  (L3-T01) — confirmado por leitura direta; nenhuma segunda instância de
+  client é criada fora deste ponto.
+- L3-T03 (validação) e L3-T04 (retry+log) estão de fato integrados dentro
+  de `generateStructuredCompletion`/`generateStructuredCompletionWithRetry`
+  em `index.ts`, na ordem certa: schema → recusa → **validação semântica
+  (L3-T03)** dentro do "núcleo de uma tentativa"
+  (`generateStructuredCompletion`) → **retry + log (L3-T04)** envolvendo
+  esse núcleo inteiro em `generateStructuredCompletionWithRetry`. Uma
+  rejeição de L3-T03 portanto participa do retry de L3-T04 (confirmado
+  pelo caso de teste dedicado em `generation-log.test.ts`) — a composição
+  funciona como projetada, não como duas peças desconectadas.
+- L3-T05 (rate limiting) é uma guarda separada
+  (`checkGatewayIaRateLimit`), **não** integrada automaticamente dentro de
+  `generateStructuredCompletion`/`WithRetry`. Confirmado por leitura: nem
+  `generateStructuredCompletion` nem `generateStructuredCompletionWithRetry`
+  chamam `registerGatewayIaCall`/`checkGatewayIaRateLimit` internamente.
+  **Avaliação: é uma decisão de design documentada, não uma lacuna real
+  desta tarefa.** O critério de aceite de L3-T05 ("limite configurável;
+  excesso retorna erro tratável") não exige integração automática, e o
+  próprio módulo justifica a separação: `rate-limit.ts` não importa
+  `next/headers` nem lê cookie/IP para preservar a fronteira do Gateway de
+  IA (SDD §7 trata a composição da chave — sessão anônima/`user_id`/IP —
+  como responsabilidade de quem tem acesso à requisição HTTP, que não é
+  este módulo). A tabela de tarefas também modela `L3-T05` como
+  paralelizável com `L3-T02` (não sequencial/dependente), reforçando que a
+  integração automática nunca foi esperada dentro do Lote 3. O ponto de
+  chamada real (Orquestrador de Sessão/Server Action de cada etapa,
+  L7-T01/L8-T01/L9-T01/L10-T01) ainda não existe no projeto — o risco de
+  "esquecer de chamar `checkGatewayIaRateLimit`" quando essas tarefas
+  forem implementadas é uma preocupação válida, mas é responsabilidade de
+  validação de **lotes futuros** (7/8/9/10), não algo que este lote possa
+  ou deva antecipar sem essas tarefas existirem — não gera achado/tarefa
+  de Refatoração Lote-3 agora.
+
+### Requisitos não funcionais relevantes ao lote
+
+- **Observabilidade (SDD §5/§6, TASK.md Seção 1 item 8)**: todos os 9
+  campos não-automáticos de `LlmGenerationLog` são de fato gravados a cada
+  chamada lógica ao provider, em sucesso e em falha — nenhuma chamada
+  "silenciosa" (ver L3-T04 acima). Falha ao gravar o log não derruba uma
+  chamada que teve sucesso no provider, mas também não é engolida
+  silenciosamente (`console.error`).
+- **Segurança básica (TASK.md Seção 1 item 9, escopo deste chapéu)**: API
+  key só via `process.env.OPENAI_API_KEY`/`OPENAI_MODEL`
+  (`client.ts`) — nenhum segredo hardcoded em nenhum arquivo do módulo
+  `gateway-ia` ou da rota (`route.ts`), confirmado por leitura de todos os
+  arquivos do módulo. `.env.example` documenta as 3 variáveis
+  (`OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_GATEWAY_RATE_LIMIT_PER_MINUTE`)
+  só com placeholders. Nenhum log grava conteúdo de prompt/resposta bruta
+  (só metadados: contagem de tokens, custo, latência, status) — sem
+  exposição de dado potencialmente sensível do usuário (orçamento,
+  destino) em `LlmGenerationLog`. Auditoria de segurança completa
+  (autorização de dono de sessão, prompt injection, etc.) é escopo do
+  chapéu DevSecOps, não repetida aqui — mas nada encontrado nesta
+  checagem básica que a antecipe negativamente.
+- Retry único (RNF-05/ADR-004): confirmado teto rígido de 1 tentativa
+  adicional, nunca loop — ver L3-T04 acima.
+
+### Bugs encontrados
+
+Nenhum. Nenhuma reprovação crítica nem simples neste lote.
+
+### Padrão recorrente sinalizado ao Coordenador
+
+Não aplicável — nenhum bug encontrado, logo nenhum padrão a sinalizar.
+
+## Checagem Estrutural do Lote 3 (Validador, sem dispatch ao Coordenador)
+
+- As 5 tarefas do Lote 3 (L3-T01 a L3-T05) estão `Concluída` em `TASK.md`
+  (Seção 3) — confirmado.
+- Seção 4 (Dependências e Ordem de Execução): Lote 3 depende de L1-T01/
+  L1-T02/L1-T03 (Lote 1, já `Validado`) e do SPIKE-01 (já `Resolvido`); os
+  lotes que dependem do Lote 3 (L7-T01, L8-T01, L9-T01, L10-T01, L11-T03,
+  todos ainda não iniciados/fora do escopo desta validação) referenciam
+  L3-T02/L3-T03/L3-T04 corretamente na tabela — nenhuma dependência
+  órfã/inconsistente relativa a este lote.
+- Nenhuma tarefa `Bloqueada` sem resolução no Lote 3.
+- Nenhum achado simples/débito baixo-médio a registrar em
+  `Refatoração Lote-3` — nenhuma tarefa nova criada.
+
+## Veredito de Release-Readiness do Lote 3
+
+**Lote 3 pode fechar como `Validado`** (sem ressalvas). As 5 tarefas
+(L3-T01 a L3-T05) passam nos critérios de aceite literais do `TASK.md`,
+`npm run lint`/`npm test` (300 testes)/`npm run build` passam sem
+regressão, a composição entre as tarefas (client → prompt/schema →
+validação → retry/log; rate limiting como guarda separada e
+intencionalmente não integrada ainda) funciona como projetada, e a
+checagem de segurança básica (API key só via env, nenhum segredo
+hardcoded, nenhum dado sensível em log) não encontrou problema. **O lote
+está liberado para a auditoria de segurança completa do chapéu DevSecOps
+(Seção 3 do comando `/validar`)** — nenhuma reprovação crítica exige parar
+aqui.
+`public/sw.js`).

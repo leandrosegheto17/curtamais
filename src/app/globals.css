@@ -3,49 +3,94 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * L5-T01 — Tokens visuais "Concierge Noturno" (UX-SPEC.md Seção 3).
+   *
+   * O produto tem UM único tema (fundo escuro premium, acento
+   * dourado/champagne) — não é um "modo escuro" opcional alternando com um
+   * tema claro. Por isso os valores abaixo vivem direto em `:root` (aplicados
+   * sempre), e o bloco `.dark` (mantido só por compatibilidade com o
+   * `darkMode: ["class"]` do Tailwind/shadcn, caso algo aplique a classe)
+   * repete os mesmos valores em vez de divergir.
+   *
+   * Todos os pares texto/fundo abaixo foram checados contra WCAG AA
+   * (4.5:1 texto normal / 3:1 texto grande) — ver nota de implementação
+   * L5-T01 em .md/TASK.md para os valores hex de referência e o cálculo.
+   */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --background: 240 5% 4%; /* ~#0a0a0b, quase preto (UX-SPEC "background") */
+    --foreground: 0 0% 98%; /* ~#fafafa, quase branco */
+    --foreground-muted: 240 5% 65%; /* ~#a1a1aa, texto secundário */
+
+    /* "surface" (UX-SPEC): tom acima do background, sem sombra — usado em
+       blocos/linhas (SuggestionCard, HolidayListItem etc.). Mapeado também
+       em `card`/`popover`/`muted`, convenção shadcn, para não criar dois
+       sistemas paralelos. */
+    --surface: 240 6% 10%; /* ~#18181b */
+    --surface-foreground: 0 0% 98%;
+    --card: 240 6% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 10%;
+    --popover-foreground: 0 0% 98%;
+    --muted: 240 4% 14%; /* ~#232326 */
+    --muted-foreground: 240 5% 65%;
+
+    /* "accent" (UX-SPEC): dourado/champagne, CTA principal + StepperProgress. */
+    --primary: 39 55% 62%; /* ~#d4af6a */
+    --primary-foreground: 41 65% 7%; /* ~#1c1506, texto escuro sobre dourado */
+    --accent: 39 55% 62%;
+    --accent-foreground: 41 65% 7%;
+
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 0 0% 98%;
+
+    /* Paleta semântica (UX-SPEC §3), recalibrada para AA sobre fundo escuro —
+       nunca herdada de um tema claro. Nunca é o único indicador de status
+       (ver componentes que a consomem: sempre ícone + texto também). */
+    --success: 144 46% 70%; /* ~#8fd6ab */
+    --success-foreground: 155 68% 7%;
+    --warning: 43 71% 58%; /* ~#e0b64a — distinto do accent dourado do CTA */
+    --warning-foreground: 42 89% 7%;
+    --error: 4 77% 74%; /* ~#f0918a */
+    --error-foreground: 5 76% 10%;
+    --destructive: 4 77% 74%;
+    --destructive-foreground: 5 76% 10%;
+
+    --border: 240 5% 26%; /* ~#3f3f46, borda fina — nunca box-shadow */
+    --input: 240 5% 26%;
+    --ring: 39 55% 62%; /* foco visível: mesma cor do accent dourado */
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 240 5% 4%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --foreground-muted: 240 5% 65%;
+    --surface: 240 6% 10%;
+    --surface-foreground: 0 0% 98%;
+    --card: 240 6% 10%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 240 6% 10%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 65%;
+    --primary: 39 55% 62%;
+    --primary-foreground: 41 65% 7%;
+    --accent: 39 55% 62%;
+    --accent-foreground: 41 65% 7%;
+    --secondary: 240 4% 14%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    --success: 144 46% 70%;
+    --success-foreground: 155 68% 7%;
+    --warning: 43 71% 58%;
+    --warning-foreground: 42 89% 7%;
+    --error: 4 77% 74%;
+    --error-foreground: 5 76% 10%;
+    --destructive: 4 77% 74%;
+    --destructive-foreground: 5 76% 10%;
+    --border: 240 5% 26%;
+    --input: 240 5% 26%;
+    --ring: 39 55% 62%;
   }
 }
 

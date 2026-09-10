@@ -128,6 +128,7 @@ erDiagram
         decimal budget_amount "nullable"
         string budget_currency "nullable"
         enum status "in_progress|partial|completed|abandoned"
+        enum flow_state "11 estados granulares (ADR-006 Adendo 1)"
         timestamp created_at
         timestamp updated_at
     }
@@ -203,6 +204,17 @@ Notas de design:
 - `user_id` é nullable porque o fluxo de decisão guiada (RF-01 a RF-11) não exige
   conta criada — só é usado quando o usuário opta por persistir/recuperar sessão
   entre dispositivos (ver Seção 7, RNF-06).
+- `flow_state` (enum `SessionFlowState`, 11 valores, default
+  `entrada_selecionada`) foi acrescentado a `TripSession` pelo ADR-006 Adendo 1
+  (`.md/adr/006-orquestracao-de-fluxo-em-etapas-state-machine.md`) para
+  persistir o estado granular da state machine do Orquestrador de Sessão
+  (`src/lib/session-flow/state-machine.ts`, L4-T01/L4-T02). Coexiste com
+  `status` (`TripSessionStatus`, 4 valores): `status` permanece a
+  granularidade grosseira para filtros administrativos e para o estado
+  `abandoned` (fora do vocabulário da state machine); `flow_state` é a fonte
+  de verdade das 11 etapas, sincronizada com `status` só nos dois terminais
+  (`concluida` → `completed`, `encerrada_parcial` → `partial`). Ver o ADR
+  para o detalhamento completo.
 
 ## 6. Riscos Técnicos
 

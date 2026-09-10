@@ -20,18 +20,25 @@
 // - L3-T03 (IMPLEMENTADA nesta tarefa): validação de plausibilidade de
 //   preço/grounding de data (ver `./validation.ts`), integrada dentro de
 //   `generateStructuredCompletion` logo após a validação de schema.
-// - L3-T04: retry único automático + escrita em `LlmGenerationLog` (deve
-//   envolver a chamada a `generateStructuredCompletion` feita aqui, que já
-//   inclui a validação de L3-T03).
+// - L3-T04 (IMPLEMENTADA nesta tarefa): retry único automático (ADR-004/
+//   RNF-05) + escrita em `LlmGenerationLog` — ver
+//   `generateStructuredCompletionWithRetry` abaixo, que envolve
+//   `generateStructuredCompletion` (já inclusa a validação de L3-T03) num
+//   laço de no máximo 1 tentativa adicional, e `./generation-log.ts` (escrita
+//   Prisma, isolada em arquivo próprio). `generateStructuredCompletion`
+//   continua sendo o "núcleo de uma tentativa" reutilizado internamente — os
+//   testes/chamadores existentes de L3-T01/T02/T03 continuam funcionando sem
+//   mudança, sem retry nem log.
 // - L3-T05 (IMPLEMENTADA): rate limiting por sessão/IP — ver
 //   `checkGatewayIaRateLimit` abaixo, guarda a ser chamada pelo Orquestrador
 //   de Sessão/Server Action da etapa ANTES de `generateStructuredCompletion`.
-// Nenhuma outra lógica listada acima (L3-T04) é implementada aqui.
 
 import { zodResponseFormat } from "openai/helpers/zod";
 import type { z } from "zod";
 import { getOpenAIClient, getOpenAIModel } from "./client";
 import { GatewayIaError } from "./errors";
+import { writeLlmGenerationLog } from "./generation-log";
+import type { GatewayIaStage } from "./prompts";
 import { registerGatewayIaCall } from "./rate-limit";
 import { validateGatewayIaOutput } from "./validation";
 import type { SessionDateRange } from "./validation";
@@ -192,12 +199,14 @@ export function checkGatewayIaRateLimit(key: string): void {
  * grounding de data/calendário, `./validation.ts`) — uma resposta reprovada
  * nunca é devolvida ao chamador, sempre vira `GatewayIaError`.
  *
- * Não implementa (fora do escopo desta função, ver cabeçalho do arquivo):
- * retry automático nem escrita em `LlmGenerationLog` (L3-T04) — hoje uma
- * resposta reprovada por `validateGatewayIaOutput` simplesmente propaga o
- * erro na primeira tentativa; L3-T04 deve envolver esta chamada inteira
- * (incluindo a validação) num laço de exatamente 1 retry automático antes de
- * expor o erro ao chamador, e logar cada tentativa em `LlmGenerationLog`.
+ * Não implementa retry automático nem escrita em `LlmGenerationLog`
+ * (L3-T04) — uma resposta reprovada por `validateGatewayIaOutput` (ou
+ * qualquer outra falha) propaga o erro já na primeira tentativa. Isso é
+ * DELIBERADO: esta função é o "núcleo de uma tentativa", reutilizado pelos
+ * testes/chamadores já existentes de L3-T01/T02/T03 (contrato inalterado) e
+ * internamente por `generateStructuredCompletionWithRetry` (abaixo), que é
+ * quem deve ser usada pelas regras de negócio por etapa (L7-T01/L8-T01/
+ * L9-T01/L10-T01) a partir de agora, já com retry + log.
  * Rate limiting (L3-T05) é uma guarda separada (`checkGatewayIaRateLimit`,
  * acima) — este módulo não a chama automaticamente, para deixar a
  * composição da chave (sessão/IP) a critério do chamador.
@@ -270,6 +279,113 @@ export async function generateStructuredCompletion<
     model: completion.model,
     usage,
   };
+}
+
+export type StructuredCompletionWithRetryRequest<Schema extends z.ZodTypeAny> =
+  StructuredCompletionRequest<Schema> & {
+    /**
+     * `TripSession.id` à qual esta chamada pertence (ADR-004/RNF-05,
+     * `prisma/schema.prisma`, `LlmGenerationLog.sessionId` — FK obrigatória).
+     * Composição/resolução deste id é responsabilidade do chamador
+     * (Orquestrador de Sessão, Lote 4+, ainda não implementado) — este
+     * módulo continua agnóstico ao domínio de viagens além deste
+     * identificador opaco (mesmo raciocínio de `sessionDateRange`, L3-T03).
+     */
+    sessionId: string;
+    /**
+     * Etapa do fluxo guiado desta chamada (mesmos valores de
+     * `GatewayIaStage`, `./prompts.ts`, e do enum Prisma `LlmStage`) — usada
+     * para popular `LlmGenerationLog.stage`.
+     */
+    stage: GatewayIaStage;
+  };
+
+/** Número máximo de tentativas ADICIONAIS automáticas em falha de chamada ao provider (ADR-004/RNF-05): no máximo 1 — nunca um loop. */
+const MAX_GATEWAY_IA_ADDITIONAL_RETRIES = 1;
+
+/**
+ * Variante de `generateStructuredCompletion` com retry único automático
+ * (ADR-004/RNF-05) e escrita em `LlmGenerationLog` (`./generation-log.ts`) —
+ * ponto de entrada que as regras de negócio por etapa (L7-T01/L8-T01/L9-T01/
+ * L10-T01) devem usar a partir de agora, em vez de chamar
+ * `generateStructuredCompletion` diretamente.
+ *
+ * Comportamento: tenta `generateStructuredCompletion` (schema + validação de
+ * L3-T03 inclusas); se falhar por qualquer motivo (erro de rede/timeout do
+ * provider, resposta malformada/recusa, OU rejeição por
+ * `validateGatewayIaOutput`), tenta exatamente MAIS UMA VEZ
+ * automaticamente (total: 2 tentativas) — nunca um laço aberto, o teto é
+ * rígido (`MAX_GATEWAY_IA_ADDITIONAL_RETRIES`). Se a 2ª tentativa também
+ * falhar, propaga `GatewayIaError` ao chamador.
+ *
+ * Uma linha é gravada em `LlmGenerationLog` por chamada a esta função (não
+ * por tentativa HTTP crua individual — ver decisão de granularidade
+ * documentada no cabeçalho de `./generation-log.ts`, motivada pelo enum
+ * `LlmGenerationStatus` do schema já migrado só suportar "success" |
+ * "failed_after_retry"): em sucesso, com `retryCount` = tentativas
+ * adicionais usadas (0 ou 1); em falha final, com `status:
+ * "failed_after_retry"` e `retryCount` = 1. A gravação do log nunca é
+ * responsável por rejeitar/aceitar a chamada em si (falha ao gravar é
+ * não-fatal, ver `./generation-log.ts`).
+ */
+export async function generateStructuredCompletionWithRetry<
+  Schema extends z.ZodTypeAny,
+>(
+  request: StructuredCompletionWithRetryRequest<Schema>,
+): Promise<StructuredCompletionResult<z.infer<Schema>>> {
+  const { sessionId, stage, ...coreRequest } = request;
+  let lastError: unknown;
+  // Marcado ANTES da 1ª tentativa (fora do laço) para que `latencyMs`
+  // grave a duração da CHAMADA LÓGICA inteira (todas as tentativas somadas
+  // até o resultado final, sucesso ou falha definitiva) — não só a duração
+  // da última tentativa isolada. Consistente com o doc comment de
+  // `LlmGenerationLogInput.latencyMs` em `./generation-log.ts`.
+  const startedAt = Date.now();
+
+  for (
+    let retryCount = 0;
+    retryCount <= MAX_GATEWAY_IA_ADDITIONAL_RETRIES;
+    retryCount++
+  ) {
+    try {
+      const result = await generateStructuredCompletion(coreRequest);
+      await writeLlmGenerationLog({
+        sessionId,
+        stage,
+        promptVersion: coreRequest.schemaName,
+        tokensInput: result.usage?.promptTokens ?? 0,
+        tokensOutput: result.usage?.completionTokens ?? 0,
+        latencyMs: Date.now() - startedAt,
+        retryCount,
+        status: "success",
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (retryCount === MAX_GATEWAY_IA_ADDITIONAL_RETRIES) {
+        await writeLlmGenerationLog({
+          sessionId,
+          stage,
+          promptVersion: coreRequest.schemaName,
+          tokensInput: 0,
+          tokensOutput: 0,
+          latencyMs: Date.now() - startedAt,
+          retryCount,
+          status: "failed_after_retry",
+        });
+      }
+      // Senão (ainda há retry disponível): não loga esta tentativa isolada
+      // (decisão documentada em `./generation-log.ts`) e cai para a próxima
+      // iteração do laço, que faz a única tentativa adicional permitida.
+    }
+  }
+
+  throw lastError instanceof GatewayIaError
+    ? lastError
+    : new GatewayIaError(
+        "Falha ao gerar conteúdo estruturado após retry automático.",
+        lastError,
+      );
 }
 
 /**

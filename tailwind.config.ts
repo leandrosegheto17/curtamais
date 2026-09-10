@@ -21,7 +21,10 @@ const config: Config = {
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        foreground: {
+          DEFAULT: "hsl(var(--foreground))",
+          muted: "hsl(var(--foreground-muted))",
+        },
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
@@ -50,6 +53,47 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Token próprio do produto (UX-SPEC.md Seção 3, direção "Concierge
+        // Noturno") — tom acima do `background`, sem sombra, usado em blocos
+        // de conteúdo (SuggestionCard, HolidayListItem etc.).
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          foreground: "hsl(var(--surface-foreground))",
+        },
+        // Paleta semântica (UX-SPEC.md Seção 3/RF-10.2/ADR-004) — usada por
+        // PriceRangeBadge/BudgetInsufficientBanner/ErrorRetryState (Lote 5),
+        // sempre combinada com ícone/texto, nunca só cor (UX-SPEC Seção 5).
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        error: {
+          DEFAULT: "hsl(var(--error))",
+          foreground: "hsl(var(--error-foreground))",
+        },
+      },
+      fontFamily: {
+        // Par serifada + sans-serif (UX-SPEC.md Seção 3) — famílias exatas
+        // são detalhe de implementação (spec cita "Cormorant Garamond"/"Work
+        // Sans" só como referência de mockup); usamos pilhas de fallback sem
+        // adicionar dependência de carregamento de fonte nesta tarefa (fora
+        // de escopo de L5-T01 — ver nota de implementação).
+        serif: [
+          '"Cormorant Garamond"',
+          "ui-serif",
+          "Georgia",
+          "serif",
+        ],
+        sans: [
+          '"Work Sans"',
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
       },
       borderRadius: {
         lg: "var(--radius)",

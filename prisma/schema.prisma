@@ -34,6 +34,27 @@ enum TripSessionStatus {
   abandoned
 }
 
+// Estado granular do Orquestrador de Sessão (ADR-006, Adendo 1). Reaproveita
+// literalmente o vocabulário de `SESSION_FLOW_STATES`
+// (`src/lib/session-flow/state-machine.ts`, L4-T01) — nenhum segundo
+// vocabulário. Coexiste com `TripSessionStatus` acima (granularidade
+// grosseira para filtros administrativos + estado `abandoned`, fora do
+// vocabulário desta state machine); sincronizado com ele só nos terminais
+// (`concluida`→`completed`, `encerrada_parcial`→`partial`), ver L4-T02.
+enum SessionFlowState {
+  entrada_selecionada
+  destino_pendente
+  destino_confirmado
+  hospedagem_pendente
+  hospedagem_aprovada
+  passeios_pendente
+  passeios_aprovados
+  roteiro_pendente
+  roteiro_aprovado
+  concluida
+  encerrada_parcial
+}
+
 enum DestinationSource {
   ia_suggested
   user_provided
@@ -145,6 +166,10 @@ model TripSession {
   budgetCurrency String?  @map("budget_currency")
 
   status TripSessionStatus @default(in_progress)
+  // Fonte de verdade dos 11 estados granulares do ADR-006 (Adendo 1) — é
+  // este campo, não `status` acima, que `transitionSessionFlow`
+  // (`src/lib/session-flow`) lê/escreve a cada transição (L4-T02).
+  flowState SessionFlowState @default(entrada_selecionada) @map("flow_state")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
