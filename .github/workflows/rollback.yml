@@ -1,0 +1,34 @@
+name: Rollback
+
+# Disparo manual — promove um deployment anterior (imutável na Vercel) de
+# volta ao alias de produção/staging. Não recria o build: reaponta o
+# tráfego, por isso é rápido e seguro o suficiente para ser o mecanismo de
+# rollback testado exigido antes de qualquer deploy em produção (ver
+# `.md/DEPLOY.md`, seção "Rollback").
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente alvo"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      deployment_url:
+        description: "URL do deployment anterior (imutável) para promover de volta"
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Promover deployment anterior
+        run: >-
+          vercel rollback ${{ github.event.inputs.deployment_url }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+          --yes

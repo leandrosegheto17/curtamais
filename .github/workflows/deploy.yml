@@ -1,0 +1,70 @@
+name: Deploy
+
+# Disparo manual, nunca automático em push — o deploy só ocorre depois da
+# dupla aprovação (QA + DevSecOps) do mesmo lote, registrada em
+# `.md/QA-REPORT.md`/`.md/SECURITY-REVIEW.md` (ver EXECUTION-FLOW.md,
+# PIPELINE-CONVENTIONS.md). Quem dispara é o Validador (chapéu DevOps),
+# informando o SHA/branch já aprovado e o ambiente alvo.
+#
+# O ambiente `production` deve ter "Required reviewers" configurado em
+# Settings > Environments no GitHub (gate humano adicional, independente
+# deste arquivo) — ver `.md/DEPLOY.md` para o passo a passo de configuração
+# manual (não versionável em YAML).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente alvo"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      ref:
+        description: "Branch/SHA já aprovado (QA + DevSecOps)"
+        required: true
+        default: "main"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout ref aprovado
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull configuração do ambiente Vercel
+        run: >-
+          vercel pull --yes
+          --environment=${{ github.event.inputs.environment == 'production' && 'production' || 'preview' }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build (Vercel)
+        run: >-
+          vercel build
+          ${{ github.event.inputs.environment == 'production' && '--prod' || '' }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy (Vercel)
+        id: deploy
+        run: >-
+          vercel deploy --prebuilt
+          ${{ github.event.inputs.environment == 'production' && '--prod' || '' }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Registrar deployment_url para o relatório
+        run: echo "Deploy concluído — anexar a URL acima ao registro de deploy em .md/DEPLOY.md"
