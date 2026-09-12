@@ -730,6 +730,171 @@ transacional garantida estruturalmente. As lacunas de autorização
 aceitos como trabalho futuro planejado, não achados novos deste lote.
 Liberado para dupla aprovação com `QA-REPORT.md` (Lote 4).
 
+## Lote 6 — Telas de Entrada (T00, T01, T02, T03a-d)
+
+Auditado após aprovação funcional do chapéu QA (`QA-REPORT.md`, Lote 6 —
+"Aprovado (Validado, sem ressalvas)").
+
+Status geral: **Aprovado**, sem achado de severidade alta/crítica nem
+compliance obrigatório pendente.
+
+### Escopo desta auditoria
+
+`src/app/page.tsx`, `src/components/entrada/entry-paths.ts`,
+`src/components/entrada/t01-date-range-form.tsx`,
+`src/lib/actions/data-livre.ts`/`data-livre-errors.ts`,
+`src/app/entrada/feriados/feriados-screen.tsx`,
+`src/lib/actions/feriados.ts`/`feriados-errors.ts`,
+`src/components/quiz/quiz-wizard.tsx`,
+`src/lib/actions/quiz.ts`/`quiz-date-range.ts`,
+`src/lib/session-flow/create-session-with-range.ts`,
+`src/lib/actions/resolve-session-owner.ts` (reaproveitado pelas 3 Server
+Actions novas deste lote, não modificado por ele).
+
+### 1. Sanitização de texto livre contra prompt injection (GUARDRAILS.md
+regra 18, SDD.md §7, L11-T03)
+
+- Confirmado que L11-T03 (`sanitizeFreeTextForPrompt`,
+  `@/lib/gateway-ia/prompt-injection-guard`) está de fato implementada e é
+  chamada nos dois pontos de captura de destino manual deste lote:
+  `submeterDataLivre` (`data-livre.ts`, via `sanitizeDestino`) e
+  `processarFeriadoEscolhido` (`feriados.ts`). Ambas aplicam trim +
+  neutralização de marcador/frase de override + truncagem
+  (`DESTINO_MAX_LENGTH`/`MAX_DESTINO_LENGTH` = 200) antes de repassar o
+  valor a `createSessionWithDateRange`, que grava em
+  `DestinationApproval.name` (campo que, em etapas futuras do Lote 7+,
+  alimenta `StageContext.destination.name` interpolado em
+  `buildHospedagemPrompt`/`buildPasseiosPrompt`/`buildRoteiroPrompt`).
+- Nenhuma validação de conteúdo contra prompt injection está sendo
+  indevidamente tratada como resolvida "por tabela" neste lote além do que
+  L11-T03 de fato entrega — confirmado por leitura de
+  `prompt-injection-guard.ts`: a estratégia é neutralização (não rejeição
+  total), documentada e já revisada/aprovada na auditoria do Lote 3/7
+  anteriores; este lote só consome a função, não a reimplementa nem a
+  contorna.
+- `submitQuizAnswers` (`quiz.ts`, L6-T07) nunca persiste o campo
+  `orcamento` (texto livre coletado por `QuizWizard`, L6-T06) — confirmado
+  por leitura: a função só usa `answers.periodo`; `orcamento` não atinge
+  nenhum `StageContext`/prompt nesta versão (decisão de escopo já
+  documentada na nota de implementação L6-T07 do TASK.md). Sem superfície
+  de prompt injection neste caminho porque o dado simplesmente não é
+  persistido — não por sanitização.
+- **Conforme.**
+
+### 2. Autorização de dono de sessão (GUARDRAILS.md regra 16, ADR-008/L11-T02)
+
+- As 3 Server Actions deste lote (`submeterDataLivre`,
+  `processarFeriadoEscolhido`, `submitQuizAnswers`) **criam** uma
+  `TripSession` nova a cada chamada — nenhuma recebe `sessionId` como
+  entrada, nenhuma lê/escreve uma sessão pré-existente de outro
+  usuário/visitante. `resolveSessionOwner` (`resolve-session-owner.ts`,
+  entregue por L11-T02a, reaproveitado sem alteração por este lote)
+  resolve o dono (usuário autenticado com precedência sobre cookie
+  anônimo) e `createSessionWithDateRange` grava exatamente um dos dois
+  campos (`userId` XOR `anonSessionId`) no `INSERT`, nunca os dois, nunca
+  nenhum — confirmado por leitura do spread condicional em
+  `create-session-with-range.ts`.
+- O guard central de autorização (`L11-T02`, comparação do dono esperado
+  contra o dono persistido em leitura/escrita subsequente) ainda não
+  existe — mesma lacuna já registrada e aceita nas auditorias dos Lotes
+  4/5/7 anteriores. Não é um achado novo aqui: diferente daqueles módulos,
+  nenhuma Server Action deste lote específico sequer aceita `sessionId`
+  como parâmetro de entrada, então a superfície de exposição de sessão de
+  outro dono é estruturalmente menor que a dos lotes já auditados — não
+  há, neste lote, nenhum caminho por onde um cookie/`user_id` adulterado
+  levaria à leitura/escrita de uma sessão que não é a recém-criada pela
+  própria chamada.
+- Cookie de sessão anônima (`anonymous-session.ts`, L1-T03, reaproveitado):
+  `httpOnly: true`, `secure` condicionado a `NODE_ENV === "production"`,
+  `sameSite: "lax"`, UUID validado por regex antes de reuso — conforme
+  SDD.md §7/GUARDRAILS.md regra 16, sem achado.
+- **Conforme, sem achado novo.**
+
+### 3. Validação de input no servidor (Diretriz de Implementação 9,
+TASK.md Seção 1)
+
+- `submeterDataLivre`: revalida formato ISO das datas
+  (`ISO_DATE_REGEX`) e ordem (`dataFinal >= dataInicial`, RF-01.4) no
+  servidor, independente da validação client-side de `T01DateRangeForm` —
+  nenhuma navegação client-side otimista.
+- `processarFeriadoEscolhido`: nunca confia no range vindo do cliente —
+  recalcula `getNationalHolidaysWithBridgeInRange` a partir da MESMA fonte
+  determinística e usa a chave recebida (`holidayDate`) só para localizar
+  qual feriado, rejeitando (`InvalidHolidaySelectionError`) se a chave não
+  corresponder a nenhum feriado da listagem atual — uma chave adulterada
+  nunca consegue injetar um range de datas arbitrário.
+- `submitQuizAnswers`: gera o range a partir de `resolveSuggestedDateRange`
+  (função pura, `quiz-date-range.ts`), nunca aceita um range vindo pronto
+  do cliente.
+- **Conforme, sem achado.**
+
+### 4. SAST / dependências
+
+- Nenhuma chamada a `eval`/`Function`/`dangerouslySetInnerHTML`/
+  `child_process` em nenhum dos arquivos do escopo. Toda renderização de
+  texto do usuário (`destino` em `FeriadosScreen`/`T01DateRangeForm`) é
+  valor de `value`/texto filho JSX, escapado automaticamente pelo React —
+  sem superfície de XSS refletido nas telas deste lote.
+- Toda escrita em banco passa por Prisma Client (`prisma.tripSession.create`,
+  dentro de `createSessionWithDateRange`) — sem concatenação de SQL, sem
+  superfície de SQL injection.
+- Nenhuma dependência nova adicionada por este lote (`package.json`
+  inalterado pelas 7 tarefas); débito pré-existente de CVE de `next`
+  (RL1-T01) segue seu próprio rastreamento, sem relação com este lote.
+- **Conforme.**
+
+### 5. Tratamento de erro / exposição de dado sensível
+
+- `InvalidDataLivreInputError`/`InvalidHolidaySelectionError` carregam só
+  mensagem descritiva do próprio input inválido (ex. a data/chave
+  recebida) — nenhum dado de outra sessão, nenhum stack trace de
+  infraestrutura, nenhum segredo. Mesmo padrão já aceito em lotes
+  anteriores para classes de erro equivalentes.
+- Achado de baixo impacto, não bloqueante: `processarFeriadoEscolhido`
+  (`feriados.ts`) lança um `Error` genérico (não uma classe dedicada) para
+  o caso de destino acima de `MAX_DESTINO_LENGTH`, em vez de uma classe
+  própria como as demais Server Actions do lote — inconsistência de
+  estilo/contrato de erro entre os 3 pontos de captura de destino
+  (`submeterDataLivre` trunca silenciosamente via sanitização;
+  `processarFeriadoEscolhido` rejeita com `Error` genérico), não uma
+  vulnerabilidade (a mensagem não expõe nada sensível). Registrado como
+  débito de baixa severidade em `Refatoração Lote-6`, sem prazo crítico.
+- **Sem achado de severidade média/alta/crítica.**
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+- Nenhum requisito novo além dos já registrados nos Lotes 1/3/4: secrets
+  via secrets manager/environment variables da plataforma de deploy;
+  cookie de sessão anônima já `httpOnly`/`secure` em produção (sem ação
+  adicional de infraestrutura exigida por este lote especificamente).
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica ou compliance obrigatório em
+aberto — nenhum escalonamento a `executor` necessário. O achado do item 5
+(inconsistência de estilo de erro entre pontos de captura de destino) é
+tratado como débito de baixa severidade em `Refatoração Lote-6`, não como
+retorno de tarefa `Concluída` para `Em andamento`.
+
+Nenhuma sinalização ao **Gestor** necessária para este lote — nenhum
+achado de relevância estratégica novo (a CVE de `next` e o sequenciamento
+de L11-T03 já foram sinalizados nas auditorias dos Lotes 3/7).
+
+## Veredito
+
+**Build do Lote 6 aprovado em segurança, sem ressalvas que bloqueiem
+deploy.** Nenhum achado de severidade alta/crítica, nenhum compliance
+obrigatório pendente, sanitização contra prompt injection (L11-T03)
+confirmada como de fato implementada e corretamente aplicada nos 2 pontos
+de captura de destino deste lote (o 3º ponto, quiz, não persiste o texto
+livre coletado). A lacuna de autorização central (`L11-T02`/ADR-008) é gap
+já rastreado e aceito como trabalho futuro planejado — e, neste lote
+específico, estruturalmente inaplicável (nenhuma Server Action aceita
+`sessionId` de entrada). Um achado de baixo impacto (item 5, inconsistência
+de estilo de erro) foi registrado como débito de baixa severidade em
+`Refatoração Lote-6`, sem prazo crítico, sem bloquear deploy. Liberado para
+dupla aprovação com `QA-REPORT.md` (Lote 6).
+
 ## Lote 7 — Resolução de Destino (T04, T05)
 
 Auditoria roda depois da aprovação funcional do chapéu QA para este lote
@@ -1092,6 +1257,167 @@ um ponto único de sanitização no momento da persistência
 (`applySessionFlowTransition`) em vez de replicar a chamada a
 `sanitizeFreeTextForPrompt` em cada Server Action de aprovação.
 
+## Lote 9 — Passeios (T07)
+
+Auditoria completa (chapéu DevSecOps) rodando depois da aprovação sem
+ressalvas do chapéu QA (`QA-REPORT.md`, "Lote 9 — Passeios (T07)": Aprovado,
+nenhuma reprovação crítica ou simples). Escopo: `src/lib/stage-rules/
+passeios.ts` (L9-T01), `src/lib/actions/passeios.ts`/`passeios-errors.ts`
+(L9-T03), `src/components/passeios/passeios-sugestoes-screen.tsx` (L9-T02),
+e o ponto de interpolação em `src/lib/gateway-ia/prompts.ts`
+(`buildPasseiosPrompt`). Auditado por leitura direta do código e do `git
+diff`, não pela nota de implementação do Executor nem pelo veredito do QA.
+
+### 1. Prompt injection (GUARDRAILS.md regra 18, Bloqueio 003/L11-T03)
+
+- Confirmado que `L11-T02`, `L11-T02a` e `L11-T03` estão todas `Concluída`
+  em `TASK.md` (Seção 4, Lote 11) — a dependência que o Bloqueio 003 exigia
+  antes de `L9-T01` interpolar texto livre já está satisfeita, não é mais
+  um risco em aberto.
+- `buildPasseiosPrompt` (`src/lib/gateway-ia/prompts.ts`) interpola
+  `context.destination.name` e `context.accommodation.name`/`.type` dentro
+  de frases fixas em português (`Destino já aprovado pelo usuário: ${nome}.`
+  / `Hospedagem já aprovada: ${nome} (${tipo}).`) — nunca como instrução,
+  mesmo padrão já auditado para hospedagem/destino.
+- Rastreada a origem de cada um desses três campos até o ponto de captura
+  original do texto livre do usuário, confirmando sanitização em TODOS:
+  - `destination.name` → `DestinationApproval.name`, sanitizado via
+    `sanitizeFreeTextForPrompt` em `informarDestinoManualmente`
+    (`src/lib/actions/destino.ts:260`), `submeterDataLivre`
+    (`data-livre.ts:113`) e `processarFeriadoEscolhido`
+    (`feriados.ts:256`) — os três pontos de captura possíveis de destino
+    manual, confirmados por grep, todos sanitizando antes de persistir.
+  - `accommodation.name`/`.type` → `AccommodationApproval`, sanitizados via
+    `assertValidAccommodationPayload` (`src/lib/actions/hospedagem.ts:244,
+    252`) antes de persistir (RL8-T02, já resolvido, confirmado
+    `Concluída`).
+  - `generatePasseiosSuggestions` (`passeios.ts`) consome esses dois campos
+    já aprovados da sessão sem sanitizar de novo — correto, não é um ponto
+    de captura de texto livre bruto, é dado já sanitizado na entrada.
+- Verificado especificamente o vetor citado na tarefa (não coberto
+  explicitamente pelo QA): `name`/`durationApprox` de cada item de passeio
+  SÃO texto livre gerado pelo LLM que retorna ao servidor via client no
+  momento de `aprovarSelecaoPasseios` (RF-07.3 permite editar/remover
+  antes de aprovar — o client pode, em tese, adulterar o valor de um item
+  que sobreviveu à remoção antes de reenviá-lo). Confirmado em
+  `assertValidActivityPayload` (`src/lib/actions/passeios.ts:222-274`):
+  `name` e `durationApprox` passam por `sanitizeFreeTextForPrompt` (com
+  `maxLength` 200/100) ANTES de qualquer validação de "vazio", e é o valor
+  sanitizado (nunca o payload original do cliente) que compõe
+  `sanitizedItems` persistido via `applySessionFlowTransition` — o mesmo
+  valor sanitizado que mais tarde é interpolado em `buildRoteiroPrompt`
+  (L10-T01) via `context.approvedActivities`. Nenhuma lacuna encontrada:
+  este é exatamente o vetor "o client adulterou o conteúdo de um item que
+  sobreviveu à remoção" citado no cabeçalho do próprio arquivo, e está
+  coberto.
+- `priceMin`/`priceMax`/`isFree` do mesmo payload (não texto livre, mas
+  também vindos do client) são revalidados numericamente na mesma função
+  (tipo, finitude, não-negativo, ordem min≤max, teto de sanidade de R$
+  1.000.000) — não é vetor de prompt injection, mas fecha o mesmo raciocínio
+  de "nunca confiar cegamente no payload do cliente" (Diretriz de
+  Implementação 9).
+- Nenhum achado nesta seção.
+
+### 2. Autorização de dono de sessão (ADR-008, L11-T02/L11-T02a)
+
+- `aprovarSelecaoPasseios`/`encerrarResolucaoPasseios` (`passeios.ts`)
+  delegam integralmente a `applySessionFlowTransition` (`@/lib/session-flow`,
+  L4-T02), que já aplica o guard central internamente (confirmado lendo
+  `src/lib/session-flow/authorization.ts` e o ponto de chamada dentro de
+  `persistence.ts`) — nenhuma das duas Server Actions lê/escreve
+  `TripSession` diretamente fora desse módulo.
+- `gerarSugestoesPasseios` lê `TripSession` diretamente via
+  `prisma.tripSession.findUnique` (fora do módulo `session-flow`, por
+  necessidade — precisa dos campos de contexto antes de decidir a etapa) e
+  chama `assertSessionOwnership(sessionId, session)` explicitamente logo
+  após a checagem de existência (`passeios.ts:135`), antes de qualquer
+  leitura de `DestinationApproval`/`AccommodationApproval` — mesmo padrão já
+  auditado para hospedagem/destino.
+- Confirmado em `authorization.ts` que toda negação (dono divergente,
+  sessão inexistente, registro sem nenhum dos dois campos gravado) lança
+  sempre `SessionNotFoundError` — nunca um erro 403 dedicado — cumprindo a
+  regra "toda negação retorna 404, nunca 403" do ADR-008 item 4. Nenhum
+  vazamento de "sessão existe mas não é sua" via diferença de
+  status/mensagem entre os dois casos.
+- `L11-T02`/`L11-T02a` já `Concluída` em `TASK.md` — a dependência que a
+  tarefa pedia para verificar (podendo não estar concluída ainda) já está
+  resolvida, nenhum risco de guard ausente neste lote.
+- Nenhum achado nesta seção.
+
+### 3. Exposição de dados sensíveis (stack trace / erro interno ao cliente)
+
+- `passeios-sugestoes-screen.tsx`: todo `catch` (`handleStreamError`,
+  `handleApproveSelection`, `handleEncerrarAqui`) descarta o erro real e
+  substitui por uma das duas constantes de mensagem genérica
+  (`GENERIC_ERROR_MESSAGE`/`GENERIC_ACTION_ERROR_MESSAGE`) — nenhum
+  `error.message`/stack trace de Prisma ou do provider de LLM chega ao
+  client em nenhum dos três fluxos (carregar sugestões, aprovar seleção,
+  encerrar aqui).
+- Os erros dedicados de `passeios-errors.ts`
+  (`PasseiosEtapaInvalidaError`/`PasseiosContextoIncompletoError`/
+  `InvalidPasseioSuggestionError`/`EmptyPasseiosSelectionError`) têm
+  mensagens descritivas mas sem dado sensível (nome de campo/estado de
+  fluxo, nunca `sessionId` de terceiro, senha, token, ou detalhe de
+  infraestrutura) — e, mais importante, essas mensagens não são as que
+  chegam ao client (a tela sempre substitui por mensagem genérica no
+  `catch`); ficam disponíveis só em log de servidor.
+- Nenhum campo de `LlmGenerationLog` (L3-T04) é lido/exposto por nenhuma
+  das 3 tarefas deste lote.
+- Nenhum achado nesta seção.
+
+### 4. Compliance (LGPD)
+
+- Nenhum dado pessoal regulado (nome de usuário, e-mail, documento) é
+  processado neste lote — `destination.name`/`accommodation.name`/`.type`
+  são dados de viagem (destino/hospedagem), não dado pessoal do usuário;
+  `name`/`durationApprox`/`priceMin`/`priceMax`/`isFree` de cada passeio
+  também são dados de viagem, não dado pessoal. Confirma o item 17 de
+  GUARDRAILS.md (nenhum dado pessoal de conta enviado ao prompt) já
+  cumprido — este lote não introduz exceção.
+- `ActivityApproval` (persistida por `aprovarSelecaoPasseios`) é filha de
+  `TripSession`, já coberta pelo cascade delete de exclusão de conta
+  (L11-T01, RNF-06) — nenhuma tarefa nova necessária.
+- Nenhum achado nesta seção.
+
+### 5. Dependências de terceiros
+
+- Nenhuma dependência nova adicionada neste lote — `npm audit` inalterado
+  em relação ao já registrado nos Lotes 3/7/8.
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+- Mesmos requisitos já registrados nos Lotes 3/7/8 (secrets via env/secrets
+  manager, rate limiting — `RL3-T01` — antes de tráfego público real).
+  Reforça que `RL3-T01` precisa estar resolvido antes do primeiro deploy
+  que exponha geração de passeios a tráfego público. Nenhum requisito novo
+  específico deste lote.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de nenhuma severidade neste lote — nenhuma tarefa em
+`Refatoração Lote-9` necessária por parte do chapéu DevSecOps. Nenhum
+escalonamento a `executor` (nenhuma correção de código pendente). Nenhum
+escalonamento ao **coordenador** (nenhuma inconsistência de
+dependência/decomposição encontrada). Nenhuma sinalização estratégica ao
+**Gestor** além do já registrado nos Lotes 3/7/8 sobre `RL3-T01` (rate
+limiting), que continua em aberto e acumulando urgência a cada lote que
+expõe geração via LLM.
+
+## Veredito (Lote 9)
+
+**Build do Lote 9 aprovado em segurança, sem ressalvas.** Nenhum achado de
+nenhuma severidade: sanitização de texto livre contra prompt injection
+(GUARDRAILS.md regra 18) confirmada em todos os pontos de interpolação
+(`destination.name`/`accommodation.name`/`.type` sanitizados na origem;
+`name`/`durationApprox` do payload de aprovação sanitizados de novo em
+`assertValidActivityPayload` antes de persistir/repassar ao roteiro);
+autorização de dono de sessão (ADR-008) corretamente aplicada em toda
+Server Action do lote, com negação sempre 404; nenhuma exposição de erro
+interno (Prisma/LLM) ao cliente; nenhum dado pessoal regulado processado.
+Liberado para deploy do Lote 9 assim que confirmado o fechamento
+estrutural do lote, condicionado à dupla aprovação já obtida com o
+veredito do chapéu QA (`QA-REPORT.md`, "Lote 9 — Passeios (T07)": Aprovado).
+
 ## Veredito
 
 **Build do Lote 8 aprovado em segurança, com débito/ressalva registrada.**
@@ -1110,3 +1436,573 @@ gerarem prompt com feedback incorporado, respectivamente. Liberado para
 seguir à checagem estrutural do lote (Seção 4 do `TASK.md`), condicionado à
 dupla aprovação com o veredito de QA (`QA-REPORT.md`) para o mesmo lote —
 já confirmada acima.
+
+## Lote 10 — Roteiro Final e Encerramento (T08, T-END)
+
+Auditoria completa (chapéu DevSecOps) rodando depois da aprovação do
+chapéu QA (`QA-REPORT.md`, "Lote 10 — Roteiro Final e Encerramento (T08,
+T-END)": Aprovado com ressalvas — a única ressalva foi um achado
+estrutural de rotas faltantes, já escalado e resolvido separadamente como
+Bloqueio 005/Lote 12 em `BLOCKERS.md`/`TASK.md`, não repetido nesta
+auditoria). Escopo: `src/lib/stage-rules/roteiro.ts` (L10-T01),
+`src/components/roteiro/roteiro-screen.tsx`,
+`src/components/design-system/itinerary-day-block.tsx` (L10-T02),
+`src/lib/actions/roteiro.ts`/`roteiro-errors.ts` (L10-T03),
+`src/components/encerramento/encerramento-screen.tsx` (L10-T04), e o ponto
+de interpolação em `src/lib/gateway-ia/prompts.ts` (`buildRoteiroPrompt`).
+Auditado por leitura direta do código e do `git diff`, não pela nota de
+implementação do Executor nem pelo veredito do QA.
+
+### 1. Prompt injection (GUARDRAILS.md regra 18)
+
+- `buildRoteiroPrompt` (`src/lib/gateway-ia/prompts.ts:240-290`) interpola
+  `context.destination.name`, `context.accommodation.name`/`.type` e
+  `activity.name`/`.durationApprox`/`.isFree` de cada passeio aprovado —
+  todos dentro de frases fixas em português (`Destino já aprovado:
+  ${nome}.` / `Hospedagem já aprovada: ${nome} (${tipo}).` / linha de lista
+  `- ${nome} (${duração}${", gratuito" se aplicável})`), nunca como
+  instrução. Mesmo padrão já auditado nos Lotes 7/8/9.
+- Rastreada a origem de cada campo até o ponto de captura/sanitização
+  original, confirmando que nenhum é texto livre bruto do usuário neste
+  lote:
+  - `destination.name`/`accommodation.name`/`.type` → já sanitizados nos
+    Lotes 7/8 (`sanitizeFreeTextForPrompt` em
+    `informarDestinoManualmente`/`submeterDataLivre`/
+    `processarFeriadoEscolhido`, e em `assertValidAccommodationPayload`,
+    RL8-T02) — `gerarRoteiro` (`src/lib/actions/roteiro.ts:185-200`) só lê
+    esses campos já persistidos de `DestinationApproval`/
+    `AccommodationApproval`, sem sanitizar de novo (correto, não é ponto de
+    captura).
+  - `approvedActivities[].name`/`.durationApprox` → já sanitizados em
+    `assertValidActivityPayload` (`passeios.ts`, RL8-T02, auditado no Lote
+    9) antes de persistir em `ActivityApproval` — `gerarRoteiro` só lê o
+    valor já sanitizado (`src/lib/actions/roteiro.ts:206-210`).
+- Confirmado que L10-T01/T02/T03/T04 NÃO introduzem nenhum novo ponto de
+  captura de texto livre do usuário: `generateRoteiro` (`roteiro.ts`,
+  L10-T01) só consome dado já aprovado da sessão (nota explícita no
+  cabeçalho do arquivo, linhas 49-59); a UI (`RoteiroScreen`,
+  `ItineraryDayBlock`) só exibe o que o LLM devolveu, sem campo de entrada
+  de texto livre; `EncerramentoScreen` (L10-T04) é puramente apresentacional
+  (`resumo` já resolvido por quem a monta), sem input do usuário.
+- Vetor adicional verificado (mesmo raciocínio já aplicado ao Lote 9 para
+  passeios): `activity`/`suggestedTime`/`timingJustification` de cada item
+  de roteiro são texto livre GERADO PELO LLM que volta ao servidor via
+  client no momento de `aprovarRoteiro` (não há edição no MVP, mas ainda
+  assim é uma viagem de ida e volta pelo cliente). Confirmado em
+  `assertValidRoteiroItem` (`src/lib/actions/roteiro.ts:304-342`): os três
+  campos passam por `sanitizeFreeTextForPrompt` (`maxLength` 200/50/500)
+  ANTES de qualquer validação de "vazio", e é o valor sanitizado (nunca o
+  payload original do cliente) que compõe `ApproveItineraryItemInput`
+  persistido via `applySessionFlowTransition`. Como o roteiro é a etapa
+  TERMINAL (RF-09), esses valores nunca são reinterpolados em nenhum prompt
+  futuro — a sanitização aqui é defesa em profundidade (mesma decisão já
+  documentada no cabeçalho do arquivo), não uma correção de lacuna.
+- `sequenceOrder` (numérico, não texto livre) também revalidado
+  estruturalmente na mesma função (inteiro não-negativo) — fecha o mesmo
+  raciocínio de "nunca confiar cegamente no payload do cliente" (Diretriz
+  de Implementação 9).
+- Nenhum achado nesta seção.
+
+### 2. Autorização de dono de sessão (ADR-008, L11-T02/L11-T02a)
+
+- `aprovarRoteiro` (`roteiro.ts`) delega integralmente a
+  `applySessionFlowTransition` (`@/lib/session-flow`, L4-T02), que já
+  aplica o guard central internamente (confirmado lendo
+  `src/lib/session-flow/authorization.ts` e o ponto de chamada dentro de
+  `persistence.ts`) — não lê/escreve `TripSession` diretamente fora desse
+  módulo.
+- `gerarRoteiro` lê `TripSession` diretamente via
+  `prisma.tripSession.findUnique` (fora do módulo `session-flow`, por
+  necessidade — precisa dos campos de contexto antes de decidir a etapa) e
+  chama `assertSessionOwnership(sessionId, session)` explicitamente logo
+  após a checagem de existência (`roteiro.ts:167-173`), antes de qualquer
+  leitura de `DestinationApproval`/`AccommodationApproval`/
+  `ActivityApproval` — mesmo padrão já auditado para destino/hospedagem/
+  passeios.
+- Confirmado (de novo, em `authorization.ts`) que toda negação (dono
+  divergente, sessão inexistente, registro sem nenhum dos dois campos
+  gravado) lança sempre `SessionNotFoundError` — nunca um erro 403
+  dedicado — cumprindo a regra "toda negação retorna 404, nunca 403" do
+  ADR-008 item 4. `SessionNotFoundError` (`session-flow/errors.ts`) é o
+  mesmo erro reaproveitado para "sessão inexistente" e "sessão não é sua",
+  sem diferença de mensagem/status entre os dois casos.
+- Nenhum achado nesta seção.
+
+### 3. Exposição de dados sensíveis (stack trace / erro interno ao cliente)
+
+- `roteiro-screen.tsx`: todo `catch`/callback de erro
+  (`handleStreamError`, `handleAprovarRoteiro`) descarta o erro real
+  (`RoteiroEtapaInvalidaError`/`RoteiroContextoIncompletoError`/
+  `InvalidRoteiroItemError`/`GatewayIaError`/`SessionNotFoundError`,
+  qualquer um deles) e substitui por uma das duas constantes de mensagem
+  genérica (`GENERIC_ERROR_MESSAGE`/`GENERIC_ACTION_ERROR_MESSAGE`) —
+  confirmado que `handleStreamError` não lê nenhum campo do `error`
+  recebido de `LoadingStream`. Nenhum `error.message`/stack trace de
+  Prisma ou do provider de LLM chega ao client em nenhum dos dois fluxos
+  (carregar roteiro, aprovar roteiro).
+- `encerramento-screen.tsx` é puramente apresentacional (recebe `resumo`
+  já resolvido, sem chamada a Server Action/fetch própria) — nenhuma
+  superfície de erro de servidor exposta por este componente.
+- Os erros dedicados de `roteiro-errors.ts` têm mensagens descritivas mas
+  sem dado sensível (estado de fluxo, formato de data — nunca
+  `sessionId` de terceiro, senha, token ou detalhe de infraestrutura), e,
+  mais importante, essas mensagens não chegam ao client (a tela sempre
+  substitui por mensagem genérica no `catch`); ficam disponíveis só em log
+  de servidor.
+- Nenhum campo de `LlmGenerationLog` (L3-T04) é lido/exposto por nenhuma
+  das 4 tarefas deste lote.
+- Nenhum achado nesta seção.
+
+### 4. Compliance (LGPD)
+
+- Nenhum dado pessoal regulado (nome de usuário, e-mail, documento) é
+  processado neste lote — `destination`/`accommodation`/`approvedActivities`
+  e os itens de roteiro (`activity`/`suggestedTime`/`timingJustification`)
+  são dados de viagem, não dado pessoal do usuário; `resumo` de
+  `EncerramentoScreen` também é composto só de dados de viagem já
+  aprovados. Confirma o item 17 de GUARDRAILS.md (nenhum dado pessoal de
+  conta enviado ao prompt) já cumprido — este lote não introduz exceção.
+- `ItineraryItem` (persistido por `aprovarRoteiro`) é filha de
+  `TripSession`, já coberta pelo cascade delete de exclusão de conta
+  (L11-T01, RNF-06) — nenhuma tarefa nova necessária.
+- Nenhum achado nesta seção.
+
+### 5. Dependências de terceiros
+
+- Nenhuma dependência nova adicionada pelas tarefas deste lote (L10-T01 a
+  L10-T04) — `npm audit` inalterado em relação ao já registrado nos Lotes
+  3/7/8/9. As duas dependências novas observadas no `git diff` do
+  repositório (`@vercel/analytics`, `@vercel/speed-insights`) pertencem à
+  preparação de infraestrutura do chapéu DevOps (Lote 12/`DEPLOY.md`), não
+  a este lote — fora do escopo desta auditoria, seguem cobertas pela
+  checagem de dependências do próprio chapéu DevOps.
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+- Mesmos requisitos já registrados nos Lotes 3/7/8/9 (secrets via
+  env/secrets manager, rate limiting — `RL3-T01` — antes de tráfego
+  público real). Reforça que `RL3-T01` precisa estar resolvido antes do
+  primeiro deploy que exponha geração de roteiro a tráfego público — T08 é
+  mais uma etapa que chama o Gateway de IA sem rate limiting próprio.
+  Nenhum requisito novo específico deste lote.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de nenhuma severidade neste lote — nenhuma tarefa em
+`Refatoração Lote-10` necessária por parte do chapéu DevSecOps. Nenhum
+escalonamento a `executor` (nenhuma correção de código pendente). Nenhum
+escalonamento ao **coordenador** (nenhuma inconsistência de
+dependência/decomposição encontrada — o achado estrutural de rotas
+faltantes já foi tratado como Bloqueio 005/Lote 12, fora desta auditoria).
+Nenhuma sinalização estratégica nova ao **Gestor** além do já registrado
+nos Lotes 3/7/8/9 sobre `RL3-T01` (rate limiting), que continua em aberto e
+acumulando urgência a cada lote que expõe geração via LLM — agora também a
+etapa terminal do fluxo (T08).
+
+## Veredito (Lote 10)
+
+**Build do Lote 10 aprovado em segurança, sem ressalvas.** Nenhum achado
+de nenhuma severidade: sanitização de texto livre contra prompt injection
+(GUARDRAILS.md regra 18) confirmada em todos os pontos de interpolação de
+`buildRoteiroPrompt` (dados já sanitizados na origem em Lotes 7/8/9) e no
+payload de aprovação do roteiro (`activity`/`suggestedTime`/
+`timingJustification` sanitizados em `assertValidRoteiroItem` antes de
+persistir, por defesa em profundidade mesmo sendo etapa terminal);
+autorização de dono de sessão (ADR-008) corretamente aplicada em
+`gerarRoteiro`/`aprovarRoteiro`, com negação sempre 404; nenhuma exposição
+de erro interno (Prisma/LLM) ao cliente em `roteiro-screen.tsx`/
+`encerramento-screen.tsx`; nenhum dado pessoal regulado processado;
+nenhuma dependência nova introduzida pelas tarefas deste lote. O único
+achado do chapéu QA para este lote (rotas `/roteiro`/`/encerramento`
+faltantes) já foi tratado fora desta auditoria como Bloqueio 005/Lote 12 —
+não repetido aqui. Liberado para deploy do Lote 10 assim que confirmado o
+fechamento estrutural do lote, condicionado à dupla aprovação já obtida
+com o veredito do chapéu QA (`QA-REPORT.md`, "Lote 10 — Roteiro Final e
+Encerramento (T08, T-END)": Aprovado com ressalvas, ressalva já resolvida
+separadamente).
+
+## Lote 11 — Cross-cutting Final (Segurança, LGPD, Acessibilidade)
+
+Status geral: **Aprovado, sem ressalvas novas**. Auditoria dedicada das 5
+tarefas do lote (`L11-T01`, `L11-T02a`, `L11-T02`, `L11-T03`, `L11-T04`),
+liberada pelo chapéu QA (`QA-REPORT.md`, "Lote 11": Aprovado, sem
+ressalvas). As 4 primeiras tarefas já haviam sido tocadas de forma
+incidental dentro das auditorias dos Lotes 7/8/9/10 — esta é a auditoria
+formal, consolidada e dedicada ao lote em si, com verificação adicional de
+pontos que aquelas auditorias pontuais não cobriram (cobertura exaustiva
+de todos os pontos de leitura/escrita de `TripSession`, não só os citados
+pelo Executor; e `npm audit` atualizado).
+
+### Escopo desta auditoria
+
+`src/lib/account-deletion.ts`, `src/app/api/account/route.ts`,
+`src/lib/actions/resolve-session-owner.ts`,
+`src/lib/session-flow/authorization.ts`,
+`src/lib/gateway-ia/prompt-injection-guard.ts`, e busca exaustiva por todo
+ponto de código do repositório que lê/escreve `TripSession`/entidades
+filhas (`prisma.tripSession.*`) fora de arquivo de teste, para confirmar
+cobertura do guard de autorização (L11-T02) além dos 4 pontos já citados
+pela nota do Executor.
+
+### 1. L11-T01 — Exclusão de conta e dados associados (LGPD, RNF-06)
+
+- `DELETE /api/account` (`src/app/api/account/route.ts`): `userId`
+  resolvido exclusivamente via `getServerSession(authOptions)` — nenhuma
+  leitura de `req.json()`/query string em nenhum ponto da rota (confirmado
+  por leitura linha a linha); sem sessão autenticada, 401 antes de
+  qualquer chamada a `deleteUserAccount`. Nenhum vetor para um cliente
+  disparar exclusão da conta de outro usuário.
+- `deleteUserAccount` (`src/lib/account-deletion.ts`): dentro de uma única
+  `prisma.$transaction`, apaga todas as `TripSession` do `userId` via
+  `deleteMany({ where: { userId } })` e só então o `User`. Cascade de FK do
+  schema (`onDelete: Cascade`) cobre `Account`/`Session` (NextAuth) a
+  partir de `User`, e `DestinationApproval`/`AccommodationApproval`/
+  `ActivityApproval`/`ItineraryItem`/`LlmGenerationLog` a partir de cada
+  `TripSession` — confirmado campo a campo em `prisma/schema.prisma`
+  (todas as 5 entidades filhas com `onDelete: Cascade` referenciando
+  `TripSession`, que por sua vez é apagada explicitamente por `userId`
+  dentro da mesma transação). Nenhum `deleteMany` extra necessário, nenhum
+  dado órfão possível por esse desenho (a única FK sem cascade formal é
+  `TripSession.userId → User`, decisão documentada desde L1-T03, e é
+  exatamente por isso que este módulo apaga `TripSession` explicitamente
+  em vez de confiar em cascade a partir de `User`).
+- Atomicidade: toda a operação (achar `User`, apagar `TripSession`s,
+  apagar `User`) ocorre dentro de uma única transação Prisma — uma falha a
+  meio caminho reverte tudo, sem estado parcial (GUARDRAILS.md regra 20,
+  "nenhum dado pessoal remanescente").
+- **Conforme** SDD §7/RNF-06/GUARDRAILS.md regra 20. Nenhum achado.
+
+### 2. L11-T02a/L11-T02 — Persistência do dono + guard central de autorização (ADR-008)
+
+- `resolveSessionOwner` (`src/lib/actions/resolve-session-owner.ts`):
+  precedência confirmada — usuário autenticado sempre vence sobre cookie
+  anônimo presente; gera/grava defensivamente um novo cookie anônimo
+  quando ausente, evitando duas identidades divergentes entre middleware e
+  esta resolução.
+- `isSameSessionOwner`/`assertSessionOwnership`
+  (`src/lib/session-flow/authorization.ts`): regra do ADR-008 item 4
+  aplicada literalmente — dono autenticado só bate com `record.userId` não
+  nulo e igual; dono anônimo só bate com `record.anonSessionId` não nulo e
+  igual; qualquer outro caso (registro nulo, sem nenhum dos dois campos
+  gravado) nega. Negação sempre lança `SessionNotFoundError` — **nunca**
+  um erro 403 dedicado (confirmado por leitura direta: não há nenhum
+  `throw` alternativo no caminho de negação) — cumpre literalmente "sempre
+  404, nunca 403", e um requisitante ilegítimo não consegue distinguir
+  "sessão não existe" de "sessão existe mas não é sua" (nenhum campo do
+  registro de terceiro é exposto na resposta de erro).
+- **Cobertura exaustiva de pontos de leitura/escrita de `TripSession`**
+  (verificação adicional desta auditoria, além dos 4 pontos já citados
+  pelo QA): busca por `prisma.tripSession.(findUnique|findFirst|findMany|
+  update|delete)` em todo `src/` fora de arquivos de teste encontra
+  exatamente 4 arquivos de produção com leitura direta de `TripSession`
+  por `sessionId` de entrada externa — `src/lib/actions/destino.ts`,
+  `hospedagem.ts`, `passeios.ts`, `roteiro.ts` — e todos os 4 chamam
+  `assertSessionOwnership(sessionId, session)` logo após a checagem de
+  existência, confirmado nos 4 arquivos. Todo o restante da escrita em
+  `TripSession` (transições de estado: aprovar/encerrar/revisar cada
+  etapa) passa por `applySessionFlowTransition`
+  (`src/lib/session-flow/persistence.ts`), que também chama
+  `assertSessionOwnership` logo após checar existência, antes de qualquer
+  decisão de transição — **um único ponto de aplicação do guard para toda
+  escrita**, não duplicado em cada Server Action de transição. As 3 Server
+  Actions de **criação** de sessão (`submeterDataLivre`,
+  `processarFeriadoEscolhido`, `submitQuizAnswers`) não precisam do guard
+  (não há "dono esperado" para comparar antes da sessão existir — a
+  proteção ali é `resolveSessionOwner` gravando o dono correto na
+  criação). Nenhuma rota/Server Action encontrada que leia ou escreva
+  `TripSession`/entidade filha sem passar por um dos dois pontos acima —
+  **nenhum bypass do guard central identificado**.
+- Nenhuma página (`src/app/**/page.tsx`) faz leitura direta de
+  `TripSession` via Prisma — toda leitura de estado de sessão para render
+  passa pelas mesmas Server Actions já auditadas acima (confirmado por
+  busca por `prisma.(tripSession|destinationApproval|
+  accommodationApproval|activityApproval|itineraryItem|
+  llmGenerationLog).(findUnique|findFirst|findMany)` em `src/app/`: zero
+  ocorrências).
+- **Conforme** ADR-008/SDD §7. Nenhum achado.
+
+### 3. L11-T03 — Sanitização de texto livre contra prompt injection
+
+- `sanitizeFreeTextForPrompt`/`containsPromptInjectionAttempt`
+  (`src/lib/gateway-ia/prompt-injection-guard.ts`): estratégia de
+  neutralização (não rejeição total) em 5 etapas — colapso de quebra de
+  linha, remoção de marcadores de papel/delimitador (```` ``` ````,
+  `[INST]`, `<|...|>`, `System:`, `###`, `---`), redação de frases
+  conhecidas de override PT-BR/EN (ordenadas frase-completa antes de
+  fragmento genérico, evitando resíduo), colapso de espaços, truncagem por
+  `maxLength`. Aplicada ANTES da entrada em `StageContext` (Server Action),
+  não dentro do Gateway de IA — consistente com GUARDRAILS.md regra 18.
+- Todo campo de texto livre do usuário que hoje alimenta um prompt foi
+  identificado e confirmado sanitizado no ponto de captura: destino manual
+  (`informarDestinoManualmente`/`destino.ts`, `submeterDataLivre`/
+  `data-livre.ts`), e o valor de destino já sanitizado é reaproveitado
+  (não recapturado sem sanitização) em `hospedagem.ts`/`passeios.ts`/
+  `roteiro.ts` ao montar os respectivos prompts — nenhum campo de texto
+  livre encontrado que escape da sanitização por entrar via uma rota
+  diferente das 4 já citadas pelo QA. `budgetAmount`/`budgetCurrency` são
+  campos numéricos/enum validados por Zod/Prisma `Decimal`, sem superfície
+  de prompt injection textual (fora de escopo desta sanitização,
+  corretamente).
+- Defesa em profundidade confirmada: mesmo com o texto já sanitizado, o
+  prompt (`prompts.ts`) sempre isola o valor do usuário dentro de uma
+  frase fixa (ex. `Destino já aprovado pelo usuário: ${nome}.`), nunca
+  concatenando-o como se fosse instrução de sistema — uma falha
+  hipotética na sanitização não vira automaticamente uma instrução de
+  sistema aceita pelo modelo.
+- **Conforme** GUARDRAILS.md regra 18. Nenhum achado.
+
+### 4. Exposição de dados sensíveis (logs, erros, `LlmGenerationLog`)
+
+- `LlmGenerationLog` (`prisma/schema.prisma`): confirmado, campo a campo,
+  que só armazena metadados (`stage`, `provider`, `promptVersion`,
+  `tokensInput`/`tokensOutput`, `costEstimateUsd`, `latencyMs`,
+  `retryCount`, `status`) — nenhum campo de texto de prompt/resposta bruta
+  do provider, nenhum dado pessoal do usuário. Consistente com o achado já
+  registrado no Lote 3.
+- `DELETE /api/account`: mensagem de erro (`UserNotFoundError`) usa o
+  próprio `userId` já resolvido da sessão autenticada do requisitante (não
+  um `userId` de terceiro fornecido por ele) — não há vetor de enumeração
+  de conta de outro usuário por essa mensagem.
+- Nenhum dado pessoal de conta (e-mail, senha/hash) é interpolado em
+  nenhum `buildXPrompt` (`src/lib/gateway-ia/prompts.ts`, confirmado por
+  busca por `email`/`password` no arquivo — zero ocorrências) —
+  GUARDRAILS.md regra 17 cumprida.
+- **Conforme**. Nenhum achado.
+
+### 5. Dependências de terceiros (`npm audit`)
+
+`npm audit` reexecutado nesta auditoria: 10 vulnerabilidades (1 crítica, 5
+altas, 4 moderadas) — mesma família já rastreada desde o Lote 1/3, **sem
+novidade introduzida por este lote**:
+
+| Pacote | Severidade (rótulo bruto) | No bundle de produção? | Avaliação de risco real |
+|---|---|---|---|
+| `vitest`/`vite`/`vite-node`/`esbuild`/`@vitest/mocker` | Crítica/Alta/Moderada | Não — devDependency, ferramenta de teste | **Baixa** — sem servidor de UI do Vitest exposto em produção/CI deste projeto; mesma avaliação do Lote 1. |
+| `@prisma/config`/`deepmerge-ts`/`prisma` (CLI) | Alta | Não — `prisma` é devDependency (CLI de migration); `@prisma/client` (runtime) não é afetado | **Baixa** — ferramenta de desenvolvimento, não roda em produção. |
+| `postcss` (vendorizado dentro de `node_modules/next`) | Alta/Moderada | Sim (build-time, dentro de `next`) | **Baixa-média**, já reduzida desde RL1-T01: o `postcss` de projeto (`8.5.28`) não é vulnerável; o achado remanescente é só a cópia vendorizada dentro do próprio `next`, sem CSS gerado a partir de entrada não confiável do usuário no MVP — mesma avaliação já consolidada. |
+
+- **Atualização importante confirmada nesta auditoria**: a CVE crítica de
+  RCE não-autenticado em `next` (`GHSA-p293-qw3h-jr36`), que motivou a
+  escalada ao Gestor registrada no Lote 3, **já foi corrigida** —
+  `RL1-T01` (`TASK.md`) está `Concluída`, com `next` atualizado de
+  `14.2.35` para `15.5.25`. `npm audit` atual não lista mais nenhuma CVE de
+  severidade alta/crítica em `next` ou em qualquer dependência direta de
+  runtime (`dependencies` do `package.json`) — o único item remanescente
+  em `next` é o `postcss` vendorizado (moderado), já avaliado acima.
+- Nenhuma dependência nova introduzida pelas tarefas deste lote
+  (`L11-T01`/`T02a`/`T02`/`T03`/`T04` usam só módulos já presentes —
+  `prisma`, `next-auth`, `next/headers` — nenhum pacote novo em
+  `package.json`).
+- Débito remanescente (devDependencies de teste/CLI, sem exposição em
+  produção) segue **sem ação obrigatória antes do deploy** — risco
+  residual aceito, mesma avaliação consolidada desde o Lote 1, sem
+  necessidade de nova tarefa de `Refatoração Lote-11` (não há achado novo
+  específico deste lote).
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+- Mesmos requisitos já registrados nos Lotes 1/3/7/8/9/10 (secrets via
+  env/secrets manager da plataforma de deploy, nunca versionados). Nenhum
+  requisito novo específico deste lote — `L11-T01`/`T02`/`T02a`/`T03` não
+  introduzem segredo/configuração de infraestrutura nova.
+- `L11-T04` (acessibilidade) não tem requisito de segurança operacional
+  aplicável.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica, nenhum compliance obrigatório em
+aberto. Nenhuma tarefa nova em `Refatoração Lote-11` — os únicos débitos
+existentes (dependências de dev/CLI, sem exposição em produção) já estão
+avaliados como risco residual aceito, sem prazo adicional. Nenhum
+escalonamento a `executor` (nenhuma correção de código pendente). Nenhum
+escalonamento ao **coordenador** (nenhuma inconsistência de
+dependência/decomposição encontrada nesta auditoria). Sinalização ao
+**Gestor** (registro, não bloqueio): a CVE crítica de `next` sinalizada com
+urgência no Lote 3 já foi corrigida (`RL1-T01` `Concluída`) — bom momento
+para o Gestor confirmar que o rastreamento de débito de segurança
+funcionou como desenhado, do achado inicial (Lote 1) até a resolução antes
+do primeiro deploy (agora, Lote 11/12).
+
+## Veredito (Lote 11)
+
+**Build do Lote 11 aprovado em segurança, sem ressalvas.** Nenhum achado
+de nenhuma severidade nas 5 tarefas do lote: exclusão de conta remove
+atomicamente `User` + todas as `TripSession`s do titular + todas as
+entidades filhas via cascade de FK, sem dado órfão possível e sem vetor de
+exclusão de conta de terceiro (L11-T01); guard central de autorização
+aplicado de forma exaustiva em **todos** os pontos de leitura/escrita de
+`TripSession` encontrados no repositório (não só os 4 já citados pelo QA),
+sempre 404 nunca 403, sem vazamento de dado de terceiro (L11-T02/T02a);
+sanitização contra prompt injection cobre todo campo de texto livre do
+usuário que alimenta prompt, sem ponto de bypass encontrado, com defesa em
+profundidade adicional no isolamento do prompt (L11-T03); nenhuma
+exposição de dado sensível em `LlmGenerationLog`/mensagens de erro/prompts
+(GUARDRAILS.md regras 17/20); `npm audit` sem achado novo — a única CVE
+crítica antes em aberto (`next`, RCE não-autenticado) já foi corrigida via
+`RL1-T01`. **Lote 11 liberado para deploy** (chapéu DevOps), condicionado
+à dupla aprovação já obtida com o veredito do chapéu QA (`QA-REPORT.md`,
+"Lote 11 — Cross-cutting Final": Aprovado, sem ressalvas).
+
+## Lote 12 — Integração de Rotas (T06-T-END)
+
+Status geral: **Aprovado, sem ressalvas**. Auditoria das 5 tarefas do lote
+(`L12-T01` a `L12-T05`), liberada pelo chapéu QA (`QA-REPORT.md`, "Lote 12":
+Aprovado, sem ressalvas). O lote fecha o gap estrutural do Bloqueio 005
+(rotas navegáveis para T06/T07/T08/T-END) — de interesse deste chapéu por
+introduzir a primeira leitura direta de dado de aprovação
+(`DestinationApproval`/`AccommodationApproval`/`ActivityApproval`) fora de
+uma Server Action de transição de estado.
+
+### Escopo desta auditoria
+
+`src/app/hospedagem/page.tsx`, `src/app/passeios/page.tsx`,
+`src/app/roteiro/page.tsx`, `src/app/encerramento/page.tsx`,
+`src/lib/actions/encerramento.ts`; `npx eslint` nos 5 arquivos novos/
+alterados do lote; `npm audit` reexecutado; grep exaustivo por
+`prisma.tripSession.*`/dados sensíveis nos arquivos do lote.
+
+### 1. L12-T01/T02/T03 — Rotas `/hospedagem`, `/passeios`, `/roteiro`
+
+- As 3 rotas seguem exatamente o mesmo padrão fino já auditado em
+  `src/app/destino/page.tsx` (L7-T02, Lote 7): resolvem `sessionId` de
+  `searchParams` assíncrono, `redirect("/")` se ausente, e delegam à tela
+  já existente/auditada (`HospedagemSugestoesScreen`/L8-T02,
+  `PasseiosSugestoesScreen`/L9-T02, `RoteiroScreen`/L10-T02) — confirmado
+  por leitura direta das 3 rotas, nenhuma lê `TripSession`/Prisma
+  diretamente.
+- Querystring: as 3 rotas só declaram `sessionId?: string` no tipo de
+  `searchParams` e não leem nenhum outro parâmetro — nenhum dado sensível
+  (nome de destino, valores de orçamento, e-mail) trafega pela URL, mesmo
+  padrão já aprovado para `/destino`/`/destino/confirmacao` (Lotes 7).
+  `/passeios` (`L12-T02`) passa as 3 Server Actions de
+  `@/lib/actions/passeios` como prop `actions` diretamente em código
+  server-side — nenhuma credencial/segredo envolvido nessa integração.
+- Bypass de autorização: confirmado que a autorização de dono de sessão
+  (`assertSessionOwnership`, L11-T02/ADR-008) continua acontecendo
+  exclusivamente dentro das Server Actions já auditadas
+  (`gerarSugestoesHospedagem`/`gerarSugestoesPasseios`/`gerarRoteiro`, em
+  `hospedagem.ts`/`passeios.ts`/`roteiro.ts`) — nenhuma das 3 rotas deste
+  lote lê `TripSession`/Prisma por conta própria, então não há novo ponto
+  de leitura a proteger nem risco de a rota "adiantar" um dado antes do
+  guard rodar. Reconfirma a cobertura exaustiva já auditada no Lote 11
+  ("4 arquivos de produção com leitura direta de `TripSession`, todos com
+  o guard") — este lote não adiciona um quinto.
+- **Conforme**. Nenhum achado.
+
+### 2. L12-T04 — `obterResumoEncerramento` (nova leitura direta de `TripSession` + entidades de aprovação)
+
+- Ordem de execução confirmada linha a linha
+  (`src/lib/actions/encerramento.ts`): `prisma.tripSession.findUnique`
+  (só `flowState`/`userId`/`anonSessionId`) → `SessionNotFoundError` se
+  `null` → `assertSessionOwnership(sessionId, session)` chamado e
+  **aguardado (`await`) ANTES** de qualquer `prisma.destinationApproval.*`/
+  `accommodationApproval.*`/`activityApproval.*` — as 3 queries de
+  aprovação só disparam depois da linha do guard, dentro do mesmo
+  `Promise.all` posterior. Nenhuma leitura de dado de aprovação acontece
+  antes da checagem de dono, mesmo padrão exato de `gerarRoteiro`
+  (`./roteiro.ts`, já auditado no Lote 10/11).
+- Negação de acesso: mesmo guard central (`assertSessionOwnership`,
+  L11-T02) reaproveitado sem alteração — identidade não dona da sessão
+  recebe `SessionNotFoundError` (nunca um erro 403 dedicado; confirmado
+  que este arquivo não declara nenhum tratamento de erro alternativo para
+  o resultado do guard, o erro simplesmente propaga). Coberto por teste de
+  integração dedicado
+  (`src/lib/actions/__tests__/encerramento.integration.test.ts`,
+  "identidade que não é dona da sessão recebe SessionNotFoundError (404,
+  nunca 403)" e "sessão inexistente recebe SessionNotFoundError") — lógica
+  correta por leitura de código; a suíte não roda neste ambiente local por
+  Postgres indisponível, mesma limitação de ambiente já registrada pelo QA
+  para este lote, não um achado deste chapéu.
+- Exposição de dado: campo a campo, o `return` do arquivo só produz
+  exatamente o shape de `EncerramentoResumo`
+  (`@/components/encerramento/encerramento-screen.tsx`: `destino: {name}`,
+  `hospedagem: {name, type}`, `passeios: {name, free}[]`,
+  `roteiroAprovado: boolean`) — os `select` do Prisma já restringem cada
+  query aos campos necessários (`destinationApproval` só `name`;
+  `accommodationApproval` só `name`/`type`; `activityApproval` só
+  `name`/`isFree`, mais `orderIndex` só para ordenação, não devolvido).
+  `session.userId`/`session.anonSessionId` (buscados só para o guard) não
+  aparecem em nenhum campo do retorno — confirmado que a função não os
+  reexpõe. Nenhum campo de outra sessão/usuário é lido (todas as 3 queries
+  filtram por `sessionId` da sessão já autorizada).
+- Escrita: confirmado por leitura completa do arquivo — nenhuma chamada a
+  `applySessionFlowTransition`/`prisma.*.update`/`.create`/`.delete` em
+  nenhum ponto; as únicas operações Prisma são `findUnique`/`findMany`.
+  Função de leitura pura, consistente com o nome/assinatura
+  (`Promise<EncerramentoResumo>`, sem efeito colateral declarado).
+- **Conforme** ADR-008/SDD §7. Nenhum achado.
+
+### 3. L12-T05 — Rota `/encerramento`
+
+- Tratamento de erro confirmado uniforme: o `catch` só distingue
+  `SessionNotFoundError` de qualquer outro erro (que é relançado, `throw
+  error`) — para o único caso relevante à autorização, sessão inexistente
+  e sessão de outro dono resultam ambos em `SessionNotFoundError` dentro
+  de `obterResumoEncerramento` (ver item 2 acima) e ambos caem no mesmo
+  `redirect("/")` aqui, sem nenhuma mensagem diferenciada exposta ao
+  cliente — cumpre o mesmo critério do ADR-008 item 4 ("sempre 404, nunca
+  403", aqui manifestado como redirect uniforme em vez de status HTTP
+  distinto, já que é uma rota de Server Component).
+- `flowState` da querystring é validado contra uma allowlist fechada
+  (`VALID_FLOW_STATES = ["concluida", "encerrada_parcial"]`) antes de
+  qualquer uso — valor fora desse conjunto também cai no mesmo
+  `redirect("/")` do `sessionId` ausente, sem alimentar `EncerramentoScreen`
+  com um estado não previsto.
+- **Conforme**. Nenhum achado.
+
+### 4. Dependências de terceiros (`npm audit`)
+
+`npm audit` reexecutado nesta auditoria: mesma família já rastreada desde
+o Lote 1/3/11, **sem novidade introduzida por este lote** — nenhuma
+dependência nova em `package.json` pelas 5 tarefas (`L12-T01` a `L12-T05`
+usam só módulos já presentes: `next/navigation`, `@/lib/actions`,
+`@/lib/session-flow`, `@/lib/prisma`). Único item remanescente é o
+`postcss` vendorizado dentro de `next` (alto/moderado, sem exposição em
+produção — mesma avaliação consolidada desde o Lote 1/11, risco residual
+aceito sem nova tarefa de `Refatoração Lote-12`).
+
+### 5. `npx eslint` nos arquivos do lote
+
+Executado sobre os 5 arquivos novos/alterados do lote — sem erro nem
+warning.
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum requisito novo específico deste lote — as 5 tarefas não introduzem
+segredo/configuração de infraestrutura nova; seguem os mesmos requisitos
+já registrados nos Lotes 1/3/7/8/9/10/11 (secrets via env/secrets manager
+da plataforma de deploy, nunca versionados).
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica, nenhum compliance obrigatório em
+aberto. Nenhuma tarefa nova em `Refatoração Lote-12` originada por este
+chapéu (a tarefa já existente em `Refatoração Lote-12`, criada pelo
+chapéu QA na checagem estrutural, é de escopo de acessibilidade/CSS, fora
+do escopo deste chapéu). Nenhum escalonamento a `executor` (nenhuma
+correção de código pendente). Nenhum escalonamento ao **coordenador**
+(nenhuma inconsistência de dependência/decomposição encontrada). Nenhum
+achado de relevância estratégica a sinalizar ao **Gestor** neste lote.
+
+## Veredito (Lote 12)
+
+**Build do Lote 12 aprovado em segurança, sem ressalvas.** As 3 rotas
+finas (`L12-T01`/`T02`/`T03`) não introduzem nenhum novo ponto de leitura
+de `TripSession`/Prisma nem bypassam a autorização já centralizada nas
+Server Actions que chamam — a autorização de dono de sessão continua
+acontecendo exclusivamente onde já auditado (Lotes 8/9/10/11). A nova
+Server Action de leitura `obterResumoEncerramento` (`L12-T04`) chama
+`assertSessionOwnership` (ADR-008) ANTES de qualquer leitura dos registros
+de aprovação, nega com `SessionNotFoundError` (sempre 404, nunca 403) sem
+vazar dado de terceiro, expõe só o shape público de `EncerramentoResumo`
+(nenhum campo extra, `userId`/`anonSessionId` nunca reexpostos), e não
+escreve em nada (função de leitura pura, sem
+`applySessionFlowTransition`/`update`/`create`/`delete`). A rota
+`/encerramento` (`L12-T05`) trata `SessionNotFoundError` com
+`redirect("/")` uniforme, sem distinguir "sessão inexistente" de "sessão
+de outra pessoa" ao cliente. `npm audit` sem achado novo; `npx eslint` sem
+erro/warning nos arquivos do lote. **Lote 12 liberado para deploy**
+(chapéu DevOps), condicionado à dupla aprovação já obtida com o veredito
+do chapéu QA (`QA-REPORT.md`, "Lote 12 — Integração de Rotas": Aprovado,
+sem ressalvas) — fechando a jornada T00→T-END com navegação real
+auditada em segurança.

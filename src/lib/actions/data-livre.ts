@@ -42,6 +42,7 @@
 import { createSessionWithDateRange } from "@/lib/session-flow";
 import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
 import { InvalidDataLivreInputError } from "./data-livre-errors";
+import { InvalidDestinoLengthError } from "./destino-length-error";
 import { resolveSessionOwner } from "./resolve-session-owner";
 
 /**
@@ -108,9 +109,24 @@ function parseIsoDateOrThrow(value: string, label: string): Date {
  * `""`, tratado como "sem destino" pelo chamador (mesma regra do form
  * client-side, que já envia `""` quando o campo opcional fica em branco, e
  * do próprio helper `createSessionWithDateRange`, que também trata string
- * vazia/só espaços como "sem destino"). */
+ * vazia/só espaços como "sem destino").
+ *
+ * RL6-T01: destino acima de `DESTINO_MAX_LENGTH` é REJEITADO (lança
+ * `InvalidDestinoLengthError`, `./destino-length-error.ts`), não truncado —
+ * antes desta tarefa este era o único dos 3 pontos de captura de destino do
+ * Lote 6 que truncava silenciosamente via `sanitizeFreeTextForPrompt(...,
+ * { maxLength })` (`String.prototype.slice`); alinhado aqui ao comportamento
+ * já usado por `processarFeriadoEscolhido` (`./feriados.ts`), que já
+ * rejeitava. O limite é checado sobre o texto já "trimado" mas ANTES da
+ * sanitização (mesma ordem de `processarFeriadoEscolhido`), para que o
+ * limite reflita o tamanho do texto realmente digitado pelo usuário, não o
+ * tamanho depois de neutralizar marcadores/frases de prompt injection. */
 function sanitizeDestino(rawDestino: string | undefined): string {
-  return sanitizeFreeTextForPrompt(rawDestino, {
+  const trimmed = (rawDestino ?? "").trim();
+  if (trimmed.length > DESTINO_MAX_LENGTH) {
+    throw new InvalidDestinoLengthError(DESTINO_MAX_LENGTH);
+  }
+  return sanitizeFreeTextForPrompt(trimmed, {
     maxLength: DESTINO_MAX_LENGTH,
   });
 }

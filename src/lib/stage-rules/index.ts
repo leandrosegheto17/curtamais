@@ -4,8 +4,8 @@
 // `@/lib/stage-rules`, nunca `@/lib/stage-rules/destino` diretamente.
 //
 // Contém as regras das etapas destino (RF-04, L7-T01), hospedagem (RF-06,
-// L8-T01) e passeios (RF-07, L9-T01); roteiro (RF-08, L10-T01) deve seguir o
-// mesmo padrão — um arquivo por etapa, reexportado aqui.
+// L8-T01), passeios (RF-07, L9-T01) e roteiro (RF-08, L10-T01) — um arquivo
+// por etapa, reexportado aqui.
 
 export { generateDestinationSuggestions } from "./destino";
 export type {
@@ -22,3 +22,9 @@ export type {
   GeneratePasseiosSuggestionsInput,
   PasseiosSuggestionResult,
 } from "./passeios";
+export { generateRoteiro } from "./roteiro";
+export type {
+  GenerateRoteiroInput,
+  RoteiroDayResult,
+  RoteiroItemResult,
+} from "./roteiro";

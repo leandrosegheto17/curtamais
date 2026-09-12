@@ -205,6 +205,14 @@ export function StepperProgress({
   );
 }
 
+/**
+ * RL5-T02: `title` sozinho tem suporte inconsistente em navegação por
+ * virtual cursor (leitores de tela não anunciam `title` de forma
+ * confiável). Cada `StepDot` mantém o `title` (tooltip visual em mouse
+ * hover) mas também expõe o mesmo texto via um `span` `sr-only`, garantindo
+ * que o status da etapa seja lido de forma confiável por tecnologia
+ * assistiva independentemente de suporte a `title`.
+ */
 function StepDot({ status }: { status: StepperStepStatus }) {
   if (status === "completed") {
     return (
@@ -212,6 +220,7 @@ function StepDot({ status }: { status: StepperStepStatus }) {
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground"
         title="Etapa concluída"
       >
+        <span className="sr-only">Etapa concluída</span>
         <Check className="h-3 w-3" aria-hidden="true" strokeWidth={3} />
       </span>
     );
@@ -222,7 +231,8 @@ function StepDot({ status }: { status: StepperStepStatus }) {
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-accent bg-background"
         title="Etapa atual"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+        <span className="sr-only">Etapa atual</span>
+        <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
       </span>
     );
   }
@@ -230,6 +240,8 @@ function StepDot({ status }: { status: StepperStepStatus }) {
     <span
       className="h-5 w-5 shrink-0 rounded-full border border-border bg-background"
       title="Etapa futura"
-    />
+    >
+      <span className="sr-only">Etapa futura</span>
+    </span>
   );
 }

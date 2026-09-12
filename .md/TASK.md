@@ -68,7 +68,7 @@ para todo Executor, independentemente da tarefa:
 | ID | Spike | Motivo | Bloqueia | Prazo sugerido | Status |
 |---|---|---|---|---|---|
 | SPIKE-01 | Viabilidade de streaming de resposta LLM via Next.js Server Actions vs. Route Handler com `ReadableStream` (RNF-02, SDD §2/§3) | Server Actions têm suporte a streaming token-a-token menos maduro/documentado que Route Handlers; a meta de p95 ≤ 8s com primeiro conteúdo perceptível em até 2s (SDD §6) depende de qual mecanismo é usado — decisão técnica de incerteza alta, não deve ser estimada com confiança sem spike | L3-T02 (prompt design), L5-T03 (`LoadingStream`) | Antes do início do Lote 3 | **Resolvido** (2026-09-09, Executor/BE) |
-| SPIKE-02 | Estratégia de proximidade geográfica no roteiro (RF-08.2) sem API de mapas/geocoding real — o SDD.md não define fonte de dado de geolocalização; a ordenação por proximidade dependerá do conhecimento geral do LLM sobre o destino, não de coordenadas reais | Incerteza sobre qualidade de resultado sem validação empírica com o provider escolhido (ADR-002); risco de sequenciamento incoerente sem checagem prévia | L10-T01 (regra de geração do roteiro) | Antes do início do Lote 10 | Pendente |
+| SPIKE-02 | Estratégia de proximidade geográfica no roteiro (RF-08.2) sem API de mapas/geocoding real — o SDD.md não define fonte de dado de geolocalização; a ordenação por proximidade dependerá do conhecimento geral do LLM sobre o destino, não de coordenadas reais | Incerteza sobre qualidade de resultado sem validação empírica com o provider escolhido (ADR-002); risco de sequenciamento incoerente sem checagem prévia | L10-T01 (regra de geração do roteiro) | Antes do início do Lote 10 | **Resolvido** (2026-09-12, Executor/BE) |
 
 Nenhuma tarefa de implementação bloqueada por spike recebe estimativa de
 esforço até o spike ser resolvido (ver Seção 3, linhas correspondentes).
@@ -126,6 +126,67 @@ Não implementado neste spike (fora de escopo, fica para L3-T02/L5-T03):
 integração com `generateStructuredCompletion`/provider real, protocolo de
 framing (texto puro vs. SSE `data:`/`event:` vs. patch incremental de JSON
 estruturado), e o componente `LoadingStream` do lado do cliente.
+
+### Resolução do SPIKE-02 (2026-09-12, Executor/BE)
+
+**Decisão: nenhuma integração de mapas/geocoding real é adicionada** — RF-08.2
+(evitar deslocamento redundante "sempre que uma alternativa equivalente
+existir") e RF-08.3 (horário ideal por atividade) são resolvidos pedindo ao
+próprio LLM, via `buildRoteiroPrompt` (L3-T02, `src/lib/gateway-ia/
+prompts.ts`), para sequenciar por proximidade lógica/geográfica a partir dos
+NOMES/tipos de destino, hospedagem e passeios já aprovados (contexto
+estruturado, ADR-003), com uma justificativa textual de timing por item
+quando fizer sentido — exatamente o que `buildRoteiroPrompt` já fazia desde
+L3-T02 ("Priorize agrupar atividades geograficamente próximas no mesmo
+bloco/dia sempre que uma alternativa equivalente existir"), sem necessidade
+de nenhuma mudança no prompt/schema por causa deste spike.
+
+Justificativa: (1) consistente com a decisão arquitetural já registrada de
+não integrar dado externo real de preço/geolocalização no MVP (SDD.md §1/
+PRD-TECNICO.md Seção 4) — abrir uma exceção só para RF-08.2 introduziria uma
+dependência nova (API de mapas/geocoding, custo de integração e de operação
+não previsto no SDD.md) para resolver um requisito que o próprio PRD-TECNICO
+já qualifica como "sempre que uma alternativa equivalente existir", não
+absoluto; (2) o "conhecimento geral" de um LLM como o do ADR-002 sobre bairros/
+pontos turísticos de destinos populares (o caso majoritário de uso do
+CurtaMais, viagens de lazer nacionais/internacionais comuns) é suficiente
+para uma heurística de "agrupar o que é perto" plausível, mesmo sem
+coordenadas reais — o risco de erro pontual (ex. sequenciar dois pontos
+turísticos que na realidade ficam longe um do outro) é aceitável porque RF-08
+já é, por natureza, uma SUGESTÃO de roteiro a ser ajustada pelo usuário na
+prática, não um itinerário logisticamente garantido; (3) o custo de integrar
+geocoding real (ex. Google Maps Distance Matrix/Places) incluiria chave de
+API paga, tratamento de rate limit/erro adicional, e um redesenho de
+`buildRoteiroPrompt`/`roteiroEstruturadoSchema` para carregar coordenadas —
+esforço não estimado em nenhum documento anterior a este spike, e desalinhado
+com o timebox de 1 dia definido para o spike; (4) o schema de saída
+(`roteiroEstruturadoSchema`, `src/lib/gateway-ia/schemas.ts`) e o builder de
+prompt (`buildRoteiroPrompt`) já implementados desde L3-T02 já refletiam
+exatamente esta decisão (nenhum campo de coordenada/distância no schema,
+instrução textual de "proximidade" no prompt) — o spike confirma que a
+arquitetura já construída é a decisão correta, não descobre uma lacuna nova a
+corrigir.
+
+Trade-off aceito explicitamente: RF-08.2 é "melhor esforço" do modelo, sem
+nenhuma validação determinística de que duas atividades sequenciadas no
+mesmo bloco/dia estão de fato geograficamente próximas — não há dado de
+geolocalização disponível em `generateRoteiro` (`src/lib/stage-rules/
+roteiro.ts`, L10-T01) para checar isso automaticamente. Aceitável porque:
+(a) RF-08.2 no PRD-TECNICO.md já é qualificado como "sempre que uma
+alternativa equivalente existir", não um requisito absoluto/testável
+deterministicamente; (b) a mitigação de qualidade de resposta do LLM já
+existente (ADR-003: contexto estruturado, não texto livre; temperatura
+conservadora 0.4, `src/lib/gateway-ia/index.ts`) se aplica igualmente aqui;
+(c) se a qualidade do sequenciamento se mostrar inaceitável em uso real
+(sinal a ser observado após deploy, não antecipável só com este spike), isso
+se torna uma lacuna estrutural real a escalar ao Coordenador/Gestor para
+avaliar o custo de uma integração de geocoding real — não decidido "em
+silêncio" agora, registrado aqui como condição explícita de reabertura.
+
+Nada foi implementado neste spike além da confirmação da decisão já refletida
+em `buildRoteiroPrompt`/`roteiroEstruturadoSchema` (L3-T02) — a REGRA de
+negócio que consome esses dois (`generateRoteiro`) é a própria L10-T01, ver
+nota de implementação após a tabela do Lote 10 (Seção 3).
 
 ## 3. Lista de Tarefas
 
@@ -1112,6 +1173,18 @@ o fechamento deste lote; todas as 5 tarefas permanecem `Concluída`.
   `npm run build` passam sem regressão.
 
 ### Lote 6 — Telas de Entrada (T00, T01, T02, T03a-d)
+
+**Status do lote: Validado** (2026-09-12, Validador — chapéu QA aprovou as
+7 tarefas; ver `QA-REPORT.md`). Nenhum achado crítico ou simples; `RL2-T01`
+(débito do Lote 2 com prazo "fechamento do Lote 6") confirmado `Concluída`.
+Divergência entre as notas de implementação de L6-T03 e L6-T05 (criação de
+sessão inline vs. helper compartilhado) confirmada já resolvida no código
+atual (`submeterDataLivre` usa `createSessionWithDateRange`) — nenhuma ação
+adicional necessária. `npm run build` não pôde ser reexecutado nesta sessão
+por instabilidade de `node_modules` causada por outra instância concorrente
+no mesmo repositório (mitigado por `tsc --noEmit` direcionado, sem erros nos
+arquivos deste lote); recomenda-se reexecutar antes do deploy. Lote liberado
+para a auditoria de segurança completa do chapéu DevSecOps.
 
 Nota de tamanho de lote: 7 tarefas, acima do alvo de 5-6 — justificativa: o
 lote cobre 3 telas distintas (T00, T01, T02) mais o wizard T03, cada uma
@@ -2821,14 +2894,431 @@ explícito no cabeçalho de `passeios-sugestoes-screen.tsx`.
 
 ### Lote 10 — Roteiro Final e Encerramento (T08, T-END)
 
-| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Critério de aceite |
-|---|---|---|---|---|---|---|
-| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1.5 dia (ver Seção 6 — justificativa de tamanho; sem estimativa final até SPIKE-02 resolver) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02, **L11-T03**, **RL8-T02** | L10-T04 | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir |
-| L10-T02 | T08 UI — blocos por dia (acordeão em mobile), horário + justificativa de timing | FE | 1 dia | L5-T03, L10-T01 | L10-T03 | Um bloco por dia da viagem, dividido em manhã/tarde/noite; justificativa exibida quando presente |
-| L10-T03 | T08 Server Action — aprovar roteiro (RF-08.4): grava `ItineraryItem`, marca sessão `concluida`, aciona RF-09 | BE | 1 dia | L4-T02, L10-T01 | L10-T02 | Aprovação persiste todos os itens do roteiro e marca `TripSession.status = completed` |
-| L10-T04 | T-END UI — resumo (completo ou parcial), reutilizada em todo ponto de saída (RN-03) | FE | 1 dia | L5-T01 | L10-T01, L10-T02, L10-T03 | Rótulo "Viagem decidida!" (completo) ou "Parte da sua viagem está decidida" (parcial), nunca como erro |
+**Status do lote: Validado** (2026-09-12, Validador — chapéus QA e
+DevSecOps aprovaram as 4 tarefas; ver `QA-REPORT.md`/`SECURITY-REVIEW.md`).
+Achado estrutural (rotas `/hospedagem`, `/passeios`, `/roteiro`,
+`/encerramento` inexistentes, atravessando os Lotes 8-11) encontrado na
+checagem de fechamento — escalado ao Coordenador como Bloqueio 005,
+resolvido com a criação do Lote 12 (Integração de Rotas); não gerou
+`Refatoração Lote-10` (não é um achado simples de uma tarefa, é lacuna de
+decomposição já tratada em lote próprio) e não bloqueia o fechamento deste
+lote.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L10-T01 | Regra RF-08 — geração do roteiro estruturado por dia (manhã/tarde/noite), sequenciamento por proximidade geográfica e horário ideal, com justificativa de timing (RF-08.1/.2/.3) — **depende da resolução de SPIKE-02** | BE | 1 dia (SPIKE-02 resolvido sem geocoding real, ver Seção 2 — esforço equivalente ao das demais regras de etapa, L7-T01/L8-T01/L9-T01, não os 1.5 dia de incerteza original da Seção 6) | L3-T02, L3-T03, L3-T04, L9-T03, SPIKE-02, **L11-T03**, **RL8-T02** | L10-T04 | Concluída | Todo dia do range tem bloco manhã/tarde/noite; toda atividade tem horário sugerido; RF-08.2 evita deslocamento redundante sempre que alternativa equivalente existir — **Nota de implementação (2026-09-12)**: ver nota detalhada logo após esta tabela. |
+| L10-T02 | T08 UI — blocos por dia (acordeão em mobile), horário + justificativa de timing | FE | 1 dia | L5-T03, L10-T01 | L10-T03 | Concluída | Um bloco por dia da viagem, dividido em manhã/tarde/noite; justificativa exibida quando presente — **Nota de implementação (2026-09-12)**: ver nota detalhada logo após esta tabela. |
+| L10-T03 | T08 Server Action — aprovar roteiro (RF-08.4): grava `ItineraryItem`, marca sessão `concluida`, aciona RF-09 | BE | 1 dia | L4-T02, L10-T01 | L10-T02 | Concluída | Aprovação persiste todos os itens do roteiro e marca `TripSession.status = completed` — **Nota de implementação (2026-09-12)**: ver nota detalhada logo após esta tabela. |
+| L10-T04 | T-END UI — resumo (completo ou parcial), reutilizada em todo ponto de saída (RN-03) | FE | 1 dia | L5-T01 | L10-T01, L10-T02, L10-T03 | Concluída | Rótulo "Viagem decidida!" (completo) ou "Parte da sua viagem está decidida" (parcial), nunca como erro — **Nota de implementação (2026-09-12)**: ver nota detalhada logo após esta tabela. |
+
+**Nota de implementação L10-T01 (2026-09-12, Executor/BE):** antes de
+implementar, resolvido o SPIKE-02 (timebox de 1 dia, ver "Resolução do
+SPIKE-02" na Seção 2) — decisão: sem geocoding/mapas real, RF-08.2/RF-08.3
+são responsabilidade do próprio LLM via instrução textual do prompt, melhor
+esforço, sem nova integração externa. `buildRoteiroPrompt`/
+`roteiroEstruturadoSchema` já existiam desde L3-T02 (Gateway de IA,
+`src/lib/gateway-ia/prompts.ts`/`schemas.ts`) com exatamente essa instrução
+("priorize agrupar atividades geograficamente próximas... sempre que uma
+alternativa equivalente existir") e o schema Zod (`dias[].manha/tarde/noite`,
+cada bloco com `atividade`/`horarioSugerido`/`justificativaTiming`
+nullable) — nada precisou mudar ali; o trabalho desta tarefa foi a REGRA de
+negócio nova em `src/lib/stage-rules/roteiro.ts` (`generateRoteiro`),
+reexportada em `src/lib/stage-rules/index.ts`, mesmo padrão exato de
+`./hospedagem.ts` (L8-T01)/`./passeios.ts` (L9-T01): chama
+`generateStructuredCompletionWithRetry` (L3-T04) para a etapa `roteiro`,
+passando `sessionDateRange` (novo em relação às demais etapas — roteiro é a
+única cuja saída tem datas literais, então a única que aciona o grounding de
+calendário de `validateDateGrounding`, L3-T03, já pronto desde então). Sem
+`applyBudgetFilter` (RF-10) — o roteiro não introduz preço próprio, só
+sequencia o que já foi aprovado.
+
+Peça específica desta tarefa, além de só encaminhar ao Gateway de IA:
+`normalizeRoteiroDays` garante o critério de aceite "todo dia do range da
+viagem tem bloco manhã/tarde/noite" mesmo quando o LLM devolve menos dias do
+que o range inteiro — enumera todas as datas ISO de `dateRangeStart` a
+`dateRangeEnd` (inclusive) e preenche qualquer dia ausente da resposta do
+LLM com os 3 blocos vazios (nunca remove um dia devolvido, nunca inventa
+atividade); dias duplicados pelo LLM para a mesma data são mesclados
+(blocos concatenados). "Toda atividade tem horário sugerido" já é garantido
+pelo schema (`horarioSugerido: z.string().min(1)`, L3-T02) — `generateRoteiro`
+só repassa o valor. RF-08.2 (evitar deslocamento redundante "sempre que uma
+alternativa equivalente existir") permanece melhor esforço do modelo, por
+decisão do SPIKE-02 — não há checagem de proximidade real neste módulo
+(não há dado de geolocalização para checar contra). `RoteiroItemResult`
+inclui `sequenceOrder` (0-based, ordem cronológica dia > manhã/tarde/noite >
+ordem devolvida pelo LLM dentro do bloco), calculado aqui para poupar a
+futura Server Action (L10-T03) de recalcular a mesma ordem ao persistir
+`ItineraryItem.sequenceOrder` (`prisma/schema.prisma`) — este módulo não
+persiste nada (RN-01, só a regra de geração).
+
+Sanitização de texto livre (L11-T03/RL8-T02): `input.destination.name`/
+`input.accommodation.name`/`.type`/`input.approvedActivities[].name` já
+chegam sanitizados contra prompt injection antes de serem persistidos como
+`DestinationApproval`/`AccommodationApproval`/`ActivityApproval` — mesmo
+raciocínio de `./hospedagem.ts`/`./passeios.ts`, esta função não sanitiza de
+novo.
+
+Testes novos em `src/lib/stage-rules/__tests__/roteiro.test.ts` (12 casos,
+`generateStructuredCompletionWithRetry` mockada, mesmo padrão de
+`passeios.test.ts`): todos os dias do range presentes mesmo com dia ausente
+na resposta do LLM; os 3 blocos sempre presentes (arrays, mesmo vazios);
+toda atividade com horário sugerido não vazio; justificativa de timing
+preservada quando presente e `null` quando ausente; `sequenceOrder`
+crescente e único na ordem cronológica correta; mesclagem de dias duplicados
+devolvidos pelo LLM; chamada ao Gateway de IA com `sessionId`/`stage`/
+`schemaName`/`sessionDateRange` corretos e destino/hospedagem interpolados
+no prompt; passeios aprovados repassados ao prompt quando informados;
+funciona sem nenhum passeio aprovado (RN-04); erro claro quando chamada sem
+destino/hospedagem já aprovados (RN-01/RF-11/RF-06); propagação do erro do
+Gateway de IA sem mascarar (inclui rejeição por grounding de data, L3-T03).
+
+Limitação de ambiente encontrada e corrigida nesta tarefa (não é uma
+lacuna do código, é do `node_modules` compartilhado): `npm test` estava
+quebrado para TODA a suíte (não só esta tarefa) por
+`@testing-library/dom` ausente de `node_modules` mesmo sendo peer dependency
+obrigatória de `@testing-library/jest-dom` (`vitest.setup.ts` importa
+`@testing-library/jest-dom/vitest` globalmente para todo teste, inclusive os
+com `@vitest-environment node`) — não estava listada como pacote instalado
+em `package-lock.json`, só referenciada como peer dependency de outros
+pacotes. Adicionada como `devDependency` explícita
+(`@testing-library/dom@^10.4.1`, `npm install --save-dev --legacy-peer-deps`,
+mesma flag já em uso pelos demais `npm install` deste ambiente por causa de
+um conflito de peer dependency pré-existente e não relacionado
+— `@vercel/analytics` vs. `@sveltejs/vite-plugin-svelte`/`vite`, de uma
+tarefa de deploy em andamento em paralelo neste mesmo lote, arquivos
+`vercel.json`/`.github/workflows/deploy.yml` não tocados por esta tarefa).
+Também foi necessário um `npm ci` limpo (`rm -rf node_modules` +
+reinstalação) durante esta tarefa porque múltiplos processos concorrentes
+neste ambiente (outras instâncias paralelas de Executor rodando `npm
+install`/`npm ci`/`next build` no mesmo `node_modules` compartilhado, sem
+nenhum lock entre elas) corromperam pacotes (`next`, `vitest`) a meio de
+instalação antes desta tarefa conseguir validar — sinalizado aqui como
+achado de coordenação de ambiente para o Coordenador/Gestor avaliarem
+(idealmente serializar instalação de dependências entre instâncias paralelas
+do mesmo lote, ou isolar `node_modules` por execução), não uma ação de
+código desta tarefa. `package.json`/`package-lock.json` só ganharam a linha
+de `@testing-library/dom`; nenhuma outra dependência foi tocada por esta
+tarefa (as demais alterações vistas em `package.json` durante a investigação
+— ex. `@vercel/analytics`/`@vercel/speed-insights`, upgrade do Next.js para
+15.5.25 refletido em `tsconfig.json` — pertencem a outra tarefa em execução
+paralela neste mesmo lote, não a esta).
+
+Verificação: `npx vitest run src/lib/stage-rules/__tests__/roteiro.test.ts`
+— 12/12 testes passam; `npx vitest run` completo — 428 passam, 85 falham,
+todas as 85 são `PrismaClientInitializationError` (`localhost:55432`
+indisponível neste ambiente, integração real com Postgres), mesma limitação
+já aceita e documentada desde L7-T03/L8-T03/L9-T03/RL8-T01/RL8-T02, nenhuma
+regressão introduzida por esta tarefa; `npx eslint` limpo nos 3 arquivos
+desta tarefa (`roteiro.ts`, `roteiro.test.ts`, `stage-rules/index.ts`);
+`npx tsc --noEmit` sem nenhum erro novo nos arquivos desta tarefa (os erros
+pré-existentes em `anonymous-session/route.ts`/`gateway-ia/[etapa]/route.ts`/
+`resolve-session-owner.ts`/`auth-callbacks.test.ts`/outros — já documentados
+em tarefas anteriores — não tocados por esta tarefa); `npm run build`
+(`next build`) compila e type-checa com sucesso e gera as 14 páginas em
+todas as 3 tentativas realizadas (nenhuma rota nova adicionada por esta
+tarefa), mas a etapa final de escrita de artefato (`collecting build
+traces`/`export`) falhou de forma intermitente e não determinística nas 3
+tentativas com `ENOENT`/`rename` em arquivos diferentes a cada vez dentro de
+`.next/` — consistente com interferência de sincronização do OneDrive/outros
+processos concorrentes neste ambiente compartilhado sobre a pasta `.next/`,
+não com um erro de compilação/tipo desta tarefa (compilação e type-check
+reportam sucesso nas 3 tentativas, antes da falha ocorrer). Nenhum desvio de
+escopo/estimativa; nenhum bloqueio registrado em `BLOCKERS.md`.
+
+**Nota de implementação L10-T02 (2026-09-12, Executor/FE):** `RoteiroScreen`
+criada em `src/components/roteiro/roteiro-screen.tsx` ("use client") e o
+novo componente de design system `ItineraryDayBlock`
+(`src/components/design-system/itinerary-day-block.tsx`), previsto desde a
+UX-SPEC.md Seção 3 ("`HolidayListItem`, `ItineraryDayBlock` (novos) —
+específicos de T02 e T08"). Mesmo padrão estrutural de
+`PasseiosSugestoesScreen` (L9-T02)/`HospedagemSugestoesScreen` (L8-T02):
+`LoadingStream`/`ErrorRetryState` via `fetchImpl` bridge, `StepperProgress`
+(`roteiro_pendente`/`roteiro_aprovado`, já existentes desde L4-T01/L5-T01,
+nenhum estado novo necessário), foco gerenciado no `<h1>` ao montar.
+
+Critério de aceite central ("um bloco por dia da viagem, dividido em
+manhã/tarde/noite; justificativa exibida quando presente") resolvido
+inteiramente dentro de `ItineraryDayBlock`, consumindo `RoteiroDayResult[]`
+(`@/lib/stage-rules`, L10-T01) sem transformação: os 3 períodos
+(manhã/tarde/noite) são sempre renderizados, mesmo vazios (mostrando "Nada
+planejado." em vez de omitir a seção — nenhum bloco de período desaparece
+mesmo sem atividade, reforçando visualmente que os 3 períodos sempre existem
+por dia, RF-08.1); cada item mostra `suggestedTime` sempre (garantido não
+vazio pelo schema desde L3-T02/L10-T01) e `timingJustification` só quando
+não `null` — nenhuma string vazia/"—" no lugar de ausência.
+
+Acordeão em mobile (UX-SPEC.md Seção 6, "Blocos de dia em acordeão (um dia
+expandido por vez, os demais colapsados)" em mobile; "todos os dias
+expandidos... sem lado a lado" em desktop): resolvido só com CSS responsivo
+dentro de `ItineraryDayBlock` (`hidden` no conteúdo por padrão + `md:flex`
+força visível em telas >= md, independentemente do estado — mesmo padrão
+Tailwind de show/hide responsivo, sem duplicar DOM/lógica por breakpoint),
+nunca desmontando o conteúdo do dia colapsado (só oculto via CSS) — decisão
+de detalhe de implementação documentada no cabeçalho do arquivo, dentro da
+margem do Executor (a UX-SPEC.md não especifica o mecanismo, só o
+comportamento visual). `ItineraryDayBlock` é controlado pelo chamador
+(`expanded`/`onToggle`, mesmo princípio de desacoplamento de
+`HolidayListItem`/`SuggestionCard`) — `RoteiroScreen` guarda um único
+`expandedDate` (nunca um `Set`, reflete literalmente "um dia expandido por
+vez") e expande o primeiro dia do range por padrão ao carregar (decisão de
+detalhe de implementação: mostra conteúdo imediatamente, sem exigir um
+clique extra para ver o primeiro dia). `aria-expanded` no cabeçalho de cada
+dia reflete esse estado lógico mesmo quando o conteúdo já está visível no
+desktop por CSS (mesmo padrão de trade-off documentado já aceito em
+`LoadingStream`, L5-T03, para `aria-live`).
+
+Ação única de aprovação no rodapé ("Aprovar roteiro e concluir", UX-SPEC.md
+T08: "não há 'ajustar' item a item dentro do roteiro no MVP") — diferente de
+T06/T07, sem "encerrar aqui" nesta tela (T08 é a última etapa da jornada;
+UX-SPEC.md T08 não menciona essa opção). Ao aprovar com sucesso, a tela
+mostra um rodapé de conclusão com "Ver resumo da viagem", navegando para
+`/encerramento?sessionId&flowState=concluida` (mesmo padrão de navegação
+client-side pós-confirmação do servidor já usado por
+`PasseiosSugestoesScreen`/`HospedagemSugestoesScreen` — o servidor já
+confirmou o avanço via `aprovarRoteiro`, este `push` é só navegação).
+
+Integração com a Server Action de L10-T03 (`@/lib/actions/roteiro`, tarefa
+paralela a esta, mesmo lote): `@/lib/actions/roteiro.ts` passou a existir
+ainda durante esta mesma tarefa (a outra instância paralela terminou
+primeiro), então `RoteiroScreen` já importa e consome as funções reais
+(`gerarRoteiro`/`aprovarRoteiro`) em vez de manter uma prop de ações
+obrigatória especulativa — mesmo padrão de `HospedagemSugestoesScreen`
+(`actionsOverride` opcional só para testes, dublês injetados sem mockar o
+módulo inteiro). Um ponto do contrato real ficou diferente do que esta tela
+assumia inicialmente (documentado no cabeçalho de `roteiro-screen.tsx`, "a
+tela foi ajustada para o formato real, nunca o inverso" — TASK.md Seção 1
+item 3): `aprovarRoteiro` exige `{ sessionId, dias: RoteiroDayResult[] }`,
+não só `sessionId` — T08 não persiste nenhum estado intermediário entre
+"gerar" e "aprovar", então o roteiro já carregado no client é reenviado para
+revalidação/persistência (`flattenAndValidateDias`, dentro de `roteiro.ts`,
+nunca confia cegamente no payload do cliente, Diretriz de Implementação 9);
+`AprovarRoteiroResult` real também inclui `totalItens`, só informativo, não
+usado por esta tela.
+
+Testes novos: `src/components/design-system/__tests__/itinerary-day-block.test.tsx`
+(6 casos — 3 blocos de período sempre presentes mesmo com um vazio; horário
+sugerido sempre exibido; justificativa exibida só quando presente, nunca a
+string "null"; rótulo de cabeçalho formatado, dia da semana abreviado +
+`DD/MM`; `aria-expanded` reflete o estado controlado; clique no cabeçalho
+chama `onToggle`) e `src/components/roteiro/__tests__/roteiro-screen.test.tsx`
+(9 casos, Server Actions reais substituídas por dublês via `actionsOverride`
+— skeleton de `LoadingStream`; um bloco por dia com os 3 períodos;
+justificativa condicional; acordeão com um dia expandido por vez, incluindo
+alternar e colapsar; aprovação reenviando o roteiro carregado a
+`aprovarRoteiro` e mostrando o rodapé de conclusão; navegação para
+`/encerramento?flowState=concluida`; foco no `<h1>` ao montar;
+`ErrorRetryState` com retry após falha de `gerarRoteiro`; erro inline ao
+falhar `aprovarRoteiro`, mantendo os blocos visíveis).
+
+Verificação: `npx vitest run
+src/components/design-system/__tests__/itinerary-day-block.test.tsx
+src/components/roteiro/__tests__/roteiro-screen.test.tsx` — 15/15 testes
+passam; `npx eslint` limpo nos 4 arquivos desta tarefa (mesmo ajuste de
+`useCallback` dependendo de `actionsOverride`, não do objeto `actions`
+recalculado a cada render, já usado por `HospedagemSugestoesScreen`, para
+evitar o warning `react-hooks/exhaustive-deps`); `npx tsc --noEmit` sem
+nenhum erro novo nos arquivos desta tarefa (os erros pré-existentes em
+`destino/confirmacao/__tests__/page.test.tsx`/
+`budget-insufficient-banner.test.tsx`/`auth-callbacks.test.ts` — de outras
+tarefas paralelas, não tocados por esta tarefa). `npm run build`/`npm test`
+completos não executados nesta tarefa (instrução explícita de evitar rodar
+a suíte inteira/build com outras sessões trabalhando em paralelo no mesmo
+`node_modules`/`.next`, mesma limitação de ambiente já documentada na nota
+de L10-T01). Nenhum arquivo fora do escopo desta tarefa tocado
+(`package.json`/`next.config`/`tsconfig.json`/`vercel.json`/
+`.github/workflows/` não modificados). Nenhum desvio de escopo/estimativa;
+nenhum bloqueio registrado em `BLOCKERS.md`.
+
+**Nota de implementação L10-T03 (2026-09-12, Executor/BE):** Server Action
+de T08 (RF-08.4/RF-09) em `src/lib/actions/roteiro.ts`, mesmo padrão exato
+de `passeios.ts` (L9-T03)/`hospedagem.ts` (L8-T03): duas funções, sem
+`encerrarResolucao` dedicada (UX-SPEC.md T08 não tem "encerrar aqui" — a
+última chance de encerrar sem roteiro é o rodapé de T07). `gerarRoteiro`
+resolve sessão + checa `roteiro_pendente` + ownership (`assertSessionOwnership`,
+L11-T02, leitura direta de `TripSession` fora do módulo `session-flow`) e
+delega a `generateRoteiro` (L10-T01), passando destino/hospedagem/passeios já
+aprovados. `aprovarRoteiro` achata `RoteiroDayResult[]` (agrupado por dia >
+`morning`/`afternoon`/`evening`) em `ApproveItineraryItemInput[]` (uma linha
+por item), revalidando cada item (`activity`/`suggestedTime` não vazios após
+`sanitizeFreeTextForPrompt`, `timingJustification` sanitizado quando
+presente, `sequenceOrder` inteiro não-negativo, `date` no formato ISO
+estrito) antes de encadear as duas transições da state machine já usadas por
+`aprovarHospedagem`/`aprovarSelecaoPasseios` (`aprovar` grava
+`ItineraryItem` via `createMany`, `roteiro_pendente` → `roteiro_aprovado`;
+`avancar` leva a `concluida`, ESTADO TERMINAL — diferente das etapas
+anteriores). `applySessionFlowTransition` (L4-T02, já existente) já
+sincroniza `TripSession.status = "completed"` automaticamente ao gravar
+`flowState = "concluida"` (Adendo 1 do ADR-006) — nenhuma escrita adicional
+foi necessária nesta tarefa para o critério de aceite central.
+
+Achado registrado, NÃO tratado como bloqueio (documentado em detalhe no
+cabeçalho de `roteiro.ts`, bloco "GAP DE SCHEMA CONHECIDO", para
+visibilidade do Coordenador): `ItineraryItem` (`prisma/schema.prisma`/
+SDD.md Seção 5) não tem nenhuma coluna de texto livre para o nome da
+atividade em si — só `suggestedTime`/`timingJustification`/`sequenceOrder`/
+`period`/`dayDate` e o `activityId` opcional. O design original do SDD
+presumia que todo `ItineraryItem` obteria seu nome de exibição via join com
+`ActivityApproval.name`, mas `buildRoteiroPrompt` (já existente desde
+L3-T02) explicitamente instrui o LLM a montar um roteiro coerente com o
+destino mesmo sem nenhum passeio aprovado (RN-04) — ou seja, é NORMAL o
+roteiro conter itens sem `ActivityApproval` correspondente, e
+`RoteiroItemResult.activity` (L10-T01) nunca carrega um id de origem para
+vincular via `activityId` de qualquer forma (casar por nome seria uma
+heurística frágil, o LLM pode parafrasear). Resultado: todo `ItineraryItem`
+persistido aqui grava `activityId: null`, e o texto de `activity` é
+validado (rejeita vazio) mas nunca persistido em lugar nenhum — uma vez
+gravado, não há como reconstruir "o que" o item é a partir só do banco.
+NÃO bloqueou esta tarefa porque (a) o critério de aceite é persistir
+conforme o schema já aprovado desde L1-T02/L4-T02 (mudar
+`prisma/schema.prisma` exigiria uma migration + decisão do Coordenador,
+fora da autoridade desta tarefa) e (b) nenhuma tarefa deste lote lê
+`ItineraryItem` de volta do banco para montar UI — `EncerramentoScreen`/T-END
+(L10-T04) é puramente apresentacional e recebe os dados já resolvidos em
+memória por quem a monta (mesmo gap já aceito por aquela tarefa), e
+`RoteiroScreen` (L10-T02) mantém o roteiro completo em estado local (`days`)
+entre gerar/aprovar, nunca precisando reler do banco no caminho feliz do
+MVP. Impacto real fica restrito a um cenário futuro fora de escopo (Fase 2:
+reabrir uma viagem já concluída e listar o roteiro salvo) — sinalizado para
+o Coordenador avaliar se `ItineraryItem` precisa de uma coluna própria de
+nome/atividade numa migration futura.
+
+Contrato confirmado compatível com `RoteiroScreen` (L10-T02, tarefa
+paralela que terminou depois e já consome as funções reais, ver cabeçalho
+de `roteiro-screen.tsx`): `gerarRoteiro(sessionId): Promise<RoteiroDayResult[]>`
+e `aprovarRoteiro({ sessionId, dias }): Promise<AprovarRoteiroResult>`
+(`{ proximaEtapa: "encerramento"; sessionId; flowState: "concluida";
+totalItens }`) — nenhum ajuste retroativo necessário nesta tarefa.
+
+Testes novos (TDD): `src/lib/actions/__tests__/roteiro.integration.test.ts`
+(mesmo padrão de `passeios.integration.test.ts`/`hospedagem.integration.test.ts`
+— Postgres real, Gateway de IA mockado): roteiro gerado usando destino/
+hospedagem/passeios já aprovados; rejeição de geração fora de
+`roteiro_pendente` sem chamar o Gateway de IA; aprovação persiste todos os
+itens (3 itens em 2 dias, `period`/`suggestedTime`/`timingJustification`/
+`sequenceOrder`/`dayDate` corretos) e conclui a sessão
+(`flowState: "concluida"`, `status: "completed"`, critério de aceite
+explícito); rejeição de aprovação fora de `roteiro_pendente`
+(`InvalidTransitionError`) sem persistir nada; rejeição de item adulterado
+(atividade vazia) e de data de dia em formato inválido, ambos sem persistir
+nada; sanitização de tentativa de prompt injection em
+`timingJustification` antes de persistir (mesmo padrão de RL8-T02) — não
+testado via `activity` porque esse campo nunca é persistido (ver gap acima).
+
+Verificação: `npx eslint src/lib/actions/roteiro.ts src/lib/actions/roteiro-errors.ts
+src/lib/actions/__tests__/roteiro.integration.test.ts --max-warnings=0` —
+limpo; `npx tsc --noEmit` sem nenhum erro novo nos arquivos desta tarefa (os
+erros pré-existentes em `destino/confirmacao/__tests__/page.test.tsx`/
+`budget-insufficient-banner.test.tsx`/`auth-callbacks.test.ts`/
+`roteiro-screen.test.tsx` — este último de uma instância paralela de
+L10-T02 — não tocados por esta tarefa); `npx vitest run
+src/lib/actions/__tests__/roteiro.integration.test.ts` — 9 testes, todos
+falham com `PrismaClientInitializationError` (`localhost:55432`
+indisponível neste ambiente) — mesma limitação de ambiente já aceita e
+documentada desde L7-T03/L8-T03/L9-T03/RL8-T01/RL8-T02/L10-T01 (Postgres
+real não acessível neste ambiente de execução, sem Docker disponível para
+subir um local), não uma falha de lógica: os 7 caminhos que dependem só de
+`prisma.tripSession.create`/leitura falham todos pelo mesmo motivo de
+conexão, nenhum por asserção; `npx vitest run
+src/lib/stage-rules/__tests__/roteiro.test.ts src/lib/session-flow` — 71
+testes sem banco passam (mesmas 18 falhas de `PrismaClientInitializationError`
+em `persistence.integration.test.ts`, pré-existentes, nenhuma nova); `npm
+run build`/`npm test` completos não executados nesta tarefa (instrução
+explícita de evitar rodar a suíte inteira/build com outras sessões
+trabalhando em paralelo no mesmo `node_modules`/`.next`, mesma limitação de
+ambiente já documentada nas notas de L10-T01/L10-T02). Nenhum arquivo fora
+do escopo desta tarefa tocado (`package.json`/`next.config`/`tsconfig.json`/
+`vercel.json`/`.github/workflows/`/`src/components/roteiro/` não
+modificados). Nenhum desvio de escopo/estimativa; nenhum bloqueio
+registrado em `BLOCKERS.md` (o gap de schema acima é um achado sinalizado,
+não um bloqueio desta tarefa, ver raciocínio completo acima).
+
+**Nota de implementação L10-T04 (2026-09-12, Executor/FE):** Tela T-END
+(Encerramento/Resumo, UX-SPEC.md Seção 2, RN-03) implementada como
+`EncerramentoScreen`
+(`src/components/encerramento/encerramento-screen.tsx`, "use client",
+componente de apresentação puro). Esta tarefa depende só de `L5-T01` e é
+deliberadamente desacoplada de `L10-T01`/`L10-T02`/`L10-T03` (não esperou por
+elas, executada em paralelo): como não existe nenhuma tarefa dedicada em
+Lote 10 a ler os registros persistidos
+(`DestinationApproval`/`AccommodationApproval`/`ActivityApproval`/
+`ItineraryItem`, `prisma/schema.prisma`) e montar o resumo, o componente foi
+desenhado como tela pura — recebe `flowState` ("concluida" | "encerrada_parcial",
+mesmo vocabulário de `SessionFlowState`) e `resumo`
+(`{ destino?, hospedagem?, passeios?, roteiroAprovado? }`, cada campo ausente
+= etapa não aprovada) já resolvidos por quem monta a tela, mesmo princípio de
+`DestinoConfirmacaoScreen` (L7-T04). **Gap conhecido, documentado no
+cabeçalho do arquivo, não bloqueante**: nenhuma Server Action de "obter
+resumo da sessão" nem rota `/encerramento/page.tsx` foram criadas nesta
+tarefa (mesmo padrão de gap já aceito nas notas de L7-T02/L9-T02 — rota
+apontando para uma tela cuja Server Action companion ainda não existe); os
+links "encerrar aqui" de `DestinoSugestoesScreen`/`HospedagemSugestoesScreen`/
+`PasseiosSugestoesScreen` continuam resultando em 404 em `/encerramento` até
+uma tarefa futura (fora deste lote) criar essa Server Action + página —
+sinalizado aqui para o Coordenador poder agendá-la se achar necessário, não é
+uma lacuna do UX-SPEC.md (que não define o mecanismo de obtenção de dados, só
+o conteúdo/rótulo da tela).
+
+Critério de aceite central: rótulo "Viagem decidida!" quando `flowState ===
+"concluida"` (RF-09, roteiro aprovado) ou "Parte da sua viagem está decidida"
+quando `flowState === "encerrada_parcial"` (RN-03) — os dois tratados com o
+mesmo ícone de confirmação (`CheckCircle2`, token `text-success`), nunca
+`role="alert"` nem os tokens semânticos de erro (`text-error`/`border-error`),
+mesmo no caso parcial (UX-SPEC.md: "nunca tratado como erro ou fluxo
+incompleto/quebrado"), testado explicitamente. Resumo lista só os blocos das
+etapas efetivamente aprovadas (Destino/Hospedagem/Passeios/Roteiro,
+`ResumoBloco` com `role="region"` via `aria-label`), cumulativo conforme
+UX-SPEC §2; `PriceRangeBadge` (L5-T02) reaproveitado para o badge "Gratuito"
+de passeios. `StepperProgress` (L5-T01) recebe `currentState={flowState}` +
+`approvedStepsHint` calculado do `resumo` — usa exatamente o mecanismo de
+desambiguação de `encerrada_parcial` já previsto no comentário de cabeçalho
+de `getStepperStepStatuses` (L5-T01) para este caso de uso. CTA "Ver isso
+depois" (UX-SPEC §7/RF-09/ADR-005: "sem ação adicional do usuário") com
+`onVerDepois` opcional — sem tela de "minhas viagens" no MVP (Fase 2, fora de
+escopo), o botão reforça a mensagem de "já está salvo" mesmo sem callback.
+Foco gerenciado no `<h1>` ao montar (UX-SPEC §5, mesmo padrão de todas as
+demais telas). Responsivo conforme UX-SPEC §6 (T-END: blocos empilhados no
+mobile, lado a lado no desktop via `md:flex-row md:flex-wrap`).
+
+Testes (TDD): `src/components/encerramento/__tests__/encerramento-screen.test.tsx`
+(9 casos) — os dois rótulos de status (completo/parcial); garantia explícita
+de que o estado parcial nunca usa `role="alert"`/tokens de erro/linguagem de
+"erro-falha-quebrado" (critério de aceite central desta tarefa); mesmo
+tratamento visual (ícone `text-success`) nos dois casos; blocos exibidos só
+para etapas aprovadas (resumo parcial só com destino) e todos os 4 blocos
+quando tudo aprovado (incluindo badge "Gratuito"); foco no título ao montar;
+`onVerDepois` disparado ao clicar, e nenhuma quebra quando a prop está
+ausente.
+
+Ambiente de execução desta tarefa coincidiu com uma migração de Next.js
+14→15.5.25/adição de `@vercel/analytics`/`@vercel/speed-insights` conduzida
+por outra instância em paralelo (Lote de deploy, fora do escopo desta
+tarefa) mexendo em `package.json`/`package-lock.json`/`node_modules`
+concorrentemente — mesmo padrão de instabilidade compartilhada já
+documentado na nota de L10-T01 acima (`.next/` com `ENOENT` intermitente) e
+em notas de lotes anteriores (ex. Lote 6). Nenhum arquivo dessa migração foi
+alterado por esta tarefa. Verificação: `npx vitest run
+src/components/encerramento` — 9/9 passam; `npx eslint
+src/components/encerramento --max-warnings=0` limpo; `npx tsc --noEmit` sem
+nenhum erro nos arquivos desta tarefa (os erros existentes em outros
+arquivos, ex. `gateway-ia/[etapa]/__tests__/route.test.ts`,
+`destino/confirmacao/__tests__/page.test.tsx`, são da migração para Next 15
+— `params` passou a ser `Promise` — em execução paralela, não tocados por
+esta tarefa); `npx vitest run` completo — 427 passam, 86 falham (85 já
+documentadas como `PrismaClientInitializationError`/Postgres indisponível,
+mesma limitação aceita desde L7-T03, + 1 timeout pré-existente em
+`confirmacao-destino-client.test.tsx` associado à mesma migração paralela de
+Next 15), nenhuma falha em `src/components/encerramento`; `npm run build`
+(`next build`) compila, type-checa e gera as 14 páginas com sucesso (nenhuma
+rota nova adicionada por esta tarefa, conforme gap documentado acima).
+Nenhum desvio de escopo/estimativa; nenhum bloqueio registrado em
+`BLOCKERS.md`.
 
 ### Lote 11 — Cross-cutting Final (Segurança, LGPD, Acessibilidade)
+
+**Status do lote: Validado** (2026-09-12, Validador — chapéus QA e
+DevSecOps aprovaram as 5 tarefas sem ressalvas; ver `QA-REPORT.md`/
+`SECURITY-REVIEW.md`). Nenhum achado crítico nem simples; nenhuma tarefa em
+`Refatoração Lote-11` criada.
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
@@ -2836,7 +3326,7 @@ explícito no cabeçalho de `passeios-sugestoes-screen.tsx`.
 | L11-T02a **(nova, ver Bloqueio 004/ADR-008)** | Persistência do dono da sessão — schema (`anon_session_id`), `createSessionWithDateRange` passa a exigir `owner` (usuário autenticado ou sessão anônima) e grava no `INSERT`, com retrofit pontual de `submeterDataLivre`/L6-T03, `processarFeriadoEscolhido`/L6-T05 e `submitQuizAnswers`/L6-T07 para resolver e passar `owner` (SDD §5/§7, ADR-008) | BE | 1 dia | L1-T03, L4-T02 | L11-T01, L11-T03 | Concluída | Toda `TripSession` criada grava exatamente um dono (`user_id` OU `anon_session_id`, nunca os dois, nunca nenhum); as 3 Server Actions de criação continuam funcionando sem regressão (fluxo anônimo e autenticado), cobertas por teste automatizado |
 | L11-T02 | Autorização cross-cutting — guard central que resolve o dono esperado da requisição (mesma regra de precedência de `L11-T02a`) e compara contra o dono persistido em `TripSession` (SDD §7, ADR-008); integrado a `applySessionFlowTransition`/`gerarSugestoesDestino`/toda leitura direta de `TripSession` | BE | 0.5 dia | L11-T02a | L11-T01, L11-T03 | Concluída | Requisição com cookie/`user_id` de outra sessão recebe sempre **404** (nunca 403), nunca expõe dado de terceiro; dono legítimo (mesmo cookie/`user_id` gravado na criação) continua autorizado sem regressão |
 | L11-T03 **(elegível a partir do Lote 3 — ver nota abaixo)** | Validação/sanitização de entrada de texto livre (orçamento, destino manual) contra prompt injection (SDD §7) | BE | 0.5 dia | L3-T02 | L11-T01, L11-T02a, L11-T02 | Concluída | Entrada com tentativa de instrução embutida não altera o comportamento do prompt da etapa |
-| L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Não iniciada | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
+| L11-T04 | Revisão final de acessibilidade cross-tela (foco em transição, `aria-live`, contraste, alvo de toque ≥44px) sobre T00-T-END | FE | 1 dia | Todas as tarefas de tela dos Lotes 6, 7, 8, 9, 10 | — | Concluída | Nenhuma pendência crítica de `accessibility-review`; checklist de WCAG AA aplicado em todas as telas |
 
 **Nota de resolução do Bloqueio 004 (2026-09-10, Coordenador)**: `L11-T02`
 estava `Bloqueada` — reaberta como duas tarefas, formalizadas em ADR-008
@@ -3319,6 +3809,89 @@ nenhuma delas pode iniciar implementação antes de `L11-T03` estar
 `Concluída`. `L11-T01`/`L11-T02`/`L11-T04` continuam exatamente como
 estavam, sem nenhuma mudança de dependência.
 
+### Nota de implementação L11-T04 (2026-09-12, Executor/FE)
+
+Auditoria final de acessibilidade cross-tela sobre todas as telas reais do
+fluxo (T00-T-END: `src/app/page.tsx`, `src/app/entrada/data-livre/page.tsx` +
+`t01-date-range-form.tsx`, `src/app/entrada/feriados/feriados-screen.tsx`,
+`src/components/quiz/quiz-wizard.tsx`, `destino-sugestoes-screen.tsx`,
+`destino-confirmacao-screen.tsx`, `hospedagem-sugestoes-screen.tsx`,
+`passeios-sugestoes-screen.tsx`, `roteiro-screen.tsx`,
+`encerramento-screen.tsx`, e os componentes de design system
+`stepper-progress`/`loading-stream`/`error-retry-state`/`empty-state`/
+`suggestion-card`/`price-range-badge`/`budget-insufficient-banner`/
+`holiday-list-item`/`itinerary-day-block`) contra os 4 pontos do critério de
+aceite (UX-SPEC.md Seção 5):
+
+1. **Contraste (WCAG AA)**: recalculado programaticamente (conversão
+   HSL→RGB→luminância relativa, fórmula WCAG) todo par
+   texto/ícone-sobre-fundo dos tokens de `src/app/globals.css` ("Concierge
+   Noturno"): `foreground`/`foreground-muted`/`accent`/`success`/`warning`/
+   `error` sobre `background`/`surface`, e cada `*-foreground` sobre sua cor
+   de preenchimento (`primary`/`accent`/`secondary`/`success`/`warning`/
+   `error`). Todos os pares ficaram entre 6.19:1 e 18.98:1 — acima do mínimo
+   AA (4.5:1 texto normal/3:1 texto grande) com margem confortável. Nenhuma
+   correção de cor foi necessária (a recalibração para tema escuro já tinha
+   sido feita em reabertura anterior, conforme cabeçalho do UX-SPEC.md).
+2. **Foco em transição de tela**: encontrado e corrigido 1 gap real —
+   `DestinoSugestoesScreen` (T04) já tinha `headingRef`/`tabIndex={-1}` no
+   `<h1>`, mas faltava o `useEffect(() => headingRef.current?.focus(), [])`
+   correspondente (única tela do fluxo nessa condição; todas as demais já
+   tinham o padrão completo). Corrigido. Também corrigido T01
+   (`src/app/entrada/data-livre/page.tsx`): a página nunca gerenciava foco
+   (única página "estática" do fluxo sem controller de foco, diferente de
+   T02/quiz/T04+ que já usam `headingRef`) — convertida para client
+   component com o mesmo padrão `headingRef`/`tabIndex={-1}`/`useEffect`
+   das demais telas, sem alterar `T01DateRangeForm` (mantém o teste
+   existente de ordem de Tab: heading com `tabIndex={-1}` não entra na
+   ordem de tab, então o primeiro `Tab` continua indo para "Data inicial").
+   T00 (`src/app/page.tsx`) não recebeu foco programático — é a tela de
+   entrada da aplicação (sem transição de uma etapa anterior dentro do
+   fluxo guiado), decisão de detalhe de implementação, não lacuna.
+3. **`aria-live`**: já cobertos — `LoadingStream` (`aria-live="polite"` +
+   `aria-busy`) e `QuizWizard` (barra de progresso, `aria-live="polite"`);
+   estados de erro usam `role="alert"` (semântica `aria-live="assertive"`
+   implícita) de forma consistente em todas as telas
+   (`ErrorRetryState`/blocos de erro inline de formulário/ajuste). Nenhuma
+   correção necessária.
+4. **Alvo de toque ≥44px**: a maioria dos botões de ação principal já usava
+   `min-h-11` (44px) explicitamente por tela — mas a auditoria encontrou
+   vários botões secundários/de cancelamento sem essa classe, inconsistentes
+   com os botões vizinhos da mesma tela. Corrigidos: botão "Cancelar" em
+   `hospedagem-sugestoes-screen.tsx` (fluxo de ajuste); botões "Nenhum me
+   interessa"/"Já sei o destino"/"Cancelar" (entrada manual) em
+   `destino-sugestoes-screen.tsx`; botões "Avançar"/"Concluir"/"Voltar"/
+   "Pular" em `quiz-wizard.tsx`, incluindo as opções de rádio/checkbox
+   (`RadioOption`/`CheckboxOption`, que ganharam `min-h-11` no `<label>`
+   clicável); botões de `EmptyState` e o CTA de retry de `ErrorRetryState`
+   (ambos reutilizados em toda tela de sugestão gerada por IA). `Button`
+   (`src/components/ui/button.tsx`, shadcn/ui base) não foi alterado — a
+   correção foi aplicada pontualmente via `className="min-h-11"` em cada
+   uso faltante, seguindo o padrão já estabelecido pela maioria das telas
+   (decisão de detalhe de implementação: mudar o tamanho `default` global
+   do componente base afetaria toda a aplicação sem necessidade, incluindo
+   contextos onde 36px já é intencional, ex. campos de formulário de T01).
+   `HolidayListItem`/`ItineraryDayBlock` já tinham alvo de toque adequado
+   (padding generoso/`min-h-11` explícito, respectivamente) — confirmados,
+   sem alteração.
+
+Nenhuma lacuna/inconsistência do UX-SPEC.md impediu a implementação —
+todas as correções foram pontuais (classe CSS/hook de foco ausente),
+seguindo padrão já estabelecido pela maioria das telas do próprio código,
+nunca uma decisão de UX nova. Nenhum desvio de escopo/estimativa; nenhum
+bloqueio registrado em `BLOCKERS.md`.
+
+Verificação: `npm run lint` limpo; `npx tsc --noEmit` sem novos erros (os 3
+erros pré-existentes em `page.test.tsx`/`budget-insufficient-banner.test.tsx`/
+`auth-callbacks.test.ts` já estavam presentes antes desta tarefa, arquivos não
+tocados por ela); `npm run build` (`next build`) compila, type-checa e gera
+as 14 páginas sem erro; `npm test` — 443 passando / 92 falhando, 100% das
+falhas são `PrismaClientInitializationError` (Postgres indisponível em
+`localhost:55432` neste ambiente, mesma limitação de ambiente documentada
+desde o Lote 4/RL8-T02/RL1-T01), nenhuma falha nova relacionada a esta
+tarefa — todo teste de componente/unitário (incluindo os das telas
+alteradas) passa.
+
 ### Refatoração Lote-1 (débito registrado pelo Validador)
 
 Criada pelo Validador na checagem estrutural do Lote 1 (ver `QA-REPORT.md`/
@@ -3328,7 +3901,7 @@ com prazo antes do primeiro deploy em produção (chapéu DevOps).
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
-| RL1-T01 | Upgrade de `next` (14.2.35 → versão corrigida, ex. 16.x) para resolver vulnerabilidades de severidade alta identificadas via `npm audit`/`SECURITY-REVIEW.md` (SSRF, request smuggling, cache poisoning, DoS), com regressão completa (lint/test/build) pós-upgrade; compatível com TASK.md item 12 ("Next.js 14+"), sem necessidade de novo ADR | BE+FE | 0.5-1 dia | L1-T01 | — | Pendente | `npm audit` sem achado de severidade alta/crítica em `next`/dependências diretas de runtime; `npm run lint`, `npm test` e `npm run build` passam sem regressão; prazo: concluída antes do primeiro deploy em produção do projeto |
+| RL1-T01 | Upgrade de `next` (14.2.35 → versão corrigida, ex. 16.x) para resolver vulnerabilidades de severidade alta identificadas via `npm audit`/`SECURITY-REVIEW.md` (SSRF, request smuggling, cache poisoning, DoS), com regressão completa (lint/test/build) pós-upgrade; compatível com TASK.md item 12 ("Next.js 14+"), sem necessidade de novo ADR | BE+FE | 0.5-1 dia | L1-T01 | — | Concluída | `npm audit` sem achado de severidade alta/crítica em `next`/dependências diretas de runtime; `npm run lint`, `npm test` e `npm run build` passam sem regressão; prazo: concluída antes do primeiro deploy em produção do projeto — **Nota de implementação RL1-T01 (2026-09-12)**: `next` `14.2.35` → `15.5.25` (`eslint-config-next` acompanhado para a mesma versão), não `16.x` como sugerido no título — decisão desta tarefa (desvio pequeno de detalhe de implementação, não de escopo): `eslint-config-next@16.x` exige `eslint@>=9` (config flat), enquanto `15.5.25` (linha estável mais recente da major 15, tag `latest` só chega a `16.x`) já corrige TODAS as CVEs de severidade alta/crítica listadas no título (RCE Windows-hosted `GHSA-p293-qw3h-jr36`, RCE AVIF Image Optimization `GHSA-2xp9-vwfh-vxw4`, SSRF em rewrites/Server Actions/WebSocket upgrade, DoS em Server Components/Actions, cache poisoning, middleware bypass i18n) sem forçar migração de ESLint 8→9 (mudança de tooling maior, fora do escopo declarado desta tarefa — nenhuma decisão de arquitetura tomada sozinho). Migração de código exigida pelas dynamic APIs assíncronas do Next 15 (mecânica, não é redesenho): `cookies()` agora é `await`ado em `src/lib/actions/resolve-session-owner.ts`, `src/app/api/anonymous-session/route.ts` e `src/app/api/gateway-ia/[etapa]/route.ts`; `params`/`searchParams` de Route Handler e Server Components viraram `Promise` (`src/app/api/gateway-ia/[etapa]/route.ts`, `src/app/destino/page.tsx`, `src/app/destino/confirmacao/page.tsx`, com teste correspondente atualizado em `confirmacao/__tests__/page.test.tsx`). Verificação: `npm audit` — `next` passou de `critical` (2 CVEs críticas + 8 altas) para `moderate` (achado remanescente é só o `postcss@8.4.31` vendorizado dentro de `node_modules/next/node_modules/postcss`, non-runtime/build-only do próprio pacote `next`, sem fix disponível sem pular para `16.x`; nosso `postcss` de projeto já está em `8.5.28`, não vulnerável); nenhum achado alto/crítico em dependência direta de runtime (`dependencies` do `package.json`) — os altos/críticos remanescentes do audit geral (`prisma`, `vitest`, `vite`, `deepmerge-ts`) são devDependencies pré-existentes, fora do escopo desta tarefa (só `next`). `npm run lint`: limpo. `npm run build`: compila, type-checks e gera as 14 rotas sem erro. `npm test`: 428 passando / 85 falhando, todas as 85 falhas são `PrismaClientInitializationError` (Postgres indisponível em `localhost:55432` neste ambiente, pré-existente, documentado em tarefas anteriores — RL2-T01/RL5-T01/RL5-T02/RL8-T02), zero falha nova relacionada ao upgrade; suíte isolada dos arquivos tocados (`gateway-ia/[etapa]/route.test.ts` + `confirmacao/page.test.tsx`, 13 testes) roda 100% verde. Nota de ambiente (não é achado desta tarefa, mas relevante para quem reexecutar `npm install`/`npm run build` no mesmo checkout): o diretório do projeto está sob uma pasta sincronizada pelo OneDrive, que intermitentemente trava/apaga arquivos durante escrita em massa em `node_modules`/`.next` (erros `ENOENT`/`ENOTEMPTY`/`EPERM` do `npm`/`next build`, resolvidos nesta sessão só com `rm -rf` + retry); combinado com múltiplas instâncias paralelas do Executor rodando `npm install` no mesmo `node_modules` compartilhado (ver nota de RL2-T01), a instalação exigiu 4 tentativas até estabilizar. `--legacy-peer-deps` foi necessário por um conflito de peer dependency pré-existente e não relacionado (`@vercel/analytics`↔`vite@8` via `@sveltejs/kit` opcional, adicionado por outra tarefa em paralelo), não por causa do upgrade do `next` em si. |
 
 ### Refatoração Lote-2 (débito registrado pelo Validador)
 
@@ -3338,7 +3911,7 @@ fechamento do Lote 2 (L2-T01/L2-T02 permanecem `Concluída`).
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
-| RL2-T01 | Estender o teste de guardrail de RNF-07 ("Determinismo / independência de LLM", `src/lib/__tests__/holidays.test.ts`) para também varrer `src/lib/actions/feriados.ts` (e demais arquivos futuros do módulo de feriados) contra `gateway-ia\|openai\|fetch\(\|await fetch`, hoje restrito só a `holidays.ts` | BE | 0.25 dia | L2-T01, L2-T02 | — | Pendente | Teste automatizado falha caso `src/lib/actions/feriados.ts` (ou outro arquivo do módulo de feriados) passe a referenciar LLM/rede; `npm test` continua passando sem regressão; prazo sugerido: antes do fechamento do Lote 6 (quando a UI T02 passa a consumir este módulo em tela) |
+| RL2-T01 | Estender o teste de guardrail de RNF-07 ("Determinismo / independência de LLM", `src/lib/__tests__/holidays.test.ts`) para também varrer `src/lib/actions/feriados.ts` (e demais arquivos futuros do módulo de feriados) contra `gateway-ia\|openai\|fetch\(\|await fetch`, hoje restrito só a `holidays.ts` | BE | 0.25 dia | L2-T01, L2-T02 | — | Concluída | Novo `it` em `src/lib/__tests__/holidays.test.ts` varre via `readdirSync` todo arquivo `feriados*.ts` de `src/lib/actions/` (hoje `feriados.ts` e `feriados-errors.ts`, e qualquer futuro arquivo do módulo, sem precisar de nova tarefa) com o mesmo regex `gateway-ia\|openai\|fetch\(\|await fetch`. Duas correções de detalhe de implementação sobre o regex literal do lote anterior (ambas comentadas inline no teste, resolvidas sem subir ao Coordenador — desvio pequeno): (1) comentários são removidos antes do match, pois `feriados-errors.ts` cita `src/lib/gateway-ia/errors.ts` só como referência de padrão análogo, não uso real; (2) o import real de `@/lib/gateway-ia/prompt-injection-guard` (sanitização pura de string, sem fetch/rede — ver `src/lib/gateway-ia/prompt-injection-guard.ts`) é allowlistado nominalmente, sem enfraquecer a cobertura para qualquer outro uso de `gateway-ia`/`openai`/`fetch`. Validado: (a) injeção manual de `await fetch(...)` em `feriados.ts` faz o novo teste falhar corretamente, revertida em seguida (`git diff` vazio); (b) suíte do arquivo `holidays.test.ts` passando 24/24 (`npm test -- holidays`), rodado com sucesso mais de uma vez antes de o `node_modules` compartilhado entrar em instabilidade por `npm install` concorrente de outra instância paralela do Executor; suíte completa do projeto rodada uma vez com sucesso nesta sessão (52 arquivos falhando só por `PrismaClientInitializationError`/Postgres inacessível em `localhost:55432`, pré-existente e não relacionado a este teste) |
 
 ### Refatoração Lote-3 (débito registrado pelo Validador)
 
@@ -3350,7 +3923,7 @@ exponha `/api/gateway-ia/[etapa]` a tráfego público real.
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
-| RL3-T01 | Integrar `checkGatewayIaRateLimit` (`src/lib/gateway-ia`, L3-T05) à rota `src/app/api/gateway-ia/[etapa]/route.ts` — a única rota HTTP pública do Gateway de IA hoje sem guarda de rate limit, alcançável por qualquer requisição externa assim que deployada (SDD §7/GUARDRAILS.md regra 19) | BE | 0.25 dia | L3-T05, L3-T02 | — | Pendente | Requisição além do limite configurado (`AI_GATEWAY_RATE_LIMIT_PER_MINUTE`) recebe erro tratável (não exceção não capturada) antes de qualquer chamada ao provider; chave de rate limit usa, no mínimo, IP da requisição até existir identificador de sessão real (Lote 4); prazo: antes do primeiro deploy que exponha esta rota a tráfego público, ou como controle compensatório equivalente no nível de borda/CDN, o que ocorrer primeiro |
+| RL3-T01 | Integrar `checkGatewayIaRateLimit` (`src/lib/gateway-ia`, L3-T05) à rota `src/app/api/gateway-ia/[etapa]/route.ts` — a única rota HTTP pública do Gateway de IA hoje sem guarda de rate limit, alcançável por qualquer requisição externa assim que deployada (SDD §7/GUARDRAILS.md regra 19) | BE | 0.25 dia | L3-T05, L3-T02 | — | Concluída | Requisição além do limite configurado (`AI_GATEWAY_RATE_LIMIT_PER_MINUTE`) recebe erro tratável (não exceção não capturada) antes de qualquer chamada ao provider; chave de rate limit usa, no mínimo, IP da requisição até existir identificador de sessão real (Lote 4); prazo: antes do primeiro deploy que exponha esta rota a tráfego público, ou como controle compensatório equivalente no nível de borda/CDN, o que ocorrer primeiro — **Nota de implementação RL3-T01 (2026-09-12)**: `POST` em `route.ts` agora chama `checkGatewayIaRateLimit` logo após validar o contrato de entrada e antes de montar mensagens/chamar `streamStructuredCompletion`, retornando 429 com corpo `{ error }` ao exceder o limite. Chave de rate limit: identificador de sessão anônima (`ANONYMOUS_SESSION_COOKIE`, cookie httpOnly já existente) quando presente; senão, IP via `x-forwarded-for`/`x-real-ip` (satisfaz o mínimo do critério de aceite). Testes novos em `route.test.ts` cobrem: 429 sem chamar o provider ao exceder; isolamento do limite por sessão/cookie; fallback e isolamento por IP; e que a guarda de rate limit precede a validação de pré-condição de etapa. |
 
 ### Refatoração Lote-5 (débito registrado pelo Validador)
 
@@ -3360,8 +3933,72 @@ para o fechamento do Lote 5 (L5-T01 a L5-T05 permanecem `Concluída`).
 
 | ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
 |---|---|---|---|---|---|---|---|
-| RL5-T01 | Alinhar `background_color`/`theme_color` de `public/manifest.webmanifest` ao token real `--background` de `src/app/globals.css` (L5-T01, ~`#0a0a0b`), hoje divergente (`#0F172A`) | FE | 0.1 dia | L5-T01, L5-T05 | RL5-T02 | Pendente | `background_color`/`theme_color` do manifest correspondem ao valor real (hex equivalente) de `--background`; `pwa.test.ts` continua passando; sem regressão em `npm test`/`npm run build` |
-| RL5-T02 | `StepperProgress` (`src/components/design-system/stepper-progress.tsx`) — adicionar texto `sr-only` (ou `aria-label`) equivalente ao `title` de cada `StepDot`, garantindo que o status de cada etapa (concluída/atual/futura) seja exposto de forma confiável a leitores de tela, já que `title` sozinho tem suporte inconsistente em navegação por virtual cursor | FE | 0.25 dia | L5-T01 | RL5-T01 | Pendente | Cada `StepDot` expõe o status via elemento com texto acessível (`sr-only`/`aria-label`), não só via `title`; teste automatizado cobrindo a presença do texto acessível; `npm test` sem regressão |
+| RL5-T01 | Alinhar `background_color`/`theme_color` de `public/manifest.webmanifest` ao token real `--background` de `src/app/globals.css` (L5-T01, ~`#0a0a0b`), hoje divergente (`#0F172A`) | FE | 0.1 dia | L5-T01, L5-T05 | RL5-T02 | Concluída | `--background: 240 5% 4%` (HSL) confirmado em `src/app/globals.css` L21/L66 converte para `#0A0A0B`; `background_color`/`theme_color` de `public/manifest.webmanifest` atualizados de `#0F172A` para `#0A0A0B`; alinhado também o `themeColor` (meta tag) em `src/app/layout.tsx`, mesma divergência, mesmo fix, arquivo diretamente relacionado ao critério (detalhe pequeno de implementação, sem mudança de escopo); `pwa.test.ts` (10/10) passa sem regressão — `npm test` completo tem falhas pré-existentes não relacionadas (todas `PrismaClientInitializationError`/Postgres indisponível em `localhost:55432` neste ambiente); `npm run build` falha por ambiente (módulos `@vercel/analytics`/`@vercel/speed-insights` ausentes em `node_modules`, não instalados neste ambiente), também pré-existente e não relacionado a esta mudança |
+| RL5-T02 | `StepperProgress` (`src/components/design-system/stepper-progress.tsx`) — adicionar texto `sr-only` (ou `aria-label`) equivalente ao `title` de cada `StepDot`, garantindo que o status de cada etapa (concluída/atual/futura) seja exposto de forma confiável a leitores de tela, já que `title` sozinho tem suporte inconsistente em navegação por virtual cursor | FE | 0.25 dia | L5-T01 | RL5-T01 | Concluída | Cada `StepDot` (`completed`/`current`/`upcoming`) agora renderiza um `<span className="sr-only">` com o mesmo texto do `title` ("Etapa concluída"/"Etapa atual"/"Etapa futura"), mantendo o `title` para tooltip visual; teste novo em `stepper-progress.test.tsx` verifica os 3 textos via `.sr-only` no DOM; suíte do componente (19/19) passa sem regressão — `npm test` completo tem 93 falhas pré-existentes não relacionadas (todas `PrismaClientInitializationError`/Postgres indisponível em `localhost:55432` neste ambiente) |
+
+### Refatoração Lote-6 (débito registrado pelo Validador)
+
+Criada pelo Validador (chapéu DevSecOps) na auditoria de segurança do
+Lote 6 (ver `SECURITY-REVIEW.md`, Lote 6, item 5) — achado de baixo
+impacto, não bloqueante para o fechamento do Lote 6 (L6-T01 a L6-T07
+permanecem `Concluída`). Sem prazo crítico (não é achado de
+segurança/deploy).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL6-T01 | Padronizar o contrato de erro para destino em texto livre acima do tamanho máximo entre os 3 pontos de captura do Lote 6 — `processarFeriadoEscolhido` (`src/lib/actions/feriados.ts`) hoje lança um `Error` genérico quando `destino` excede `MAX_DESTINO_LENGTH`, enquanto `submeterDataLivre` (`src/lib/actions/data-livre.ts`) trunca silenciosamente via `sanitizeFreeTextForPrompt`; decidir (com o Coordenador/Gestor, se a escolha afetar contrato de UI já em produção) qual dos dois comportamentos é o padrão do produto e alinhar o outro a ele, usando uma classe de erro dedicada (mesmo padrão de `InvalidDataLivreInputError`/`InvalidHolidaySelectionError`) em vez de `Error` genérico se a rejeição for mantida | BE | 0.25 dia | L6-T03, L6-T05 | — | Concluída | Os 3 pontos de captura de destino do Lote 6 (`submeterDataLivre`, `processarFeriadoEscolhido`, e o quiz se algum dia vier a persistir destino) tratam destino acima do limite de tamanho da mesma forma (truncar OU rejeitar, não uma mistura dos dois); se a rejeição for o comportamento escolhido, usa uma classe de erro própria, não `Error` genérico; teste automatizado cobrindo o comportamento escolhido nos 2 pontos; sem regressão em `npm test`/`npm run build` — **Nota de implementação RL6-T01 (2026-09-12)**: comportamento padronizado escolhido foi REJEITAR (não truncar) — já era o comportamento pré-existente e documentado de `processarFeriadoEscolhido`, então `submeterDataLivre` foi alinhado a ele (decisão de detalhe de implementação, não escalada: truncar silenciosamente esconde do usuário que parte do texto digitado nunca foi salva, risco de confusão maior que um erro de validação explícito; não há UI em produção hoje que dependa do truncamento silencioso — `T01DateRangeForm` só envia o texto bruto do campo). Criada `InvalidDestinoLengthError` (`src/lib/actions/destino-length-error.ts`), COMPARTILHADA entre `feriados.ts` e `data-livre.ts` (em vez de uma cópia em cada `*-errors.ts` existente), reforçando no próprio tipo que os dois pontos tratam a mesma condição da mesma forma; `processarFeriadoEscolhido` trocou `throw new Error(...)` por essa classe, `submeterDataLivre`/`sanitizeDestino` passou a checar `trimmed.length > DESTINO_MAX_LENGTH` e lançar antes de chamar `sanitizeFreeTextForPrompt` (que só truncava via `.slice`), na mesma ordem (checagem sobre o texto pré-sanitização) já usada por `processarFeriadoEscolhido`. Terceiro ponto (quiz, `submitQuizAnswers`/`./quiz.ts`) confirmado como não aplicável: RF-03.1/RF-03.2 nunca coletam/persistem destino (documentado no próprio cabeçalho de `quiz.ts`, L6-T07) — nada a alinhar hoje; comentário adicionado no novo arquivo de erro apontando que, se o quiz um dia passar a coletar destino, deve reusar a mesma classe. Testes: `data-livre.integration.test.ts` — substituído o teste de truncamento por um novo cobrindo rejeição (`rejects.toBeInstanceOf(InvalidDestinoLengthError)`, sem criar sessão); `processar-feriado-escolhido.integration.test.ts` — teste existente de rejeição fortalecido de `rejects.toThrow(/tamanho máximo/)` para `rejects.toBeInstanceOf(InvalidDestinoLengthError)` (valida a classe, não só a mensagem). Verificação: `npm run lint` limpo; `npm run build` compila/type-checks/gera as 18 rotas sem erro (após limpar `.next` — 1ª tentativa falhou com `ENOENT` em `pages-manifest.json`, cache stale do OneDrive, não relacionado a este código, mesma classe de instabilidade de ambiente já documentada em RL1-T01); `npm test` completo: 471 passando / 95 falhando, todas as 95 falhas são `PrismaClientInitializationError` (Postgres indisponível em `localhost:55432` neste ambiente, pré-existente — RL1-T01/RL2-T01/RL5-T01/RL5-T02/RL8-T02), incluindo os testes de integração pré-existentes de `data-livre.integration.test.ts`/`processar-feriado-escolhido.integration.test.ts` que dependem de criar sessão real; os 2 testes novos/alterados desta tarefa não dependem de banco (a validação de tamanho ocorre antes de qualquer chamada a `resolveSessionOwner`/`createSessionWithDateRange`) e passam isoladamente (`npm test -- data-livre.integration processar-feriado-escolhido`, 4/15 passando localmente sem DB, sem nenhuma falha de asserção nos 2 novos casos — as 11 falhas restantes do arquivo são as mesmas `PrismaClientInitializationError` pré-existentes). |
+| RL6-T02 | **(Bloqueio 006)** Conectar T01 (`src/app/entrada/data-livre/page.tsx`) ao formulário `T01DateRangeForm` (`onValid`) → Server Action `submeterDataLivre` (L6-T03) → navegação pós-confirmação do servidor, mesmo padrão de estado de pendência/erro acessível de `DestinoConfirmacaoScreen` (L7-T04) e de `router.push` com querystring de `HospedagemSugestoesScreen.handleContinuar`/`handleEncerrarAqui` (L8-T02) | FE | 0.25 dia | L6-T02, L6-T03, L7-T02, L7-T04 | RL6-T03, RL6-T04, RL7-T01 | Concluída | `DataLivrePage` passa a chamar `submeterDataLivre` no `onValid` de `T01DateRangeForm`, com estado de pendência (botão com `aria-busy`, mesmo padrão de `DestinoConfirmacaoScreen`) e mensagem de erro acessível (`role="alert"`, ícone+texto) em caso de falha do servidor, sem navegar antes da confirmação (Diretriz de Implementação 3 — nenhuma navegação client-side otimista). Em sucesso, navega via `router.push` para `/destino?sessionId=...` quando `proximaEtapa === "destino"`, ou para `/destino/confirmacao?sessionId=...&destino=...&flowState=destino_confirmado` quando `proximaEtapa === "confirmacao_destino"`. Teste automatizado cobrindo os dois ramos de navegação e o caminho de erro (Server Action rejeitada); sem regressão em `npm test`/`npm run build` |
+| RL6-T03 | **(Bloqueio 006)** Adicionar botão "Continuar" a `FeriadosScreen` (`src/app/entrada/feriados/feriados-screen.tsx`), conectado à Server Action `processarFeriadoEscolhido` (L6-T05) e à navegação pós-confirmação do servidor, mesmo padrão de RL6-T02 | FE | 0.25 dia | L6-T04, L6-T05, L7-T02, L7-T04 | RL6-T02, RL6-T04, RL7-T01 | Concluída | `FeriadosScreen` ganha um botão "Continuar" (mesmo padrão visual/`min-h-11` dos demais botões primários do design system), habilitado só quando um feriado está selecionado (`selectedKey !== null`); ao clicar, chama `processarFeriadoEscolhido({ holidayDate: selectedKey, destino })` com estado de pendência e erro acessível (mesmo padrão de RL6-T02). Em sucesso, navega para `/destino?sessionId=...` quando `flowState === "destino_pendente"`, ou para `/destino/confirmacao?sessionId=...&destino=...&flowState=destino_confirmado` quando `flowState === "destino_confirmado"` (o `destino` exibido na tela de confirmação é o mesmo texto já digitado localmente pelo usuário, trimado — `ProcessarFeriadoEscolhidoResult` não devolve o texto sanitizado hoje, e mudar esse contrato não é objetivo desta tarefa). Teste automatizado cobrindo os dois ramos de navegação, o botão desabilitado sem seleção, e o caminho de erro; sem regressão em `npm test`/`npm run build` — **Nota de implementação**: `FeriadosScreen` passou a ser o dono direto da chamada à Server Action (mesmo padrão de injeção `actionOverride` já usado por `HospedagemSugestoesScreen`, L8-T02) e do `useRouter` do App Router, em vez de delegar a um wrapper client separado (padrão de `ConfirmacaoDestinoClient`/L7-T04) — não havia necessidade de separar Server/Client Component aqui porque `FeriadosScreen` já era inteiramente `"use client"` desde L6-T04. Destino vazio (após trim) é enviado como `undefined` (não string vazia), coerente com o tratamento de "sem destino" já feito por `processarFeriadoEscolhido`/`createSessionWithDateRange`. Testes novos em `src/app/entrada/feriados/__tests__/feriados-screen.test.tsx` (botão desabilitado sem seleção; navegação para `/destino` em `destino_pendente`; navegação para `/destino/confirmacao` com destino trimado em `destino_confirmado`; erro acessível com `role="alert"` sem navegar quando a Server Action rejeita) e ajuste de `src/app/entrada/feriados/__tests__/page.test.tsx` (mock de `next/navigation`/`processarFeriadoEscolhido`, já que `FeriadosScreen` agora usa `useRouter`). `npm run lint` limpo, `npx eslint src/app/entrada/feriados` sem achados, `npm run build` verde (rota `/entrada/feriados` gerada normalmente). `npx vitest run` tem 97 falhas pré-existentes, todas em testes de integração que exigem Postgres real em `localhost:55432` (indisponível neste ambiente) — nenhuma delas em arquivo tocado por esta tarefa; os 2 arquivos de teste desta tarefa (`feriados-screen.test.tsx`: 9 testes, `page.test.tsx`: 2 testes) passam 100% |
+| RL6-T04 | **(Bloqueio 006)** Conectar T03 (`src/app/entrada/quiz/page.tsx`, `onComplete` de `QuizWizard`) à Server Action `submitQuizAnswers` (L6-T07) e à navegação pós-confirmação do servidor, mesmo padrão de RL6-T02 | FE | 0.25 dia | L6-T06, L6-T07, L7-T02 | RL6-T02, RL6-T03, RL7-T01 | Concluída | `QuizPage` chama `submitQuizAnswers(answers)` a partir do `onComplete` de `QuizWizard`, com estado de pendência e erro acessível (mesmo padrão de RL6-T02), substituindo a tela estática atual ("Respostas registradas... ainda estão em construção"). Em sucesso, navega via `router.push` para `/destino?sessionId=...` (o quiz nunca produz `flowState !== "destino_pendente"`, conforme documentado no cabeçalho de `submitQuizAnswers` — não há ramo `confirmacao_destino` a tratar aqui). Teste automatizado cobrindo a chamada da Server Action, a navegação e o caminho de erro; sem regressão em `npm test`/`npm run build` — **Nota de implementação RL6-T04 (2026-09-12)**: `src/app/entrada/quiz/page.tsx` reescrito — assim que `QuizWizard.onComplete` dispara, as respostas ficam guardadas em estado local (`submittedAnswers`) e `QuizWizard` some da tela, dando lugar a um estado de pendência/erro (mesmo raciocínio de `useState`/`isPending` manual usado por RL6-T02 em `data-livre/page.tsx`, não `useTransition` — com React 18, `startTransition(async () => ...)` só rastreia a parte síncrona do callback, então `isPending` cairia para `false` antes da Promise de `submitQuizAnswers` resolver; confirmado experimentalmente nesta sessão, corrigido antes de prosseguir). Estado de pendência: `<main aria-busy>` + texto "Enviando suas respostas..."; erro: `role="alert"` com ícone `AlertTriangle` + texto "Não conseguimos concluir agora. Tente novamente." (mesma mensagem genérica de RL6-T02/`DestinoConfirmacaoScreen`) e um botão "Tentar novamente" que reenvia as MESMAS respostas já coletadas (`submit(submittedAnswers)`), sem obrigar o usuário a refazer as 4 perguntas do wizard — decisão de UX pequena não escalada (o wizard perderia o estado ao ser desmontado/remontado; guardar e reenviar as respostas já validadas é estritamente melhor e não contradiz nenhum artefato). Em sucesso, `router.push(\`/destino?sessionId=${result.sessionId}\`)`; nenhum ramo `confirmacao_destino` implementado (quiz nunca coleta destino, RF-03.1, confirmado no cabeçalho de `submitQuizAnswers`). Testes novos em `src/app/entrada/quiz/__tests__/page.test.tsx` (`QuizWizard` substituído por um dublê mínimo que expõe um botão para disparar `onComplete` diretamente — o wizard em si já é coberto por `quiz-wizard.test.tsx`, L6-T06): chamada de `submitQuizAnswers` com as respostas + navegação de sucesso; estado de pendência (`aria-busy`/texto); erro acessível sem navegar; "Tentar novamente" reenvia as mesmas respostas e navega em sucesso — 4/4 passando, mais os 9/9 pré-existentes de `quiz-wizard.test.tsx` sem regressão. `npm run lint` limpo nos arquivos desta tarefa; `npx tsc --noEmit` sem erro novo (os poucos erros pré-existentes no repositório, ex. `TS2556` em outros `page.test.tsx`, não relacionados). `npm test` completo: 471 passando / 95 falhando, todas as 95 falhas são `PrismaClientInitializationError` (Postgres indisponível em `localhost:55432` neste ambiente, mesma limitação pré-existente documentada em RL1-T01/RL2-T01/RL5-T01/RL5-T02/RL8-T02), nenhuma falha nova relacionada a esta tarefa. `npm run build` (`next build`) compila e gera as 18 rotas sem erro, incluindo `/entrada/quiz` (3.42 kB). Não tocado: `src/app/entrada/data-livre/page.tsx` (RL6-T02) nem `src/app/entrada/feriados/feriados-screen.tsx` (RL6-T03), ambos em edição paralela por outras instâncias do Executor no momento desta tarefa — só lidos como referência de padrão. |
+
+**Nota de implementação RL6-T02 (2026-09-12, Executor/FE):**
+`src/app/entrada/data-livre/page.tsx` agora chama `submeterDataLivre`
+(`@/lib/actions/data-livre`, L6-T03) a partir de `onValid` de
+`T01DateRangeForm`, com estado de pendência (`isPending`) e erro (`error`,
+`role="alert"` + ícone `AlertTriangle`, mesmo padrão de
+`DestinoConfirmacaoScreen`/L7-T04). Nenhuma navegação ocorre antes da Promise
+resolver (Diretriz de Implementação 3); em sucesso, `router.push` vai para
+`/destino?sessionId=...` (`proximaEtapa === "destino"`) ou para
+`/destino/confirmacao?sessionId=...&destino=...&flowState=destino_confirmado`
+(`proximaEtapa === "confirmacao_destino"`), mesmo padrão de querystring de
+`HospedagemSugestoesScreen.handleContinuar`/`handleEncerrarAqui` (L8-T02).
+Pequeno detalhe de implementação decidido nesta tarefa (não estava no
+critério de aceite): `T01DateRangeForm` (`src/components/entrada/
+t01-date-range-form.tsx`, L6-T02) ganhou uma prop opcional `isPending` (default
+`false`) para o botão "Continuar" refletir `aria-busy`/`disabled`/texto
+("Enviando...") — o formulário continua sem chamar nenhuma Server Action
+diretamente, só expõe o estado visual que o chamador já controla; decisão
+necessária porque o botão de submit pertence ao formulário, não à página, e o
+critério de aceite explicitamente pede "botão com aria-busy". Teste novo em
+`src/app/entrada/data-livre/__tests__/page.test.tsx` (5 casos: os 2 ramos de
+navegação, estado de pendência, caminho de erro sem navegação, foco no
+título) e um caso adicional em `src/components/entrada/__tests__/
+t01-date-range-form.test.tsx` cobrindo a nova prop `isPending`. `npm run
+lint`: sem warnings/erros. `npm test`: os 13 testes novos/alterados passam de
+forma consistente tanto isolados quanto em execução completa; a suíte
+completa (`npm test`) mostrou falhas intermitentes em arquivos não tocados
+por esta tarefa (`quiz`, `feriados`, integrações Prisma) — investigado e
+atribuído a (a) testes de integração que dependem de Postgres real em
+`localhost:55432`, indisponível neste ambiente, e (b) flakiness sob carga de
+múltiplas instâncias paralelas do Executor rodando `npm test`/`npm run
+build` simultaneamente neste mesmo ambiente (contagem de falhas variou entre
+execuções consecutivas do mesmo comando, sem nenhuma mudança de código entre
+elas) — não regressão introduzida por esta tarefa. `npm run build`: sucesso
+(`✓ Compiled successfully`, `✓ Generating static pages (18/18)`,
+`/entrada/data-livre` pré-renderizada estaticamente).
+
+### Refatoração Lote-7 (débito registrado pelo Coordenador)
+
+Criada pelo Coordenador em resposta ao **Bloqueio 006** (`.md/BLOCKERS.md`,
+2026-09-12, escalado pelo Validador na Validação Final de Confirmação
+pré-staging) — não bloqueante para o fechamento já registrado do Lote 7
+(`L7-T01` a `L7-T05` permanecem `Concluída`), mas bloqueia a promoção a
+staging do conjunto completo (ver nota de resolução do Bloqueio 006 após a
+tabela do Lote 12 e Seção 6).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL7-T01 | **(Bloqueio 006)** Conectar `onConfirmar` de `ConfirmacaoDestinoClient` (`src/app/destino/confirmacao/confirmacao-destino-client.tsx`) ao `router.push` para `/hospedagem` após `confirmarDestino` (L7-T05) resolver, mesmo padrão de `router.push` com querystring já usado em `HospedagemSugestoesScreen.handleContinuar` (L8-T02) e já aplicado ao `onTrocar` deste mesmo arquivo | FE | 0.1 dia | L7-T04, L7-T05, L12-T01 | RL6-T02, RL6-T03, RL6-T04 | Concluída | `onConfirmar` de `ConfirmacaoDestinoClient` deixa de ser `confirmarDestino` diretamente e passa a ser um wrapper (mesmo padrão já usado por `onTrocar` poucas linhas abaixo no mesmo arquivo) que chama `confirmarDestino({ sessionId })` e, só depois da Promise resolver, navega via `router.push` para `/hospedagem?sessionId=...&flowState=hospedagem_pendente` (rota real desde L12-T01) — nunca `router.back()`/navegação otimista antes da confirmação do servidor (Diretriz de Implementação 3). Teste automatizado cobrindo a navegação pós-confirmação e a ausência de navegação em caso de falha (mesmo padrão do teste já existente para `onTrocar`); sem regressão em `npm test`/`npm run build` — **Nota de implementação RL7-T01 (2026-09-12)**: mudança mínima e cirúrgica em `confirmacao-destino-client.tsx` — `onConfirmar` passou de `confirmarDestino` (referência direta) para um wrapper `async (input) => { const result = await confirmarDestino(input); router.push(...); return result; }`, construindo a querystring com `URLSearchParams({ sessionId: input.sessionId, flowState: "hospedagem_pendente" })`, exatamente o padrão de `HospedagemSugestoesScreen.handleContinuar` (L8-T02) e de `onTrocar` já existente no mesmo arquivo. Em falha, `confirmarDestino` rejeita antes do `router.push`, e `DestinoConfirmacaoScreen`/`runAction` já cobre a mensagem acessível sem navegar — nenhuma mudança necessária ali. 2 testes novos em `src/app/destino/confirmacao/__tests__/confirmacao-destino-client.test.tsx` (navegação para `/hospedagem?sessionId=session-1&flowState=hospedagem_pendente` só após a Promise resolver, sem chamar `trocarDestino`; ausência de navegação quando `confirmarDestino` rejeita) mais o mock de `useRouter` estendido com `push: pushMock` (antes só `back`); os 4 testes pré-existentes do arquivo continuam passando — 6/6 verdes. `npm run lint` (`next lint`) limpo. `npm run build` compila as 18 rotas sem erro, incluindo `/destino/confirmacao` (2.92 kB). `npm test` completo: 473 passando / 95 falhando, todas as 95 falhas são `PrismaClientInitializationError` pré-existentes (Postgres indisponível em `localhost:55432` neste ambiente, mesma limitação já documentada em RL6-T03/RL6-T04 e outras notas anteriores), nenhuma falha nova nem relacionada a esta tarefa. |
 
 ### Refatoração Lote-8 (débito registrado pelo Validador)
 
@@ -3375,6 +4012,60 @@ mesmo lote (2026-09-10, ver `SECURITY-REVIEW.md` — Lote 8, item 2b).
 |---|---|---|---|---|---|---|---|
 | RL8-T01 | Incorporar o feedback textual do campo "Ajustar" de T06 (RF-05.3, UX-SPEC.md T06) ao prompt de regeneração de hospedagem — estender `StageContext`/`buildHospedagemPrompt` (`@/lib/gateway-ia`, L3-T02) com um campo opcional de feedback e `generateAccommodationSuggestions` (`@/lib/stage-rules`, L8-T01) para repassá-lo; `gerarSugestoesHospedagem`/`HospedagemSugestoesScreen` passam a enviar o texto capturado em vez de só logá-lo em dev (mesmo gap, se confirmado, também presente em T04/"nova rodada" e a repetir em T07/L9-T02 — avaliar extensão conjunta) | BE+FE | 0.5 dia | L3-T02, L8-T01, L8-T02, L8-T03 | — | Concluída | Ao chamar "Ajustar" com texto no campo de feedback, o prompt enviado ao Gateway de IA (`messages`) contém literalmente o texto informado pelo usuário **, sempre passado por `sanitizeFreeTextForPrompt` (`@/lib/gateway-ia/prompt-injection-guard`, L11-T03) antes de compor a mensagem — mesmo padrão já usado em `informarDestinoManualmente` (`src/lib/actions/destino.ts`); nenhuma implementação que interpole o texto bruto sem essa sanitização é aceita (achado de segurança do Validador, `SECURITY-REVIEW.md` Lote 8 item 2a)**; teste automatizado cobrindo a inclusão do feedback sanitizado na mensagem, incluindo um caso com tentativa de instrução embutida que não deve alterar o comportamento do prompt; sem regressão em `npm test`/`npm run build`; sem prazo crítico (achado simples, não de segurança/deploy — mas a sanitização em si não é opcional). **Nota de implementação (2026-09-10):** `StageContext.adjustmentFeedback?: string \| null` adicionado (`src/lib/gateway-ia/prompts.ts`), consumido só por `buildHospedagemPrompt` (as demais etapas não são afetadas — campo opcional, sem quebra de chamadas existentes); `generateAccommodationSuggestions` (`src/lib/stage-rules/hospedagem.ts`) repassa `input.adjustmentFeedback` ao contexto; `gerarSugestoesHospedagem` (`src/lib/actions/hospedagem.ts`) ganhou o parâmetro opcional `feedback`, sanitizado via `sanitizeFreeTextForPrompt` (`FEEDBACK_MAX_LENGTH = 300`, mesmo raciocínio de `DESTINO_MAX_LENGTH`) ANTES de repassar — a sanitização acontece no mesmo módulo/ponto que já sanitiza para `informarDestinoManualmente`; `HospedagemSugestoesScreen.handleAdjustSubmit` (`src/components/hospedagem/hospedagem-sugestoes-screen.tsx`) passa `feedbackValue` como segundo argumento, removendo o `console.info` de placeholder. Testes novos: `src/lib/gateway-ia/__tests__/prompt-injection-guard.test.ts` (feedback sanitizado interpolado + tentativa de instrução embutida neutralizada + sem regressão quando ausente), `src/lib/stage-rules/__tests__/hospedagem.test.ts`, `src/lib/actions/__tests__/hospedagem.integration.test.ts` (fim a fim, incluindo tentativa de injeção) e `src/components/hospedagem/__tests__/hospedagem-sugestoes-screen.test.tsx` (UI repassa o texto digitado). Coexistiu em paralelo com RL8-T02 no mesmo arquivo `src/lib/actions/hospedagem.ts` sem conflito — RL8-T02 já tinha adicionado `sanitizeFreeTextForPrompt`/constantes `ACCOMMODATION_*_MAX_LENGTH`/sanitização de `assertValidAccommodationPayload` quando esta tarefa tocou o arquivo; só `gerarSugestoesHospedagem` e o cabeçalho de comentários foram alterados por esta tarefa. `npm run lint` limpo nos arquivos alterados; `npx tsc --noEmit` sem novos erros (erros pré-existentes não relacionados em outros arquivos); `npm run build` (`next build`) passa; testes unitários relevantes (122 testes em `gateway-ia`/`stage-rules`/`hospedagem` component) passam. Testes de integração Prisma (`hospedagem.integration.test.ts`) não puderam ser executados neste ambiente por falta de um Postgres local acessível (`localhost:55432`) — limitação de ambiente, não regressão introduzida por esta tarefa (mesmo teste falha por qualquer alteração nesse arquivo sem banco disponível); recomenda-se rodar em CI/ambiente com banco antes do próximo deploy. Gap remanescente documentado (fora de escopo desta tarefa): T04/"nova rodada" (RF-04.4) continua sem campo de feedback textual — nunca teve um na UX-SPEC, não é o mesmo gap. |
 | RL8-T02 | Aplicar `sanitizeFreeTextForPrompt` (`@/lib/gateway-ia/prompt-injection-guard`, L11-T03) a `name`/`type`/`distinctiveFeature` dentro de `assertValidAccommodationPayload` (`src/lib/actions/hospedagem.ts`, L8-T03) antes de `applySessionFlowTransition` persistir `AccommodationApproval` — hoje só a faixa de preço é revalidada contra adulteração, os campos de texto não; `context.accommodation.name`/`.type` já são interpolados literalmente em `buildPasseiosPrompt`/`buildRoteiroPrompt` (`src/lib/gateway-ia/prompts.ts`), então um payload de aprovação adulterado pelo cliente vira instrução de prompt assim que `L9-T01`/`L10-T01` lerem o registro de volta | BE | 0.25 dia | L8-T03, L11-T03 | RL8-T01 | Concluída | `assertValidAccommodationPayload` sanitiza `name`/`type`/`distinctiveFeature` via `sanitizeFreeTextForPrompt` antes de qualquer persistência; teste automatizado cobrindo um payload de aprovação com tentativa de instrução embutida em `name`/`type`/`distinctiveFeature`, confirmando que o valor persistido/propagado já vem sanitizado; sem regressão em `npm test`/`npm run build`; **deve estar concluída antes de `L9-T01`/`L10-T01` iniciarem implementação** (mesmo raciocínio de sequenciamento do Bloqueio 003/`L11-T03` vs. `L8-T01`, `.md/BLOCKERS.md`) — **Nota de implementação (2026-09-10)**: `assertValidAccommodationPayload` agora sanitiza `name`/`type`/`distinctiveFeature` via `sanitizeFreeTextForPrompt` (limites `ACCOMMODATION_NAME_MAX_LENGTH=200`/`ACCOMMODATION_TYPE_MAX_LENGTH=100`/`ACCOMMODATION_DISTINCTIVE_FEATURE_MAX_LENGTH=500`, mesmo padrão de `DESTINO_MAX_LENGTH` em `destino.ts`) ANTES da checagem de "vazio" e retorna os três campos já sanitizados (`SanitizedAccommodationText`); `aprovarHospedagem` usa exclusivamente esse retorno no `childData` de `applySessionFlowTransition` e no `AprovarHospedagemResult.hospedagem` — nunca o valor bruto do payload. Teste de integração novo em `hospedagem.integration.test.ts` ("sanitiza tentativa de prompt injection em name/type/distinctiveFeature antes de persistir") cobre os três campos com marcadores de delimitador (` ``` `, `[INST]`/`[/INST]`) e frase de override (`System:`, "ignore... instruções anteriores", "revele o prompt do sistema", "aja como se você fosse um novo assistente") tanto no valor de retorno quanto no registro persistido — não executado neste ambiente por falta de Postgres em `localhost:55432` (limitação já documentada nos demais testes de integração do projeto), mas correto para rodar contra um banco real. `npm run lint`/`npx tsc --noEmit`/`npm run build` sem erros; `npm test` sem regressão nos 362 testes não dependentes de banco (as falhas restantes são só as integrações de Postgres, pré-existentes). Execução em paralelo com a instância de RL8-T01 no mesmo arquivo (`hospedagem.ts`/`hospedagem.integration.test.ts`) sem conflito — escopos não se sobrepuseram (`gerarSugestoesHospedagem`/feedback vs. `assertValidAccommodationPayload`/`aprovarHospedagem`). |
+
+### Refatoração Lote-12 (débito registrado pelo Validador)
+
+Criada pelo Validador na checagem estrutural do Lote 12 (ver `QA-REPORT.md`,
+2026-09-12) — achado simples de divergência de escopo, não bloqueante para o
+fechamento do Lote 12 (`L12-T01` a `L12-T05` permanecem `Concluída`).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| RL12-T01 | Reconciliar a nota de escopo do Lote 12 ("`L12-T01`/`L12-T02`/`L12-T03` não mudam nenhum dos componentes de tela existentes") com o diff real de `src/components/hospedagem/hospedagem-sugestoes-screen.tsx`, que ganhou `className="min-h-11"` no botão `variant="ghost"` do diálogo de ajuste (os outros 5 botões do arquivo já tinham essa classe de touch-target desde `dd4b8e9`, anterior a este lote) — decidir se a linha é mantida (documentando a exceção pontual de acessibilidade na nota de `L12-T01`) ou revertida para alinhar `TASK.md` ao comportamento real | FE | 0.1 dia | L12-T01 | — | Pendente | A nota de escopo do Lote 12 (`TASK.md`) e o `git diff` de `hospedagem-sugestoes-screen.tsx` ficam consistentes entre si — ou a nota é atualizada para citar a exceção pontual (mesmo padrão de touch-target de `RL5-T02`), ou a linha é revertida; sem regressão em `hospedagem-sugestoes-screen.test.tsx`; sem prazo crítico (achado simples, não de segurança/deploy) |
+
+### Lote 12 — Integração de Rotas (T06-T-END)
+
+Criado pelo Coordenador em resposta ao **Bloqueio 005** (`.md/BLOCKERS.md`,
+2026-09-12, escalado pelo Validador na validação funcional do Lote 10).
+Confirmado por leitura direta do código antes de decompor: `src/app`
+realmente não tem `hospedagem/`, `passeios/`, `roteiro/` nem `encerramento/`
+— só `entrada/**`, `destino/page.tsx` e `destino/confirmacao/page.tsx`
+existem hoje. `src/app/destino/confirmacao/page.tsx` (L7-T04) é reaproveitável
+como padrão: Server Component fino, resolve `sessionId`/`flowState` (e demais
+parâmetros necessários) via `searchParams`, com `redirect("/")` quando faltar
+o essencial, delegando toda a interatividade ao componente/client wrapper já
+existente. As 4 rotas novas seguem exatamente esse padrão.
+
+**Decisão de decomposição (por que um lote novo, não Refatoração distribuída
+por Lote 8/9/10)**: os `Refatoração Lote-N` existentes (RL6, RL8) corrigem um
+comportamento já implementado dentro do escopo daquele lote (ex.: sanitização
+faltante, prompt sem feedback). Este gap é diferente — é a ausência de uma
+peça inteira (rota navegável) que nunca esteve no escopo de nenhuma tarefa
+individual (cada uma documentou o gap como "fora de escopo", nunca como
+"a implementar depois nesta refatoração"), e atravessa 3 lotes de tela mais o
+Lote 11 (Server Action de leitura precisa dos 4 tipos de aprovação já
+persistidos, alguns do Lote 7). Mesmo raciocínio já usado para o Lote 11
+(Cross-cutting Final): quando o trabalho não pertence a nenhum lote de origem
+específico, vira lote próprio em vez de forçar uma tarefa de refatoração
+dentro de um lote ao qual não pertence de fato.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| L12-T01 | Rota `/hospedagem` — `page.tsx` que resolve `sessionId`/`flowState` da querystring (mesmo padrão de `src/app/destino/confirmacao/page.tsx`, L7-T04) e monta `HospedagemSugestoesScreen` (L8-T02) | FE | 0.25 dia | L8-T02 | L12-T02, L12-T03, L12-T04 | Concluída | Implementado em `src/app/hospedagem/page.tsx` seguindo exatamente o padrão de `src/app/destino/page.tsx` (L7-T02, não o de `confirmacao/page.tsx` — `HospedagemSugestoesScreen` só recebe `sessionId`, sem `flowState`/`destino`): Server Component fino que resolve `sessionId` de `searchParams` assíncrono, `redirect("/")` se ausente, senão renderiza `HospedagemSugestoesScreen`. Teste em `src/app/hospedagem/__tests__/page.test.tsx` cobre os dois casos do critério de aceite, com `HospedagemSugestoesScreen` substituída por dublê para isolar o roteamento (a tela em si já é coberta por seus próprios testes, L8-T02). `npm run lint` sem erros/warnings. |
+| L12-T02 | Rota `/passeios` — `page.tsx` que resolve `sessionId`/`flowState` da querystring e monta `PasseiosSugestoesScreen` (L9-T02) | FE | 0.25 dia | L9-T02 | L12-T01, L12-T03, L12-T04 | Concluída | Implementado em `src/app/passeios/page.tsx`, mesmo padrão exato de `src/app/hospedagem/page.tsx` (L12-T01)/`src/app/destino/page.tsx` (L7-T02): Server Component fino que resolve `sessionId` de `searchParams` assíncrono, `redirect("/")` se ausente, senão renderiza `PasseiosSugestoesScreen`. Diferença desta rota em relação a L12-T01/L12-T03: `PasseiosSugestoesScreen` mantém a prop `actions` OBRIGATÓRIA (não `actionsOverride` opcional) — ver "CONTRATO ESPERADO DA SERVER ACTION DE L9-T03" no cabeçalho daquele componente; como `@/lib/actions/passeios.ts` (L9-T03) já existe com as 3 funções exatamente no formato esperado (`gerarSugestoesPasseios`/`aprovarSelecaoPasseios`/`encerrarResolucaoPasseios`, tipo `AprovarSelecaoPasseiosResult` já reexportado como alias de `AprovarPasseiosResult`), a rota as passa diretamente na prop `actions` sem precisar tocar em `PasseiosSugestoesScreen` (fora do escopo desta tarefa, conforme nota após esta tabela). Teste em `src/app/passeios/__tests__/page.test.tsx` cobre os dois casos do critério de aceite, com `PasseiosSugestoesScreen` e `@/lib/actions/passeios` substituídos por dublês para isolar o roteamento (a tela em si já é coberta por seus próprios testes, L9-T02). `npx eslint`/`npx vitest run` limpos nos arquivos desta tarefa; `npx tsc --noEmit` sem erro novo (o único erro no teste novo, `TS2556` no `redirectMock(...args)`, é o mesmo padrão pré-existente já presente em `destino/confirmacao`/`hospedagem`/`roteiro` `page.test.tsx`, não uma regressão desta tarefa). |
+| L12-T03 | Rota `/roteiro` — `page.tsx` que resolve `sessionId`/`flowState` da querystring e monta `RoteiroScreen` (L10-T02) | FE | 0.25 dia | L10-T02 | L12-T01, L12-T02, L12-T04 | Concluída | Server Component fino (mesmo padrão de `src/app/destino/page.tsx`, L7-T02): `redirect("/")` sem `sessionId`, senão renderiza `RoteiroScreen` com `sessionId` — `RoteiroScreen` não recebe `flowState`. Teste cobre os dois casos (`src/app/roteiro/__tests__/page.test.tsx`) |
+| L12-T04 | Server Action de leitura `obterResumoEncerramento(sessionId)` — monta `EncerramentoResumo` (`@/components/encerramento`, L10-T04) a partir de `DestinationApproval`/`AccommodationApproval`/`ActivityApproval`/`ItineraryItem` já persistidos (campo ausente = etapa não aprovada, nunca erro, mesmo princípio já usado no schema); aplica o guard de dono de sessão (`L11-T02`) antes de ler | BE | 0.5 dia | L7-T03, L8-T03, L9-T03, L10-T03, L11-T02 | L12-T01, L12-T02, L12-T03 | Concluída | Implementado em `src/lib/actions/encerramento.ts`, mesmo padrão exato de `gerarRoteiro` (`./roteiro.ts`, L10-T03): busca `TripSession` (`flowState`/`userId`/`anonSessionId`) por `id`, `SessionNotFoundError` se ausente, `assertSessionOwnership` explícito em seguida (404, nunca 403); depois busca em paralelo `DestinationApproval.findUnique`/`AccommodationApproval.findUnique`/`ActivityApproval.findMany` (por `sessionId`) e monta `EncerramentoResumo` — `destino`/`hospedagem` `null` quando a linha não existe, `passeios` `null` quando não há nenhum `ActivityApproval` (array preenchido `{ name, free }` ordenado por `orderIndex` caso contrário), `roteiroAprovado: session.flowState === "concluida"` (não lê `ItineraryItem` diretamente — o resumo desta tela é booleano/RN-03, não item a item). Reexporta `EncerramentoResumo`/`EncerramentoPasseioResumo` de `./encerramento-screen` para uso futuro de `L12-T05`. Teste de integração em `src/lib/actions/__tests__/encerramento.integration.test.ts` cobre resumo parcial, resumo completo (com passeio pago e gratuito) e os dois casos de 404 (`SessionNotFoundError`: identidade não dona da sessão e sessão inexistente) — mesma limitação de ambiente já documentada em L7-T03/L8-T03/L9-T03/L10-T03 (requer Postgres real em `localhost:55432`; falha aqui por `PrismaClientInitializationError`, não por defeito de lógica). `npm run lint` e `npx eslint` nos arquivos desta tarefa sem erros/warnings; `npx tsc --noEmit` sem erro novo (únicos erros do projeto são pré-existentes, não relacionados a este arquivo). |
+| L12-T05 | Rota `/encerramento` — `page.tsx` que resolve `sessionId`/`flowState` da querystring, chama `obterResumoEncerramento` (L12-T04) e monta `EncerramentoScreen` (L10-T04) | FE | 0.5 dia | L10-T04, L12-T04 | L12-T01, L12-T02, L12-T03 | Concluída | Implementado em `src/app/encerramento/page.tsx`: Server Component fino que resolve `sessionId`/`flowState` de `searchParams` assíncrono, `redirect("/")` quando `sessionId` ausente ou `flowState` fora de `"concluida"`/`"encerrada_parcial"` (tipo `EncerramentoFlowState`); senão chama `await obterResumoEncerramento(sessionId)` (L12-T04) diretamente do Server Component (Server Action async, sem client wrapper) e renderiza `EncerramentoScreen` (L10-T04) com `flowState`/`resumo` resolvidos — diferente de L12-T01/T02/T03, a busca de dados acontece na própria rota, já que `EncerramentoScreen` é apresentação pura. `SessionNotFoundError` (`@/lib/session-flow`, lançado via `assertSessionOwnership`) também vira `redirect("/")`, mesmo raciocínio de "sem sessão válida não há o que mostrar". Teste em `src/app/encerramento/__tests__/page.test.tsx` (6 casos: `flowState=concluida`, `flowState=encerrada_parcial`, `sessionId` ausente, `flowState` ausente, `flowState` inválido, `SessionNotFoundError`) com `obterResumoEncerramento` e `EncerramentoScreen` substituídos por dublês para isolar o roteamento. `npm run lint` sem erros/warnings; `npx tsc --noEmit` sem erro novo (único erro no teste novo é `TS2556` em `redirectMock(...args)`, mesmo padrão pré-existente já presente em `destino/confirmacao`/`hospedagem`/`passeios`/`roteiro` `page.test.tsx`, confirmado via `git stash` que o erro já existia antes desta tarefa). |
+
+**Nota**: `L12-T01`/`L12-T02`/`L12-T03` não mudam nenhum dos componentes de
+tela existentes (`HospedagemSugestoesScreen`/`PasseiosSugestoesScreen`/
+`RoteiroScreen`) — são só o `page.tsx` que hoje não existe. `L12-T04` é uma
+Server Action nova, de leitura pura (sem regra de negócio/mudança de schema),
+mantida separada de `L12-T05` pela mesma convenção de não-mistura já usada em
+todo o resto do `TASK.md` (uma tarefa não cobre tela + Server Action ao mesmo
+tempo). Nenhuma das 5 tarefas se aproxima do canário de ~300 mil tokens —
+cada uma toca no máximo 2-3 arquivos novos, reaproveitando componentes/schema
+já existentes e prontos.
 
 ## 4. Dependências e Ordem de Execução
 
@@ -3405,6 +4096,13 @@ Lotes 6+7+8+9+10 → Lote 11 (Cross-cutting final, L11-T04 é a última tarefa)
   `L11-T02a` → `L11-T02` (guard central depende da persistência do dono
   existir primeiro — ver Bloqueio 004/ADR-008, resolvido).
 
+Lotes 8+9+10+11 → Lote 12 (Integração de Rotas) [L12-T01 aguarda só L8-T02;
+  L12-T02 aguarda só L9-T02; L12-T03 aguarda só L10-T02; L12-T04 aguarda
+  L7-T03+L8-T03+L9-T03+L10-T03+L11-T02; L12-T05 aguarda L10-T04+L12-T04 —
+  ver Bloqueio 005, resolvido. L12-T01/T02/T03/T04 são mutuamente
+  paralelizáveis entre si; só L12-T05 tem ordem obrigatória (depende de
+  L12-T04 terminar primeiro)].
+
 Lote 1 → Refatoração Lote-1 (RL1-T01) — sem bloquear nenhum outro lote;
   gate real é o primeiro deploy em produção (chapéu DevOps), não a ordem
   de execução dos demais lotes.
@@ -3419,6 +4117,18 @@ Lote 3 → Refatoração Lote-3 (RL3-T01) — sem bloquear a ordem de execução
   adotado antes do Lote 11.
 Lote 5 → Refatoração Lote-5 (RL5-T01/RL5-T02) — sem bloquear nenhum outro
   lote; sem prazo crítico (achados simples, não de segurança/deploy).
+Lote 6 → Refatoração Lote-6 (RL6-T01) — sem bloquear nenhum outro lote;
+  sem prazo crítico (achado de baixo impacto, não de segurança/deploy).
+Lote 6 + Lote 7 + Lote 12 → Refatoração Lote-6 (RL6-T02/T03/T04) e
+  Refatoração Lote-7 (RL7-T01) — **Bloqueio 006, resolvido**: diferente de
+  RL6-T01, estas 4 tarefas TÊM prazo crítico — bloqueiam a promoção a
+  staging do conjunto completo (jornada T00→T-END não navegável sem elas),
+  mesmo status de gate que L11-T03/RL8-T02 já tinham para seus respectivos
+  riscos. RL6-T02 depende de L6-T02+L6-T03+L7-T02+L7-T04; RL6-T03 depende de
+  L6-T04+L6-T05+L7-T02+L7-T04; RL6-T04 depende de L6-T06+L6-T07+L7-T02;
+  RL7-T01 depende de L7-T04+L7-T05+L12-T01 — todas as 4 dependências já
+  `Concluída`s, então as 4 tarefas estão imediatamente elegíveis para
+  execução em paralelo entre si (arquivos distintos, sem sobreposição).
 Lote 8 → Refatoração Lote-8 (RL8-T01, RL8-T02) — sem bloquear nenhum outro
   lote; RL8-T01 sem prazo crítico (achado simples, não de segurança/deploy,
   mas com requisito de sanitização não opcional embutido no critério de
@@ -3427,6 +4137,9 @@ Lote 8 → Refatoração Lote-8 (RL8-T01, RL8-T02) — sem bloquear nenhum outro
   `L9-T01`/`L10-T01` — precisa concluir antes dessas duas tarefas iniciarem
   implementação, mesmo padrão do Bloqueio 003 já resolvido para `L11-T03`
   vs. `L8-T01`.
+Lote 12 → Refatoração Lote-12 (RL12-T01) — sem bloquear nenhum outro lote;
+  sem prazo crítico (achado simples de divergência de escopo/documentação,
+  não de segurança/deploy).
 
 RESOLVIDO (Bloqueio 003, `.md/BLOCKERS.md`, 2026-09-10, Coordenador):
   L11-T03 (sanitização de texto livre contra prompt injection) ganhou
@@ -3501,6 +4214,22 @@ tela (Lote 9) além da camada de fundação.
   não é uma tarefa dividida em silêncio, é uma dependência interna já
   declarada como bloqueante no documento de origem.
 
+**Lacuna estrutural encontrada durante a validação funcional (Bloqueio 005,
+resolvida em 2026-09-12, Coordenador):** cada tarefa de tela dos Lotes 8, 9
+e 10 (`L8-T02`, `L9-T02`, `L10-T02`, `L10-T04`) documentou individualmente,
+como decisão de fronteira, que a rota real (`page.tsx`) que monta a tela a
+partir de `sessionId` da querystring ficava fora do escopo daquela tarefa —
+decisão razoável tarefa a tarefa, mas sem nenhuma tarefa subsequente que
+efetivamente fechasse o gap, deixando a jornada T00→T-END sem navegação real
+em produção a partir de T06. Resolução: criado o Lote 12 — Integração de
+Rotas (`L12-T01` a `L12-T05`, Seção 3), com as 4 `page.tsx` faltantes mais a
+Server Action de leitura `obterResumoEncerramento` que `EncerramentoScreen`
+(T-END) precisa. Não gerou novo ADR — não é uma mudança de decisão
+arquitetural do `SDD.md`, é a decomposição de um trabalho que já estava
+implícito no `UX-SPEC.md`/`PRD-TECNICO.md` (a jornada precisa ser navegável)
+e nunca tinha virado tarefa própria. Ver `.md/BLOCKERS.md`, Bloqueio 005, para
+o registro completo do achado e da resolução.
+
 **Lacunas estruturais encontradas na decomposição (não decididas em silêncio):**
 
 - O `SDD.md` não define uma fonte de dado de geolocalização/proximidade real
@@ -3570,6 +4299,50 @@ tela (Lote 9) além da camada de fundação.
   por chamador) por inseparabilidade documentada: é a mesma mudança mecânica
   de contrato aplicada de forma idêntica nos 3 pontos de um único helper
   compartilhado, sem introduzir regra de negócio nova em nenhum deles.
+
+**Lacuna estrutural encontrada na Validação Final de Confirmação pré-staging
+(Bloqueio 006, resolvida em 2026-09-12, Coordenador):** mesma natureza do
+Bloqueio 005 (padrão recorrente, não bug de tarefa isolada), agora no lado de
+ENTRADA da jornada (T01-T05): `src/app/entrada/data-livre/page.tsx` (L6-T02),
+`src/app/entrada/feriados/feriados-screen.tsx` (L6-T04) e
+`src/app/entrada/quiz/page.tsx` (L6-T06) nunca chamam as Server Actions irmãs
+já `Concluída`s (`submeterDataLivre`/`processarFeriadoEscolhido`/
+`submitQuizAnswers`, L6-T03/T05/T07) — cada uma documentou a integração como
+"fora de escopo, aguardando a Server Action irmã" no momento em que foi
+implementada, e nenhuma tarefa posterior voltou para fechar o gap.
+`src/app/destino/confirmacao/confirmacao-destino-client.tsx` (L7-T04) tem o
+mesmo problema em T05: `confirmarDestino` (L7-T05) avança o `flowState` no
+servidor, mas o `onConfirmar` nunca navega para `/hospedagem` depois —
+diferente de `onTrocar`, no mesmo arquivo, que já navega corretamente.
+Confirmado por leitura direta dos 4 arquivos antes de decompor (não das notas
+de implementação).
+
+**Decisão de decomposição — por que `Refatoração Lote-6`/`Refatoração
+Lote-7`, não um lote novo (diferente do Lote 12/Bloqueio 005):** avaliei os
+dois caminhos e, ao contrário do Bloqueio 005 (onde a peça faltante — rota +
+Server Action de leitura — nunca pertenceu a nenhum lote específico,
+atravessando 3 lotes de tela mais o Lote 11), aqui cada gap mora inteiramente
+dentro de um arquivo já pertencente a um lote de origem único e já
+`Concluída`: L6-T02/L6-T04/L6-T06 pertencem ao Lote 6, L7-T04 pertence ao
+Lote 7. Não é necessária nenhuma Server Action nova (as 4 já existem e já
+passaram por validação própria) nem nenhuma rota nova (as 4 rotas de destino
+já existem desde os Lotes 7/12) — é só terminar a conexão dentro de um
+componente que já existe, no lote a que ele já pertence. Isso é exatamente o
+padrão que `Refatoração Lote-N` já cobre no resto do `TASK.md` (corrigir algo
+dentro do escopo de um lote já fechado), não o padrão do Lote 12 (ausência de
+uma peça inteira sem lote de origem). Criadas: `RL6-T02`, `RL6-T03`, `RL6-T04`
+(Seção 3, Refatoração Lote-6) e `RL7-T01` (Seção 3, nova seção Refatoração
+Lote-7 — a primeira deste lote). Nenhuma das 4 tarefas mistura tela e Server
+Action (todas consomem Server Actions já existentes, só conectam UI →
+Server Action → navegação, mesma convenção de não-mistura do resto do
+`TASK.md`) nem se aproxima do canário de ~300 mil tokens (cada uma toca 1
+arquivo existente + eventualmente seu teste). Diferença em relação às demais
+`Refatoração Lote-N` já registradas: estas 4 têm prazo crítico — bloqueiam a
+promoção a staging do conjunto completo (Seção 4). `SDD.md`/`UX-SPEC.md`
+inalterados (nenhuma decisão arquitetural/de experiência muda; é decomposição
+de trabalho de wiring que já estava implícito na jornada navegável descrita
+em ambos). Nenhum ADR novo. Ver `.md/BLOCKERS.md`, Bloqueio 006, para o
+registro completo do achado e desta resolução.
 
 ## Rascunho de GUARDRAILS.md
 

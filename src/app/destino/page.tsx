@@ -19,15 +19,15 @@ import { redirect } from "next/navigation";
 import { DestinoSugestoesScreen } from "@/components/destino/destino-sugestoes-screen";
 
 export interface DestinoSugestoesPageProps {
-  searchParams: {
+  searchParams: Promise<{
     sessionId?: string;
-  };
+  }>;
 }
 
-export default function DestinoSugestoesPage({
+export default async function DestinoSugestoesPage({
   searchParams,
 }: DestinoSugestoesPageProps) {
-  const { sessionId } = searchParams;
+  const { sessionId } = await searchParams;
 
   if (!sessionId) {
     redirect("/");

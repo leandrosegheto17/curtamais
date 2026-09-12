@@ -7,6 +7,14 @@ import type { FeriadoProlongado } from "@/lib/actions/feriados";
 // consome, não reimplementa o cálculo de feriados/emenda (ADR-007).
 vi.mock("@/lib/actions/feriados", () => ({
   getFeriadosProlongados: vi.fn(),
+  processarFeriadoEscolhido: vi.fn(),
+}));
+
+// `FeriadosScreen` usa `useRouter` desde RL6-T03 (Bloqueio 006) — mock
+// mínimo só para permitir a montagem do componente nestes testes de rota,
+// que não exercitam navegação.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 afterEach(() => {

@@ -113,6 +113,19 @@ describe("T01DateRangeForm (RF-01.4)", () => {
     });
   });
 
+  it("RL6-T02: isPending reflete aria-busy/disabled/texto do botão, mesmo padrão de DestinoConfirmacaoScreen", () => {
+    const { rerender } = render(<T01DateRangeForm isPending={false} />);
+
+    const button = screen.getByRole("button", { name: "Continuar" });
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "false");
+
+    rerender(<T01DateRangeForm isPending />);
+    const pendingButton = screen.getByRole("button", { name: "Enviando..." });
+    expect(pendingButton).toBeDisabled();
+    expect(pendingButton).toHaveAttribute("aria-busy", "true");
+  });
+
   it("navegação por teclado: Tab alcança os 3 campos e o botão, em ordem lógica", async () => {
     const user = userEvent.setup();
 

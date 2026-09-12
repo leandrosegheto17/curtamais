@@ -41,7 +41,7 @@
 // a tela reage a sucesso/erro pelos callbacks já existentes do componente
 // (`onStreamComplete`/`onStreamError`) — nenhum código de streaming novo,
 // nenhuma chamada adicional ao Gateway de IA.
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
@@ -97,6 +97,18 @@ export function DestinoSugestoesScreen({
 }: DestinoSugestoesScreenProps) {
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement>(null);
+
+  // L11-T04 — RL: foco gerenciado explicitamente na transição para esta
+  // etapa (UX-SPEC.md §5/ADR-006), mesmo padrão de todas as outras telas
+  // (`destino-confirmacao-screen.tsx`, `hospedagem-sugestoes-screen.tsx`,
+  // `passeios-sugestoes-screen.tsx`, `roteiro-screen.tsx`,
+  // `encerramento-screen.tsx`) — esta era a única tela do fluxo em que o
+  // `ref`/`tabIndex={-1}` do título já existiam mas a chamada de `.focus()`
+  // correspondente estava ausente, deixando o foco no botão da tela
+  // anterior ao chegar em T04.
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
 
   const actions = useMemo(
     () => ({
@@ -388,12 +400,18 @@ export function DestinoSugestoesScreen({
 
           {!approved && (
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button type="button" variant="outline" onClick={rejectAll}>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={rejectAll}
+              >
                 Nenhum me interessa — gerar outras opções
               </Button>
               <Button
                 type="button"
                 variant="ghost"
+                className="min-h-11"
                 onClick={openManualEntry}
               >
                 Já sei o destino, quero informar
@@ -487,6 +505,7 @@ export function DestinoSugestoesScreen({
             <Button
               type="button"
               variant="ghost"
+              className="min-h-11"
               disabled={manualPending}
               onClick={closeManualEntry}
             >

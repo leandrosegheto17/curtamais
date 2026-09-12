@@ -47,7 +47,7 @@ export async function resolveSessionOwner(): Promise<SessionOwner> {
     return { type: "user", userId };
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const existing = cookieStore.get(ANONYMOUS_SESSION_COOKIE)?.value;
   const { id, isNew } = resolveAnonymousSessionId(existing);
 

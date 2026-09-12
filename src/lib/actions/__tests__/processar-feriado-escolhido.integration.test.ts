@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { prisma } from "@/lib/prisma";
 import { processarFeriadoEscolhido } from "@/lib/actions/feriados";
 import { InvalidHolidaySelectionError } from "@/lib/actions/feriados-errors";
+import { InvalidDestinoLengthError } from "@/lib/actions/destino-length-error";
 import { getNationalHolidaysWithBridgeInRange } from "@/lib/holidays";
 
 const getServerSessionMock = vi.fn();
@@ -208,18 +209,21 @@ describe("processarFeriadoEscolhido — integração real com Postgres (L6-T05, 
     ).rejects.toBeInstanceOf(InvalidHolidaySelectionError);
   });
 
-  it("rejeita destino acima do tamanho máximo permitido, sem criar sessão", async () => {
+  it("RL6-T01: rejeita destino acima do tamanho máximo permitido (InvalidDestinoLengthError), sem criar sessão", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 0, 1));
 
     const pure = getNationalHolidaysWithBridgeInRange(2026, 2027);
     const holiday = pure[0];
 
+    // Validação do tamanho do destino ocorre antes de qualquer acesso ao
+    // banco (mesmo padrão dos testes acima de `holidayDate` inválido) — não
+    // depende de Postgres disponível.
     await expect(
       processarFeriadoEscolhido({
         holidayDate: holiday.date.toISOString(),
         destino: "a".repeat(201),
       }),
-    ).rejects.toThrow(/tamanho máximo/);
+    ).rejects.toBeInstanceOf(InvalidDestinoLengthError);
   });
 });

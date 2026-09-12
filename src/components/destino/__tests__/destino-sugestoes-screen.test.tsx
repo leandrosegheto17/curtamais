@@ -99,6 +99,14 @@ describe("DestinoSugestoesScreen — estado Sucesso", () => {
     expect(screen.getAllByText(/aproximado/)).toHaveLength(2);
   });
 
+  it("foco vai para o título da etapa ao montar (UX-SPEC §5, L11-T04 — regressão: faltava o useEffect que chama .focus())", () => {
+    renderScreen();
+
+    expect(
+      screen.getByRole("heading", { name: "Sugestões de destino para você" }),
+    ).toHaveFocus();
+  });
+
   it("exibe BudgetInsufficientBanner quando alguma sugestão excede o orçamento (RF-10.2/RN-04)", async () => {
     renderScreen({
       gerarSugestoesDestino: vi

@@ -22,6 +22,18 @@
 // `DestinoConfirmacaoScreen` (`runAction`) captura o erro e mostra a
 // mensagem acessível, sem navegar (Diretriz de Implementação 3 — nenhuma
 // navegação otimista/client-side antes da confirmação do servidor).
+//
+// RL7-T01 (Refatoração Lote-7, Bloqueio 006 resolvido — ver `.md/BLOCKERS.md`
+// e `.md/TASK.md`, seção "Refatoração Lote-7"): `onConfirmar` deixou de ser
+// `confirmarDestino` diretamente e virou o mesmo tipo de wrapper já usado por
+// `onTrocar` acima — chama `confirmarDestino({ sessionId })` e só depois da
+// Promise resolver navega via `router.push` para `/hospedagem` (rota real
+// desde L12-T01), com `sessionId`/`flowState` na querystring, mesmo padrão
+// de `HospedagemSugestoesScreen.handleContinuar` (L8-T02,
+// `src/components/hospedagem/hospedagem-sugestoes-screen.tsx`). Em caso de
+// falha, `runAction` já cobre a mensagem acessível sem navegar — nenhuma
+// navegação otimista antes da confirmação do servidor (Diretriz de
+// Implementação 3).
 import { useRouter } from "next/navigation";
 
 import { DestinoConfirmacaoScreen } from "@/components/destino/destino-confirmacao-screen";
@@ -49,7 +61,15 @@ export function ConfirmacaoDestinoClient({
       sessionId={sessionId}
       destino={destino}
       currentState={currentState}
-      onConfirmar={confirmarDestino}
+      onConfirmar={async (input) => {
+        const result = await confirmarDestino(input);
+        const params = new URLSearchParams({
+          sessionId: input.sessionId,
+          flowState: "hospedagem_pendente",
+        });
+        router.push(`/hospedagem?${params.toString()}`);
+        return result;
+      }}
       onTrocar={async (input) => {
         const result = await trocarDestino(input);
         router.back();

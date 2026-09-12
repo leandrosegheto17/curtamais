@@ -12,7 +12,7 @@ import {
 } from "@/lib/anonymous-session";
 
 export async function GET() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const existing = cookieStore.get(ANONYMOUS_SESSION_COOKIE)?.value;
   const { id } = resolveAnonymousSessionId(existing);
 

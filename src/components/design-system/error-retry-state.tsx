@@ -45,7 +45,7 @@ export function ErrorRetryState({
         <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
         <p className="text-sm font-medium">{message}</p>
       </div>
-      <Button type="button" variant="outline" onClick={onRetry}>
+      <Button type="button" variant="outline" className="min-h-11" onClick={onRetry}>
         {retryLabel}
       </Button>
     </div>

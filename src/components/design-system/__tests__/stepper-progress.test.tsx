@@ -94,6 +94,21 @@ describe("StepperProgress (componente de apresentação)", () => {
     expect(screen.getAllByTitle("Etapa futura").length).toBeGreaterThan(0);
   });
 
+  it("expõe o status de cada StepDot via texto acessível (sr-only), não só via title (RL5-T02)", () => {
+    const { container } = render(
+      <StepperProgress currentState="hospedagem_aprovada" />,
+    );
+    // `title` sozinho tem suporte inconsistente em virtual cursor; o texto
+    // deve existir no DOM (via `.sr-only`) independentemente do `title`.
+    const srOnlyTexts = Array.from(
+      container.querySelectorAll(".sr-only"),
+    ).map((el) => el.textContent);
+
+    expect(srOnlyTexts).toContain("Etapa concluída");
+    expect(srOnlyTexts).toContain("Etapa atual");
+    expect(srOnlyTexts).toContain("Etapa futura");
+  });
+
   it("usa approvedStepsHint para renderizar encerrada_parcial com progresso conhecido", () => {
     render(
       <StepperProgress

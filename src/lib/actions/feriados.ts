@@ -23,6 +23,7 @@ import {
 } from "@/lib/session-flow";
 import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
 import { InvalidHolidaySelectionError } from "./feriados-errors";
+import { InvalidDestinoLengthError } from "./destino-length-error";
 import { resolveSessionOwner } from "./resolve-session-owner";
 
 /** Abreviação de dia da semana em português (3 letras, primeira maiúscula). */
@@ -242,15 +243,16 @@ export async function processarFeriadoEscolhido(
   // prompt injection (`sanitizeFreeTextForPrompt`,
   // `@/lib/gateway-ia/prompt-injection-guard`) + limite de tamanho; string
   // vazia após sanitização é tratada como "sem destino" por
-  // `createSessionWithDateRange`. Mantido o comportamento pré-existente de
-  // REJEITAR (não truncar) destino acima do limite — único dos 3 pontos de
-  // captura de destino manual do projeto que já fazia isso antes desta
-  // tarefa; não alterado, para não mudar contrato sem necessidade.
+  // `createSessionWithDateRange`. Destino acima do limite é REJEITADO (não
+  // truncado) — RL6-T01 padronizou os 3 pontos de captura de destino em
+  // texto livre do Lote 6 nesse comportamento (era o único que já fazia isso
+  // antes desta tarefa; `submeterDataLivre`, `./data-livre.ts`, truncava
+  // silenciosamente e foi alinhado aqui). Usa `InvalidDestinoLengthError`
+  // (`./destino-length-error.ts`), compartilhada com `submeterDataLivre`, em
+  // vez de `Error` genérico.
   const trimmed = input.destino?.trim();
   if (trimmed && trimmed.length > MAX_DESTINO_LENGTH) {
-    throw new Error(
-      `Destino excede o tamanho máximo permitido (${MAX_DESTINO_LENGTH} caracteres).`,
-    );
+    throw new InvalidDestinoLengthError(MAX_DESTINO_LENGTH);
   }
   const trimmedDestino = trimmed
     ? sanitizeFreeTextForPrompt(trimmed, { maxLength: MAX_DESTINO_LENGTH })

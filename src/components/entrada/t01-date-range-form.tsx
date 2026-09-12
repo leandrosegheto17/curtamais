@@ -1,11 +1,17 @@
 // L6-T02 — T01 UI: form de data livre + validação inline (RF-01.4).
 //
 // Apresentação + validação client-side pura. NÃO chama nenhuma Server Action
-// (L6-T03, ainda não implementada, dependente desta tarefa) — o formulário
-// hoje só valida localmente e expõe `onValid` para o futuro chamador acoplar
-// a submissão real (Diretriz de Implementação 3 do TASK.md: nenhuma
+// diretamente — só valida localmente e expõe `onValid` para o chamador
+// acoplar a submissão real (Diretriz de Implementação 3 do TASK.md: nenhuma
 // navegação client-side otimista; esta tela nunca decide sozinha para onde
 // ir, só bloqueia ou libera o avanço local).
+//
+// RL6-T02 (Bloqueio 006) — `isPending` foi adicionado para que o chamador
+// (`src/app/entrada/data-livre/page.tsx`) possa refletir o estado de
+// pendência da Server Action `submeterDataLivre` no botão "Continuar"
+// (`aria-busy`/`disabled`), mesmo padrão de `DestinoConfirmacaoScreen`
+// (L7-T04) — este componente continua sem chamar a Server Action
+// diretamente, só expõe o estado visual.
 //
 // Campos (UX-SPEC.md Seção 4, T01): dois seletores de data (início/fim) e um
 // campo opcional de destino (texto — UX-SPEC menciona "autocomplete simples",
@@ -48,6 +54,14 @@ export interface T01DateRangeFormProps {
    * nem persiste nada sozinho.
    */
   onValid?: (values: DateRangeFormValues) => void;
+  /**
+   * RL6-T02 — reflete o estado de pendência da Server Action disparada pelo
+   * chamador a partir de `onValid` (`aria-busy`/`disabled` no botão
+   * "Continuar", mesmo padrão de `DestinoConfirmacaoScreen`, L7-T04). `false`
+   * por padrão — formulários usados sem integração real (ex.: testes)
+   * continuam funcionando sem precisar passar esta prop.
+   */
+  isPending?: boolean;
   className?: string;
 }
 
@@ -56,7 +70,11 @@ export interface T01DateRangeFormProps {
  * bloqueia o avanço (nunca chama `onValid`) e mostra mensagem de erro junto
  * ao campo "Data final" enquanto o range estiver invertido.
  */
-export function T01DateRangeForm({ onValid, className }: T01DateRangeFormProps) {
+export function T01DateRangeForm({
+  onValid,
+  isPending = false,
+  className,
+}: T01DateRangeFormProps) {
   const [dataInicial, setDataInicial] = useState("");
   const [dataFinal, setDataFinal] = useState("");
   const [destino, setDestino] = useState("");
@@ -146,8 +164,13 @@ export function T01DateRangeForm({ onValid, className }: T01DateRangeFormProps) 
         />
       </div>
 
-      <Button type="submit" className="mt-2 min-h-11">
-        Continuar
+      <Button
+        type="submit"
+        className="mt-2 min-h-11"
+        disabled={isPending}
+        aria-busy={isPending}
+      >
+        {isPending ? "Enviando..." : "Continuar"}
       </Button>
     </form>
   );

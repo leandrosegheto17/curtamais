@@ -19,18 +19,53 @@
 // responsabilidade de quem chamar esta rota a partir de L7-T01/L8-T01/
 // L9-T01/L10-T01 — ver nota de implementação L3-T02 no TASK.md.
 //
-// Rate limiting (L3-T05, `checkGatewayIaRateLimit`) não é chamado aqui de
-// propósito — fora do escopo desta tarefa (ver contexto do L3-T02 no
-// TASK.md); a interface pública não foi alterada, só ainda não está
-// integrada a este ponto de entrada específico.
+// RL3-T01 — Integração de `checkGatewayIaRateLimit` (L3-T05) a esta rota
+// (SDD §7 / GUARDRAILS.md regra 19): esta é hoje a única rota HTTP pública
+// do Gateway de IA sem guarda de rate limit, alcançável por qualquer
+// requisição externa assim que deployada. A chave usa, em ordem de
+// preferência, o identificador de sessão anônima já existente
+// (`ANONYMOUS_SESSION_COOKIE`, `src/lib/anonymous-session.ts`) e, na
+// ausência dele, o IP da requisição (`x-forwarded-for`/`x-real-ip`) — ambos
+// satisfazem o critério mínimo do RL3-T01 (IP), mas o identificador de
+// sessão é preferido por ser mais estável por visitante. Nunca deixa a
+// requisição seguir para `streamStructuredCompletion` (e, portanto, para o
+// provider) quando o limite é excedido.
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { ANONYMOUS_SESSION_COOKIE } from "@/lib/anonymous-session";
 import {
   GATEWAY_IA_STAGES,
   GatewayIaError,
+  checkGatewayIaRateLimit,
   isGatewayIaStage,
   stageContextSchema,
   streamStructuredCompletion,
 } from "@/lib/gateway-ia";
+
+/**
+ * Resolve a chave de rate limit desta requisição (RL3-T01): prioriza o
+ * identificador de sessão anônima já presente no cookie; na ausência dele,
+ * cai para o IP informado pelos headers de proxy padrão
+ * (`x-forwarded-for`/`x-real-ip`); na ausência de ambos (ex.: requisição
+ * direta sem proxy em dev), usa um valor fixo — ainda assim aplica um limite
+ * global compartilhado, nunca deixa a chamada passar sem guarda nenhuma.
+ */
+async function resolveRateLimitKey(request: Request): Promise<string> {
+  const cookieStore = await cookies();
+  const anonSessionId = cookieStore.get(ANONYMOUS_SESSION_COOKIE)?.value;
+  if (anonSessionId) {
+    return `session:${anonSessionId}`;
+  }
+
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  const firstForwarded = forwardedFor?.split(",")[0]?.trim();
+  const ip = firstForwarded || request.headers.get("x-real-ip");
+  if (ip) {
+    return `ip:${ip}`;
+  }
+
+  return "ip:unknown";
+}
 
 // Achado do SPIKE-01 (ver `streaming-spike/route.ts`): sem esta diretiva o
 // Next.js 14 estatiza a rota em `next build`, bufferizando o stream uma
@@ -38,10 +73,10 @@ import {
 // do contexto da sessão e do provider real.
 export const dynamic = "force-dynamic";
 
-type RouteParams = { params: { etapa: string } };
+type RouteParams = { params: Promise<{ etapa: string }> };
 
 export async function POST(request: Request, { params }: RouteParams) {
-  const { etapa } = params;
+  const { etapa } = await params;
 
   if (!isGatewayIaStage(etapa)) {
     return NextResponse.json(
@@ -71,6 +106,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
       { status: 400 },
     );
+  }
+
+  try {
+    checkGatewayIaRateLimit(await resolveRateLimitKey(request));
+  } catch (error) {
+    const message =
+      error instanceof GatewayIaError
+        ? error.message
+        : "Limite de chamadas ao Gateway de IA excedido. Tente novamente em instantes.";
+    return NextResponse.json({ error: message }, { status: 429 });
   }
 
   const stageDefinition = GATEWAY_IA_STAGES[etapa];

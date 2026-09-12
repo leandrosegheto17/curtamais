@@ -429,6 +429,7 @@ export function HospedagemSugestoesScreen({
                         <Button
                           type="button"
                           variant="ghost"
+                          className="min-h-11"
                           disabled={adjustPending}
                           onClick={closeAdjust}
                         >

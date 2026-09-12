@@ -35,11 +35,11 @@ import {
 } from "@/lib/session-flow/state-machine";
 
 export interface ConfirmacaoDestinoPageProps {
-  searchParams: {
+  searchParams: Promise<{
     sessionId?: string;
     destino?: string;
     flowState?: string;
-  };
+  }>;
 }
 
 function resolveFlowState(value: string | undefined): SessionFlowState {
@@ -52,10 +52,10 @@ function resolveFlowState(value: string | undefined): SessionFlowState {
   return "destino_confirmado";
 }
 
-export default function ConfirmacaoDestinoPage({
+export default async function ConfirmacaoDestinoPage({
   searchParams,
 }: ConfirmacaoDestinoPageProps) {
-  const { sessionId, destino } = searchParams;
+  const { sessionId, destino, flowState } = await searchParams;
 
   // T05 é "single-purpose": sem sessionId/destino não há o que confirmar
   // (ex.: acesso direto à URL sem passar pelo fluxo) — volta ao início em vez
@@ -69,7 +69,7 @@ export default function ConfirmacaoDestinoPage({
     <ConfirmacaoDestinoClient
       sessionId={sessionId}
       destino={destino}
-      currentState={resolveFlowState(searchParams.flowState)}
+      currentState={resolveFlowState(flowState)}
     />
   );
 }

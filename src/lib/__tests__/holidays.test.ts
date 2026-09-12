@@ -3,7 +3,7 @@
 // L2-T01 — Cálculo determinístico de feriados nacionais BR (ADR-007, RF-02.2,
 // RNF-07). Critério de aceite: testes unitários cobrindo feriado em cada dia
 // da semana; nenhuma chamada a LLM no caminho de cálculo.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -224,6 +224,51 @@ describe("Determinismo / independência de LLM (RNF-07)", () => {
     );
 
     expect(source).not.toMatch(/gateway-ia|openai|fetch\(|await fetch/i);
+  });
+
+  // RL2-T01 — mesma checagem estendida a todo o módulo de feriados em
+  // src/lib/actions/ (feriados.ts e arquivos correlatos, ex.: feriados-errors.ts),
+  // para que um futuro arquivo do módulo que passe a chamar LLM/rede quebre este
+  // guardrail sem precisar de nova tarefa para "lembrar" de cobri-lo.
+  it("o módulo de feriados em src/lib/actions/ não referencia gateway de IA/LLM/rede", () => {
+    const actionsDir = path.resolve(__dirname, "../actions");
+    const feriadosFiles = readdirSync(actionsDir).filter(
+      (file) => file.startsWith("feriados") && file.endsWith(".ts"),
+    );
+
+    // Garante que a varredura está de fato encontrando arquivos — se o módulo
+    // for renomeado/movido, o teste deve falhar em vez de passar vazio.
+    expect(feriadosFiles.length).toBeGreaterThan(0);
+
+    for (const file of feriadosFiles) {
+      const source = readFileSync(path.join(actionsDir, file), "utf-8");
+      // Remove comentários antes de checar: arquivos deste módulo documentam,
+      // em comentário, o padrão análogo usado por outros arquivos do projeto
+      // (ex.: "mesmo padrão usado em src/lib/gateway-ia/errors.ts") — isso é
+      // uma referência de documentação, não uma chamada real a LLM/rede, e não
+      // deve reprovar o guardrail.
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+
+      // Allowlist: `@/lib/gateway-ia/prompt-injection-guard` é sanitização
+      // pura de string (sem fetch/rede/chamada a LLM — ver
+      // src/lib/gateway-ia/prompt-injection-guard.ts), importada por
+      // feriados.ts só para tratar texto livre do usuário antes de compor um
+      // prompt em outro módulo. Mora em `gateway-ia/` por organização de
+      // pasta, não por fazer parte do caminho de chamada ao LLM — daí o
+      // regex genérico abaixo (mesmo de holidays.test.ts) precisar ignorar só
+      // esta linha específica, sem deixar de pegar qualquer outro uso real de
+      // `gateway-ia` (ex.: um client/chamada de LLM futura no módulo).
+      const withoutSafeImports = withoutComments.replace(
+        /import\s*\{[^}]*\}\s*from\s*["']@\/lib\/gateway-ia\/prompt-injection-guard["'];?/g,
+        "",
+      );
+
+      expect(withoutSafeImports).not.toMatch(
+        /gateway-ia|openai|fetch\(|await fetch/i,
+      );
+    }
   });
 
   it("é puro: chamar duas vezes com o mesmo ano produz o mesmo resultado (deep equal)", () => {

@@ -300,7 +300,9 @@ function PeriodoStep({
         </p>
       )}
       <div className="flex justify-end">
-        <Button type="submit">Avançar</Button>
+        <Button type="submit" className="min-h-11">
+          Avançar
+        </Button>
       </div>
     </form>
   );
@@ -381,7 +383,7 @@ function ExperienciaStep({
       </div>
       <div className="flex items-center justify-between gap-2">
         <StepNav onBack={onBack} onSkip={onSkip} />
-        <Button type="button" onClick={onAdvance}>
+        <Button type="button" className="min-h-11" onClick={onAdvance}>
           Avançar
         </Button>
       </div>
@@ -434,7 +436,9 @@ function OrcamentoStep({
       </div>
       <div className="flex items-center justify-between gap-2">
         <StepNav onBack={onBack} onSkip={onSkip} />
-        <Button type="submit">Concluir</Button>
+        <Button type="submit" className="min-h-11">
+          Concluir
+        </Button>
       </div>
     </form>
   );
@@ -443,10 +447,10 @@ function OrcamentoStep({
 function StepNav({ onBack, onSkip }: { onBack: () => void; onSkip: () => void }) {
   return (
     <div className="flex items-center gap-2">
-      <Button type="button" variant="ghost" onClick={onBack}>
+      <Button type="button" variant="ghost" className="min-h-11" onClick={onBack}>
         Voltar
       </Button>
-      <Button type="button" variant="outline" onClick={onSkip}>
+      <Button type="button" variant="outline" className="min-h-11" onClick={onSkip}>
         Pular
       </Button>
     </div>
@@ -469,7 +473,7 @@ function RadioOption({
     <label
       htmlFor={id}
       className={cn(
-        "flex cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-foreground",
+        "flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-foreground",
         checked && "border-accent",
       )}
     >
@@ -500,7 +504,7 @@ function CheckboxOption({
     <label
       htmlFor={id}
       className={cn(
-        "flex cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-foreground",
+        "flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-foreground",
         checked && "border-accent",
       )}
     >

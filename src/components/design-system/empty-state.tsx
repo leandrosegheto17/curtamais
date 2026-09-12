@@ -53,6 +53,7 @@ export function EmptyState({
               key={action.label}
               type="button"
               variant={index === 0 ? "default" : "outline"}
+              className="min-h-11"
               onClick={action.onClick}
             >
               {action.label}

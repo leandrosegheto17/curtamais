@@ -31,8 +31,11 @@ describe("ConfirmacaoDestinoPage (rota T05, L7-T04, RF-11)", () => {
     ).default;
 
     render(
-      ConfirmacaoDestinoPage({
-        searchParams: { sessionId: "session-1", destino: "Foz do Iguaçu" },
+      await ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({
+          sessionId: "session-1",
+          destino: "Foz do Iguaçu",
+        }),
       }),
     );
 
@@ -50,9 +53,11 @@ describe("ConfirmacaoDestinoPage (rota T05, L7-T04, RF-11)", () => {
       await import("@/app/destino/confirmacao/page")
     ).default;
 
-    expect(() =>
-      ConfirmacaoDestinoPage({ searchParams: { destino: "Foz do Iguaçu" } }),
-    ).toThrow("NEXT_REDIRECT");
+    await expect(
+      ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({ destino: "Foz do Iguaçu" }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT");
     expect(redirectMock).toHaveBeenCalledWith("/");
   });
 
@@ -61,9 +66,11 @@ describe("ConfirmacaoDestinoPage (rota T05, L7-T04, RF-11)", () => {
       await import("@/app/destino/confirmacao/page")
     ).default;
 
-    expect(() =>
-      ConfirmacaoDestinoPage({ searchParams: { sessionId: "session-1" } }),
-    ).toThrow("NEXT_REDIRECT");
+    await expect(
+      ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({ sessionId: "session-1" }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT");
     expect(redirectMock).toHaveBeenCalledWith("/");
   });
 
@@ -73,12 +80,12 @@ describe("ConfirmacaoDestinoPage (rota T05, L7-T04, RF-11)", () => {
     ).default;
 
     render(
-      ConfirmacaoDestinoPage({
-        searchParams: {
+      await ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({
           sessionId: "session-1",
           destino: "Foz do Iguaçu",
           flowState: "algo-invalido",
-        },
+        }),
       }),
     );
 

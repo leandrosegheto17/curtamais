@@ -19,6 +19,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { submeterDataLivre } from "@/lib/actions/data-livre";
 import { InvalidDataLivreInputError } from "@/lib/actions/data-livre-errors";
+import { InvalidDestinoLengthError } from "@/lib/actions/destino-length-error";
 
 const getServerSessionMock = vi.fn();
 const cookieGetMock = vi.fn();
@@ -173,24 +174,18 @@ describe("submeterDataLivre — integração real com Postgres (L6-T03)", () => 
     expect(countAfter).toBe(countBefore);
   });
 
-  it("destino além do limite de tamanho é truncado antes de persistir", async () => {
+  it("RL6-T01: destino além do limite de tamanho é REJEITADO (não truncado), sem criar sessão", async () => {
     const longDestino = "a".repeat(500);
 
-    const result = await submeterDataLivre({
-      dataInicial: "2027-01-05",
-      dataFinal: "2027-01-10",
-      destino: longDestino,
-    });
-    sessionIds.push(result.sessionId);
-
-    expect(result.proximaEtapa).toBe("confirmacao_destino");
-    if (result.proximaEtapa === "confirmacao_destino") {
-      expect(result.destino).toHaveLength(200);
-    }
-
-    const destination = await prisma.destinationApproval.findUniqueOrThrow({
-      where: { sessionId: result.sessionId },
-    });
-    expect(destination.name).toHaveLength(200);
+    // Validação do tamanho do destino ocorre antes de qualquer acesso ao
+    // banco (mesmo padrão dos testes acima de datas ausentes/malformadas) —
+    // não depende de Postgres disponível.
+    await expect(
+      submeterDataLivre({
+        dataInicial: "2027-01-05",
+        dataFinal: "2027-01-10",
+        destino: longDestino,
+      }),
+    ).rejects.toBeInstanceOf(InvalidDestinoLengthError);
   });
 });
