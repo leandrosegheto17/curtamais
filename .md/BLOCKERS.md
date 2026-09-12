@@ -338,6 +338,269 @@ Formato de entrada conforme `.claude/PIPELINE-CONVENTIONS.md` Seção 4.
     Seção 7 (autorização — dono gravado na criação, precedência, sempre 404).
     Nenhum ADR/decisão anterior (ADR-005/ADR-006) alterado.
 
+## Bloqueio 005 — 2026-09-12
+
+- Reportado por: validador (chapéu QA, validação funcional do Lote 10 —
+  Roteiro Final e Encerramento)
+- Escalado para: coordenador
+- Artefato/trecho afetado: `.md/TASK.md` (Seção 3 — Lotes 8, 9, 10 e Lote 11)
+  vs. `src/app` (estrutura de diretórios real)
+- Descrição: **padrão recorrente, não um bug de uma tarefa isolada**. A
+  partir de T06 (Hospedagem, Lote 8), nenhuma das telas subsequentes da
+  jornada principal (T06/`HospedagemSugestoesScreen`, T07/
+  `PasseiosSugestoesScreen`, T08/`RoteiroScreen`, T-END/`EncerramentoScreen`)
+  tem um `page.tsx` real sob `src/app` que a monte com `sessionId` resolvido
+  da querystring/sessão e a sirva numa rota navegável — confirmado por
+  inspeção direta de `src/app` (só existem `src/app/entrada/**`,
+  `src/app/destino/page.tsx` e `src/app/destino/confirmacao/page.tsx`; não
+  existe `src/app/hospedagem`, `src/app/passeios`, `src/app/roteiro`, nem
+  `src/app/encerramento` em nenhum lugar da árvore). Cada tarefa de tela
+  (L8-T02, L9-T02, L10-T02) e a tela de encerramento (L10-T04) documentou
+  esse gap individualmente na própria nota de implementação, sempre como
+  "não bloqueante, fora do escopo desta tarefa" — decisão razoável tarefa a
+  tarefa, mas em nenhum lote (8, 9, 10) nem no Lote 11 (Cross-cutting Final,
+  já `Concluída`) existe uma tarefa que efetivamente crie essas 4 rotas +
+  a Server Action de leitura que `EncerramentoScreen` (L10-T04) precisa para
+  montar `EncerramentoResumo` a partir de `DestinationApproval`/
+  `AccommodationApproval`/`ActivityApproval`/`ItineraryItem` já persistidos.
+  Adicionalmente, `RoteiroScreen`/`PasseiosSugestoesScreen`/
+  `HospedagemSugestoesScreen` recebem `sessionId` como prop simples — nenhuma
+  delas documenta de onde esse `sessionId` viria numa página real (nem
+  `useSearchParams` nem leitura de cookie/sessão no componente).
+- Impacto se não resolvido: com todo o conteúdo dos Lotes 6-10 (`Concluída`)
+  e o Lote 11 (Cross-cutting Final, `Concluída`) já implementados, um usuário
+  real que chegasse até `destino_confirmado` (T05) não teria como navegar
+  fisicamente até T06/T07/T08/T-END em produção — os links "Continuar para
+  hospedagem/passeios/roteiro" de cada tela (`router.push`) apontam para
+  rotas que hoje resultam em 404. Isso não impede a validação funcional
+  tarefa a tarefa (cada regra de negócio/Server Action/componente isolado
+  funciona e está coberto por teste, confirmado nesta validação), mas
+  impede a jornada ponta a ponta funcionar no produto real — um risco maior
+  agora porque a preparação de infraestrutura/deploy já está em andamento em
+  paralelo (`vercel.json`, `.github/workflows/deploy.yml`, `.md/DEPLOY.md`
+  presentes no repositório nesta mesma janela de tempo, chapéu DevOps).
+- Sugestão (opcional, do validador): decompor uma tarefa nova (ou um
+  pequeno lote de "Integração de Rotas", já que toca Lotes 6-10 sem
+  pertencer estritamente a nenhum deles) que crie os 4 `page.tsx` faltantes
+  (`src/app/hospedagem`, `src/app/passeios`, `src/app/roteiro`,
+  `src/app/encerramento`), resolvendo `sessionId` da querystring (mesmo
+  padrão de `src/app/destino/confirmacao/page.tsx`) e, para T-END
+  especificamente, uma Server Action nova de "obter resumo da sessão" que
+  monte `EncerramentoResumo` a partir dos registros já persistidos — decisão
+  de decomposição/priorização cabe ao Coordenador, não ao Validador.
+- Status: Resolvido
+
+**Nota de resolução do Bloqueio 005 (2026-09-12, Coordenador)**: confirmado
+por leitura direta do código — `src/app` de fato não tem `hospedagem/`,
+`passeios/`, `roteiro/` nem `encerramento/`, só `entrada/**`, `destino/
+page.tsx` e `destino/confirmacao/page.tsx`; os três componentes de tela
+citados (`HospedagemSugestoesScreen`, `PasseiosSugestoesScreen`,
+`RoteiroScreen`) de fato recebem `sessionId` só como prop, sem nenhum ponto
+real de resolução a partir de querystring/sessão; `EncerramentoScreen`
+de fato não tem nenhuma Server Action de leitura que monte
+`EncerramentoResumo`. O padrão de `src/app/destino/confirmacao/page.tsx`
+(L7-T04 — Server Component fino, resolve `sessionId`/`flowState` via
+`searchParams`, `redirect("/")` quando faltar o essencial) é reaproveitável
+sem alteração de abordagem para as 4 rotas faltantes.
+
+Decisão de decomposição: criado um lote novo dedicado, **Lote 12 —
+Integração de Rotas**, em vez de distribuir como tarefas de `Refatoração
+Lote-N` dentro de 8/9/10 — o gap não é uma correção de comportamento já
+implementado dentro do escopo de um lote específico (como as refatorações
+RL6/RL8 existentes), é a ausência de uma peça inteira que nunca esteve no
+escopo de nenhuma tarefa, atravessando 3 lotes de tela mais o Lote 11 (a
+Server Action de leitura depende de tipos de aprovação persistidos desde o
+Lote 7). Mesmo raciocínio já usado para o próprio Lote 11 (Cross-cutting
+Final): trabalho que não pertence a um lote de origem específico vira lote
+próprio.
+
+Tarefas criadas (`.md/TASK.md`, Seção 3, "Lote 12 — Integração de Rotas
+(T06-T-END)"): `L12-T01` (rota `/hospedagem`, FE, 0.25 dia, depende de
+`L8-T02`), `L12-T02` (rota `/passeios`, FE, 0.25 dia, depende de `L9-T02`),
+`L12-T03` (rota `/roteiro`, FE, 0.25 dia, depende de `L10-T02`), `L12-T04`
+(Server Action de leitura `obterResumoEncerramento`, BE, 0.5 dia, depende de
+`L7-T03`/`L8-T03`/`L9-T03`/`L10-T03`/`L11-T02` — aplica o guard de dono de
+sessão antes de ler), `L12-T05` (rota `/encerramento`, FE, 0.5 dia, depende
+de `L10-T04` e `L12-T04`). `L12-T01`/`L12-T02`/`L12-T03`/`L12-T04` são
+mutuamente paralelizáveis; só `L12-T05` tem ordem obrigatória (precisa de
+`L12-T04` concluída primeiro). Nenhuma tarefa mistura tela e Server Action na
+mesma unidade, seguindo a mesma convenção de não-mistura do resto do
+`TASK.md`. Nenhum ADR novo — não é mudança de decisão arquitetural do
+`SDD.md`, é decomposição de um trabalho que já estava implícito na jornada
+navegável do `UX-SPEC.md`/`PRD-TECNICO.md` e nunca tinha virado tarefa
+própria. `TASK.md` atualizado: Seção 3 (nova tabela do Lote 12), Seção 4
+(dependências/paralelismo do Lote 12) e Seção 6 (lacuna estrutural
+registrada, com a resolução). Próximo passo: `/executar` sobre o Lote 12.
+
+## Bloqueio 006 — 2026-09-12
+
+- Reportado por: validador (chapéu QA, Validação Final de Confirmação
+  pré-staging, Comando 3/`EXECUTION-FLOW.md`, sobre o conjunto completo
+  Lotes 1-12)
+- Escalado para: coordenador (decomposição de tarefas novas — mesmo
+  raciocínio do Bloqueio 005/Lote 12); sinalizado ao gestor em paralelo
+  (relevância estratégica: bloqueia o valor de negócio de todo o release)
+- Artefato/trecho afetado: `src/app/entrada/data-livre/page.tsx` (L6-T02),
+  `src/app/entrada/feriados/feriados-screen.tsx` (L6-T04),
+  `src/app/entrada/quiz/page.tsx` (L6-T06) e
+  `src/app/destino/confirmacao/confirmacao-destino-client.tsx` (L7-T04) vs.
+  jornada principal T00→T-END (`PRD-TECNICO.md`/`UX-SPEC.md`)
+- Descrição: **padrão recorrente, não um bug de uma tarefa isolada** — mesma
+  natureza do Bloqueio 005, mas no lado de ENTRADA da jornada (T01-T05), não
+  no de rotas de destino (T06-T-END) já resolvido pelo Lote 12. Verificação
+  direta de código (não das notas de implementação) confirma que nenhuma
+  tela de `src/app/entrada` importa `submeterDataLivre`/
+  `processarFeriadoEscolhido`/`submitQuizAnswers` (as 3 Server Actions de
+  L6-T03/L6-T05/L6-T07, todas `Concluída`) — cada tela (T01/T02/T03)
+  documentou essa integração como "fora de escopo, aguardando a Server
+  Action irmã" no momento em que foi implementada, mas nenhuma tarefa
+  posterior (Lote 6, 7, 11 ou 12) voltou para conectar UI → Server Action →
+  navegação. O mesmo padrão se repete em T05
+  (`confirmacao-destino-client.tsx`, L7-T04): `confirmarDestino` (L7-T05)
+  avança corretamente o `flowState` no servidor, mas o client nunca chama
+  `router.push` para `/hospedagem` depois da Promise resolver — só "Trocar
+  destino" navega. Por contraste, T06→T07→T08→T-END (Lotes 8/9/10) fazem
+  isso corretamente (Server Action primeiro, `router.push` só depois de
+  confirmado), confirmando que o problema está concentrado nas transições
+  mais antigas da jornada (T01-T05), implementadas antes do precedente do
+  Bloqueio 005/Lote 12 existir.
+- Impacto se não resolvido: nenhum usuário real completa a jornada
+  principal do produto pela UI publicada — trava já em T01/T02 (nenhum
+  caminho de entrada avança), ou, se uma sessão for criada por outro meio,
+  trava em T05 (confirmar destino não leva a lugar nenhum). Isso invalida a
+  premissa de que os 12 lotes, publicados juntos nesta primeira promoção a
+  staging, entregam um produto funcional de ponta a ponta — apesar de cada
+  Server Action e cada componente estarem corretos e testados
+  isoladamente, e de todas as validações por lote (`QA-REPORT.md`) terem
+  aprovado corretamente o que cada critério de aceite exigia literalmente.
+- Sugestão (opcional, do validador, mesmo padrão do Bloqueio 005): um novo
+  lote (ou tarefas adicionadas a um lote de integração já existente) que
+  conecte explicitamente: (a) `T01DateRangeForm`/`onValid` →
+  `submeterDataLivre` + `router.push` para `/destino` ou
+  `/destino/confirmacao` conforme o retorno; (b) `FeriadosScreen` — botão de
+  continuar novo → `processarFeriadoEscolhido` + navegação equivalente; (c)
+  `QuizPage`/`onComplete` → `submitQuizAnswers` + navegação equivalente; (d)
+  `confirmacao-destino-client.tsx` — `router.push("/hospedagem?...")` após
+  `confirmarDestino` resolver, mesmo padrão já usado em
+  `hospedagem-sugestoes-screen.tsx`/`passeios-sugestoes-screen.tsx`/
+  `roteiro-screen.tsx`. Decisão de decomposição/priorização (lote novo vs.
+  reabrir tarefas existentes) cabe ao Coordenador, não ao Validador.
+- Severidade (chapéu QA): **crítica** — compromete o critério de aceite
+  central da combinação dos 12 lotes (jornada navegável T00→T-END).
+  **Bloqueia este deploy** (Comando 3/`EXECUTION-FLOW.md`, promoção a
+  staging do conjunto completo). Nenhuma tarefa individual revertida de
+  `Concluída` para `Em andamento` — mesmo raciocínio do Bloqueio 005: o gap
+  nunca pertenceu a uma tarefa específica já fechada (cada uma cumpriu
+  literalmente seu próprio critério de aceite), é a ausência de tarefas de
+  integração que nunca foram criadas.
+- Status: Resolvido
+
+**Nota de resolução do Bloqueio 006 (2026-09-12, Coordenador)**: confirmado
+por leitura direta do código (não das notas de implementação) — os 4 pontos
+citados pelo Validador batem exatamente com o código atual:
+`src/app/entrada/data-livre/page.tsx` (T01) só renderiza `T01DateRangeForm`
+sem `onValid` conectado a nenhuma Server Action; `src/app/entrada/feriados/
+feriados-screen.tsx` (T02) não tem nenhum botão/ação de continuar, só o
+`fieldset` de seleção e o campo de destino; `src/app/entrada/quiz/page.tsx`
+(T03) termina em tela estática ("Respostas registradas... ainda estão em
+construção") sem chamar `submitQuizAnswers`; `src/app/destino/confirmacao/
+confirmacao-destino-client.tsx` (T05) passa `confirmarDestino` diretamente
+como `onConfirmar` sem nenhum wrapper de navegação, enquanto `onTrocar`, no
+mesmo arquivo, já chama a Server Action e navega (`router.back()`)
+corretamente. Nenhum quinto ponto de wiring quebrado foi encontrado na
+mesma jornada (T00, que só usa `next/link` estático para as 3 entradas, não
+precisa de nenhuma Server Action; T04-T-END já corrigidos pelo Lote 12).
+
+Decisão de decomposição: **`Refatoração Lote-6`/`Refatoração Lote-7`, não um
+lote novo** — avaliado e rejeitado o mesmo caminho do Bloqueio 005/Lote 12
+porque a natureza do gap é diferente: no Bloqueio 005, a peça faltante (rota +
+Server Action de leitura nova) nunca pertenceu a nenhum lote de origem
+específico, atravessando 3 lotes de tela mais o Lote 11. Aqui, cada gap mora
+inteiramente dentro de um arquivo já pertencente a um lote de origem único e
+já `Concluída` — `src/app/entrada/data-livre/page.tsx` (L6-T02),
+`feriados-screen.tsx` (L6-T04) e `quiz/page.tsx` (L6-T06) pertencem ao Lote 6;
+`confirmacao-destino-client.tsx` (L7-T04) pertence ao Lote 7 — e nenhuma
+Server Action ou rota nova precisa ser criada (as 4 Server Actions e as 4
+rotas de destino já existem e já foram validadas isoladamente). É exatamente
+o padrão que `Refatoração Lote-N` já cobre no resto do `TASK.md` (terminar/
+corrigir algo dentro do escopo de um lote já fechado), não o padrão do Lote
+12 (ausência de uma peça inteira sem lote de origem).
+
+Tarefas criadas (`.md/TASK.md`, Seção 3): em `Refatoração Lote-6` — `RL6-T02`
+(conectar T01 a `submeterDataLivre` + navegação, FE, 0.25 dia, depende de
+`L6-T02`/`L6-T03`/`L7-T02`/`L7-T04`), `RL6-T03` (adicionar botão "Continuar" a
+`FeriadosScreen` conectado a `processarFeriadoEscolhido` + navegação, FE, 0.25
+dia, depende de `L6-T04`/`L6-T05`/`L7-T02`/`L7-T04`), `RL6-T04` (conectar T03
+a `submitQuizAnswers` + navegação, FE, 0.25 dia, depende de `L6-T06`/
+`L6-T07`/`L7-T02`); em uma nova seção `Refatoração Lote-7` — `RL7-T01`
+(conectar `onConfirmar` de `ConfirmacaoDestinoClient` a `router.push` para
+`/hospedagem` após `confirmarDestino` resolver, FE, 0.1 dia, depende de
+`L7-T04`/`L7-T05`/`L12-T01`). As 4 tarefas são mutuamente paralelizáveis
+(arquivos distintos, sem sobreposição) e todas as suas dependências já estão
+`Concluída`s, logo estão imediatamente elegíveis para execução. Diferente das
+demais `Refatoração Lote-N` já registradas (que não têm prazo crítico), estas
+4 TÊM prazo crítico: bloqueiam a promoção a staging do conjunto completo — ver
+`.md/TASK.md` Seção 4 para o detalhamento. Nenhuma tarefa mistura tela e
+Server Action (todas só conectam UI → Server Action já existente →
+navegação), nenhuma se aproxima do canário de ~300 mil tokens. Nenhum ADR
+novo — não é mudança de decisão arquitetural do `SDD.md` nem de experiência
+do `UX-SPEC.md`, é decomposição de wiring que já estava implícito na jornada
+navegável descrita em ambos e nunca tinha virado tarefa própria. `TASK.md`
+atualizado: Seção 3 (tabelas de `Refatoração Lote-6`/nova `Refatoração
+Lote-7`), Seção 4 (dependências/paralelismo/prazo crítico das 4 tarefas) e
+Seção 6 (lacuna estrutural registrada, com a resolução completa). Próximo
+passo: `/executar` sobre `RL6-T02`, `RL6-T03`, `RL6-T04` e `RL7-T01` antes de
+qualquer nova tentativa de promoção a staging.
+
+## Bloqueio 007 — 2026-09-12
+
+- Reportado por: validador (chapéu DevOps, Comando 3/`EXECUTION-FLOW.md`,
+  tentativa de deploy real em staging do conjunto completo Lotes 1-12, já
+  com dupla aprovação QA + DevSecOps confirmada)
+- Escalado para: gestor (decisão de negócio — criar conta/billing em
+  serviços de terceiros não é decisão técnica; nenhum agente tem ou deve ter
+  acesso para criar essas contas em nome do usuário)
+- Artefato/trecho afetado: `.md/DEPLOY.md` Seção 1 (decisão já registrada
+  como deliberadamente aberta: "provedor de PostgreSQL gerenciado... quem
+  efetivamente criar a conta/instância do banco... fora do escopo desta
+  preparação") vs. a necessidade real de publicar staging agora que os 12
+  lotes têm dupla aprovação
+- Descrição: nenhuma das três peças de infraestrutura real necessárias para
+  um deploy de fato funcional existe hoje: (1) não há conta/projeto Vercel
+  criado/linkado a este repositório (sem `.vercel/` local, sem evidência de
+  projeto); (2) `VERCEL_TOKEN` não existe como GitHub Secret (nem
+  repositório, nem Environment `staging`, confirmado via `gh secret list`/
+  `gh api`); (3) nenhum provedor de PostgreSQL gerenciado foi criado —
+  `DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY` reais de staging não
+  existem em nenhum secret manager acessível, só placeholders em
+  `.env.example`. Confirmado com evidência real, não hipotética: disparo
+  efetivo do `deploy.yml` (`workflow_dispatch`, run
+  `34722166920`) passou por checkout/install/build da pipeline e falhou
+  exatamente no step que depende do token (`vercel pull --token=` vazio →
+  `Error: You defined "--token", but it's missing a value`).
+- Impacto se não resolvido: os 12 lotes, já duplamente aprovados (funcional +
+  segurança), não podem ser publicados em staging nem produção — o produto
+  continua existindo só como código versionado, sem nenhuma URL acessível
+  para validação de release-readiness real ou uso pelo fundador/usuários.
+- Sugestão (do validador, não uma decisão): itens de ação humana, detalhados
+  passo a passo em `.md/DEPLOY.md` Seção 7 ("Pendências operacionais exatas
+  para publicar staging de fato") — criar conta Vercel + gerar
+  `VERCEL_TOKEN`; criar instância Postgres gerenciado (recomendação já
+  registrada: Neon); gerar `NEXTAUTH_SECRET`/obter `OPENAI_API_KEY` reais;
+  configurar as 3 variáveis como Environment Variables da Vercel; cadastrar
+  `VERCEL_TOKEN` como GitHub Secret escopado ao Environment `staging`
+  (já existe, criado implicitamente nesta tentativa, sem secrets ainda);
+  adicionar step `prisma migrate deploy` ao `deploy.yml`. Depois disso,
+  re-disparar o mesmo comando já documentado.
+- Severidade (chapéu DevOps): **bloqueia publicação real** (staging e,
+  consequentemente, produção) — não é débito de baixa/média severidade
+  registrável em `Refatoração Lote-X` (não é código a corrigir, é
+  infraestrutura/conta a provisionar por alguém com acesso de billing).
+  Nenhuma tarefa `Concluída` revertida — o gap é puramente operacional,
+  fora do código dos 12 lotes.
+- Status: Aberto — aguardando ação humana (criação de contas/credenciais
+  reais) fora do alcance de qualquer agente deste pipeline.
+
 ## Nota de escopo — o que a L4-T01 implementou apesar do bloqueio
 
 Para não parar o lote inteiro sem necessidade, a L4-T01 foi implementada

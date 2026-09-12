@@ -180,4 +180,119 @@ primeiro deploy de produção, não desta preparação.
 
 ## 7. Histórico de deploys
 
-(Vazio — nenhum deploy realizado até o momento desta preparação.)
+### Tentativa 1 — Staging, 2026-09-12 (Validador, chapéu DevOps, Comando 3/EXECUTION-FLOW.md)
+
+**Contexto**: Validação Final de Confirmação (2ª tentativa, pré-staging) já
+havia liberado os 12 lotes com dupla aprovação (QA + DevSecOps) registrada em
+`.md/QA-REPORT.md`/`.md/SECURITY-REVIEW.md`, e `.md/BLOCKERS.md` sem nenhuma
+entrada `Aberto`. Esta tentativa cobriu os 4 pontos pedidos: verificação de
+pré-requisitos, disparo real do workflow, checagem de observabilidade e de
+RNFs relevantes ao ambiente.
+
+**Resultado: deploy real NÃO publicado. Bloqueio operacional de
+infraestrutura genuíno, não simulável por este agente** — ver detalhamento.
+
+**O que foi de fato executado (não documentado, executado)**:
+
+1. Confirmação de pré-requisitos via `gh api`/`gh secret list` contra o
+   repositório real (`leandrosegheto17/curtamais`):
+   - GitHub Environment `staging`: **não existia** antes desta tentativa
+     (`gh api repos/.../environments` retornava `total_count: 0`). Foi
+     criado implicitamente pelo próprio GitHub no momento do primeiro
+     `workflow_dispatch` que o referenciou — sem nenhuma regra de proteção e
+     **sem nenhum secret associado**.
+   - `VERCEL_TOKEN`: **não existe** como secret, nem no repositório
+     (`gh secret list` só lista `CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN`
+     — resíduo de uma decisão de infraestrutura anterior, não relacionado à
+     Vercel) nem no Environment `staging`.
+   - Não existe `.vercel/` local nem qualquer evidência de um projeto Vercel
+     de fato criado/linkado a este repositório.
+   - `DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY` reais (staging):
+     inexistentes em qualquer secret manager acessível — só o template em
+     `.env.example` (valores de placeholder). Consistente com a Seção 1: o
+     provedor de PostgreSQL gerenciado nunca foi de fato escolhido/criado
+     (decisão deliberadamente deixada em aberto na preparação de IaC).
+   - Conclusão: **nenhum dos três pré-requisitos operacionais reais existe**
+     — nem conta/projeto Vercel, nem banco Postgres gerenciado, nem os
+     secrets correspondentes em GitHub. Isso não é uma lacuna de
+     configuração trivial corrigível por este agente: requer criar contas
+     reais (Vercel, provedor de Postgres) e gerar/copiar credenciais que só
+     existem depois dessa criação — ação humana fora do alcance de um agente
+     que não tem (e não deve ter) acesso a criar contas de terceiros/cartão
+     de cobrança em nome do usuário.
+   - `git push`: os arquivos de pipeline preparados anteriormente
+     (`deploy.yml`, `rollback.yml`) e este próprio `DEPLOY.md` estavam
+     **untracked**, nunca commitados/publicados em `main` — o que por si só
+     impedia `workflow_dispatch` (`HTTP 404: workflow deploy.yml not found
+     on the default branch`). Corrigido nesta sessão: commit
+     `f97615c` (`git push origin main`), escopado só a esses 3 arquivos —
+     nenhuma mudança de código de lote foi tocada/commitada por este agente.
+2. Disparo real do workflow (não simulado): `gh workflow run deploy.yml
+   --repo leandrosegheto17/curtamais -f environment=staging -f ref=main`
+   → run [`34722166920`](https://github.com/leandrosegheto17/curtamais/actions/runs/34722166920).
+   Resultado real observado (não hipotético): `Checkout`/`Setup Node`/
+   `Install dependencies`/`Install Vercel CLI` **passaram**; o step "Pull
+   configuração do ambiente Vercel" **falhou** com o comando executado
+   sendo literalmente `vercel pull --yes --environment=preview --token=`
+   (token vazio) e a mensagem de erro `Error: You defined "--token", but
+   it's missing a value` — prova direta, em log real de CI, de que
+   `secrets.VERCEL_TOKEN` não existe. Run concluído com `Process completed
+   with exit code 1`.
+3. **Observabilidade (chapéu DevOps)**: `LlmGenerationLog`
+   (`prisma/schema.prisma`, já `Concluída` desde L3-T04,
+   `src/lib/gateway-ia/generation-log.ts`) confirmado presente e integrado
+   ao Gateway de IA — pronto para captar tokens/custo/latência/retry assim
+   que houver um banco real conectado. Runtime Logs/métricas nativas da
+   Vercel (Seção 5) dependem inteiramente de um deploy real já ter ocorrido
+   num projeto Vercel real — como nenhum projeto existe, **não há nada
+   ainda para "estar pronto"** além do já documentado na Seção 5: a
+   observabilidade de infraestrutura só passa a existir no instante em que
+   o primeiro `vercel deploy` bem-sucedido ocorrer contra um projeto real.
+   RUM (`@vercel/analytics`) continua pendente, sem mudança desde a Seção 5.
+4. **RNFs relevantes a staging (`PRD-TECNICO.md`)**: RNF-02 (tempo de
+   resposta por etapa), RNF-05 (tratamento de falha do LLM), RNF-06 (LGPD em
+   dado persistido), RNF-04 (responsividade) já têm cobertura **de código**
+   validada pelo QA por lote (`.md/QA-REPORT.md`). O que **não pôde ser
+   validado nesta tentativa**, por depender de um ambiente de fato no ar, é
+   o comportamento *observado em staging real*: latência real do provider
+   de LLM a partir da região `gru1`, comportamento de conexão/criptografia
+   real do Postgres gerenciado (RNF-06), e Web Vitals reais (RNF-03/04) —
+   nenhum desses é verificável sem a infraestrutura provisionada. RNF-07
+   (cálculo de feriado determinístico, sem LLM) não depende de infra e
+   permanece validado desde o lote de origem.
+
+**Pendências operacionais exatas para publicar staging de fato** (ação
+humana, fora do alcance deste agente):
+1. Criar conta/projeto na Vercel (ou confirmar que já existe uma e apenas
+   linkar este repositório) e gerar um `VERCEL_TOKEN` (Vercel → Account
+   Settings → Tokens).
+2. Criar uma instância de PostgreSQL gerenciado (recomendação já registrada
+   na Seção 1: Neon, pela integração nativa com branching por preview da
+   Vercel) e obter a `DATABASE_URL` real de staging.
+3. Gerar um `NEXTAUTH_SECRET` real (`openssl rand -base64 32`) e obter uma
+   `OPENAI_API_KEY` real de produção/staging (hoje só há placeholder em
+   `.env.example`).
+4. Configurar essas 3 variáveis como Environment Variables do projeto
+   Vercel, escopadas ao ambiente correspondente (`vercel env add
+   DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY`, ou pela UI web).
+5. Cadastrar `VERCEL_TOKEN` como GitHub Secret escopado ao Environment
+   `staging` do repositório (`gh secret set VERCEL_TOKEN --env staging
+   --repo leandrosegheto17/curtamais`, ou Settings > Environments > staging
+   > Environment secrets, na UI web) — o Environment `staging` já existe
+   (criado nesta tentativa), só falta o secret.
+6. Adicionar ao `deploy.yml` um step `npm run db:migrate` (`prisma migrate
+   deploy`) contra a `DATABASE_URL` real do ambiente-alvo antes do `vercel
+   deploy` (lacuna já sinalizada na Seção 6, ainda não incorporada ao
+   workflow porque dependia justamente do item 2 acima).
+7. Depois dos itens 1-6 resolvidos, re-disparar: `gh workflow run deploy.yml
+   --repo leandrosegheto17/curtamais -f environment=staging -f ref=main` (ou
+   `Actions > Deploy > Run workflow` na UI web) e então testar o
+   `rollback.yml` (Seção 4.3) antes de qualquer promoção a produção.
+
+**Status desta tentativa**: `Bloqueado (infraestrutura operacional
+ausente)`. Nenhuma tarefa `Concluída` foi revertida — o gap não é de código
+(todo o código dos 12 lotes já foi aprovado pela dupla QA + DevSecOps), é
+puramente de infraestrutura/conta nunca provisionada, consistente com o que
+a Seção 1 já registrava como decisão deliberadamente aberta. Registrado
+também em `.md/BLOCKERS.md` (Bloqueio 007), escalado ao gestor — criar
+conta/billing em serviços de terceiros é decisão de negócio, não técnica.
