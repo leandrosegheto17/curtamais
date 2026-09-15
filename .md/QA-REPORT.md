@@ -3224,3 +3224,86 @@ serviço real em CI), sem nenhuma falha nova. `BLOCKERS.md` com as 6 entradas
 `Resolvido`, nenhuma `Aberto`. `RL12-T01` (`Pendente`) confirmado não
 bloqueante. Ver `SECURITY-REVIEW.md` para a reconfirmação equivalente do
 chapéu DevSecOps e `DEPLOY.md` para a execução do deploy em si.
+
+## Validação Final de Confirmação — Terceira Tentativa (pré-staging, 2026-09-12)
+
+Executada como o Comando 3/Seção 3 de `EXECUTION-FLOW.md`, sobre o conjunto
+completo Lotes 1-12, em resposta ao provisionamento real de infraestrutura
+pelo usuário desde a Segunda Tentativa (Bloqueio 007 — `.md/BLOCKERS.md` —
+apontava a ausência de projeto Vercel, banco Postgres gerenciado e secrets
+reais). Esta é uma confirmação final, não uma revalidação completa: nenhum
+código de aplicação mudou desde a Segunda Tentativa, só infraestrutura e um
+step novo de workflow.
+
+### 1. `BLOCKERS.md`
+
+Todas as 7 entradas (001-007) confirmadas `Status: Resolvido`, nenhuma
+`Aberto`. Bloqueio 007 em particular: os 3 pré-requisitos de infraestrutura
+que ele apontava como faltantes agora existem —
+- Projeto Vercel criado e linkado ao repositório
+  `leandrosegheto17/curtamais`.
+- Banco Postgres real criado no Neon (região `sa-east-1`, São Paulo).
+- 4 secrets cadastrados no GitHub Environment `staging`: `VERCEL_TOKEN`,
+  `DATABASE_URL`, `NEXTAUTH_SECRET`, `OPENAI_API_KEY` (confirmado via
+  `gh secret list` só pelos nomes/timestamps, nunca pelos valores — este
+  Validador não solicita nem manuseia credenciais reais, conforme escopo
+  explícito desta tarefa). As mesmas 3 variáveis de aplicação também
+  cadastradas como Environment Variables na Vercel.
+
+Nota de resolução completa registrada em `.md/BLOCKERS.md`, Bloqueio 007.
+
+### 2. Step de migration no `deploy.yml` — posição e env var
+
+Leitura direta do `.github/workflows/deploy.yml` em disco (commit `f17b0a0`,
+já em `main`) confirma a ordem dos steps do job `build-and-deploy`:
+`Checkout` → `Setup Node` → `Install dependencies` → **`Aplicar migrations
+Prisma no banco do ambiente-alvo`** (`run: npm run db:migrate`, `env:
+DATABASE_URL: ${{ secrets.DATABASE_URL }}`) → `Install Vercel CLI` → `Pull
+configuração do ambiente Vercel` → `Build (Vercel)` → `Deploy (Vercel)`.
+**Posição correta**: a migration roda antes de qualquer build/deploy da
+Vercel, garantindo que o schema do banco já reflete `prisma/schema.prisma`
+quando a aplicação buildada tentar acessá-lo. **Env var correta**: usa
+`secrets.DATABASE_URL`, o mesmo secret cadastrado no Environment `staging`
+(item 1 acima), escopado ao `environment: ${{ github.event.inputs.environment
+}}` já declarado no job — não há uso de credencial hardcoded nem de secret
+de nome divergente.
+
+### 3. Confirmação de que nada mudou no código desde a Segunda Tentativa
+
+`git diff --stat` entre o commit da Segunda Tentativa (`304168c`, "Complete
+Lotes 8-12... and fix Bloqueio 006 end-to-end wiring") e o `HEAD` atual
+(`f17b0a0`) mostra uma única mudança: `.github/workflows/deploy.yml | 5
++++++` — 5 linhas adicionadas, exatamente o step de migration descrito no
+item 2. **Nenhum arquivo de código de aplicação (`src/`, `prisma/schema.prisma`,
+testes) mudou.** O veredito funcional/segurança já registrado para os 12
+lotes na Segunda Tentativa permanece integralmente válido — não há
+superfície de código nova a revalidar.
+
+### 4. Suíte reexecutada nesta sessão (branch `main` atual, com o novo step de workflow)
+
+| Comando | Resultado |
+|---|---|
+| `npm run lint` | Passou — nenhum warning/erro |
+| `npm run build` (`next build`) | Passou — build de produção completo, 18 rotas geradas sem erro, mesma topologia de rotas já confirmada na Segunda Tentativa |
+| `npm test` (`vitest run`) | 473 testes passando / 95 falhando, em 568 testes totais — contagem idêntica à da Segunda Tentativa. Todas as 95 falhas são `PrismaClientInitializationError` ("Can't reach database server at `localhost:55432`") em arquivos `*.integration.test.ts` que exigem Postgres real; nenhuma é `AssertionError`/falha de lógica. Mesma limitação de ambiente local já aceita desde o Lote 1 (nenhum Postgres provisionado neste ambiente de execução do Validador — o CI real roda `postgres:16-alpine` + `prisma migrate deploy` antes da suíte). **Nenhuma falha nova, nenhuma regressão.** |
+
+Como instruído no escopo desta tarefa, este Validador **não** executou
+`prisma migrate deploy` localmente contra o Neon real, nem testou nenhuma
+credencial real — essa execução é escopo do próprio workflow de deploy
+(`deploy.yml`, item 2 acima), não desta validação de confirmação.
+
+### 5. Veredito final desta Terceira Tentativa
+
+**Os 12 lotes E a infraestrutura estão prontos para o disparo real do
+`deploy.yml` em staging.** `BLOCKERS.md` com as 7 entradas `Resolvido`,
+nenhuma `Aberto` — Bloqueio 007 fechado com a infraestrutura real
+confirmada existente. O step de migration Prisma está corretamente
+posicionado antes do build/deploy da Vercel e usa a env var certa. Nenhuma
+mudança de código desde a Segunda Tentativa que pudesse invalidar o
+veredito já registrado para os 12 lotes. `npm run lint`/`npm run build`
+limpos; `npm test` com as mesmas 95 falhas pré-existentes de ambiente, sem
+nenhuma falha nova. Não há mais nenhum bloqueio conhecido para o disparo
+real de `workflow_dispatch` do `deploy.yml` sobre `environment: staging`,
+`ref: main` (SHA `f17b0a0`). Ver `.md/DEPLOY.md` para o registro da
+execução do deploy em si, que é o próximo passo (fora do escopo desta
+validação).

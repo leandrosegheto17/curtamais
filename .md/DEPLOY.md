@@ -296,3 +296,94 @@ puramente de infraestrutura/conta nunca provisionada, consistente com o que
 a Seção 1 já registrava como decisão deliberadamente aberta. Registrado
 também em `.md/BLOCKERS.md` (Bloqueio 007), escalado ao gestor — criar
 conta/billing em serviços de terceiros é decisão de negócio, não técnica.
+
+### Tentativa 2 — Staging, 2026-09-12 (Validador, chapéu DevOps, Comando 3/EXECUTION-FLOW.md)
+
+**Contexto**: Bloqueio 007 marcado `Resolvido` — usuário provisionou projeto
+Vercel linkado ao repositório, domínio `destino-ideal-ljs.vercel.app`
+configurado manualmente na Vercel, banco Postgres real no Neon (`sa-east-1`),
+os 4 secrets (`VERCEL_TOKEN`, `DATABASE_URL`, `NEXTAUTH_SECRET`,
+`OPENAI_API_KEY`) cadastrados no GitHub Environment `staging`, as mesmas 3
+variáveis de app cadastradas na Vercel, e `deploy.yml` (commit `f17b0a0`)
+ganhou o step de `prisma migrate deploy`. Esta tentativa foi a execução real
+do deploy, não mais uma checagem de pré-requisitos.
+
+**Resultado: deploy real NÃO publicado. Progresso confirmado (migration
+passou), mas falha nova, específica do `VERCEL_TOKEN` — ver detalhamento.**
+
+**O que foi de fato executado**:
+
+1. Disparo real: `gh workflow run deploy.yml --repo leandrosegheto17/curtamais
+   -f environment=staging -f ref=main` → run
+   [`34724116900`](https://github.com/leandrosegheto17/curtamais/actions/runs/34724116900).
+2. Acompanhamento via `gh run watch` até a conclusão real (não hipotética):
+   - `Checkout ref aprovado` / `Setup Node` / `Install dependencies`:
+     **passaram**.
+   - `Aplicar migrations Prisma no banco do ambiente-alvo`: **passou** —
+     primeira evidência real de que `prisma migrate deploy` roda com sucesso
+     contra o Neon real usando `secrets.DATABASE_URL` (progresso genuíno
+     desde a Tentativa 1, onde nem sequer chegava a este step).
+   - `Install Vercel CLI`: **passou** (Vercel CLI 59.16.0).
+   - `Pull configuração do ambiente Vercel`: **falhou**. Log real do step
+     (`gh run view 34724116900 --log`):
+     ```
+     vercel pull --yes --environment=preview --token=***
+     Vercel CLI 59.16.0 (Node.js 20.20.2)
+     Loading teams…
+     Error: User not found.
+     ##[error]Process completed with exit code 1.
+     ```
+   - `Build (Vercel)`, `Deploy (Vercel)`, `Registrar deployment_url para o
+     relatório`: não executados (job interrompido no step anterior).
+   - Run concluído: `completed / failure`, ~53s de duração.
+3. **Causa raiz identificada por leitura direta do log (não suposição)**: o
+   comando passou um token não vazio (diferente da Tentativa 1, onde o erro
+   era literalmente `--token=` sem valor) — desta vez a CLI chega a
+   autenticar a chamada e falha em "Loading teams…" com `Error: User not
+   found.`. Esse erro é específico do lado da Vercel (não do workflow): o
+   valor cadastrado em `secrets.VERCEL_TOKEN` no Environment `staging` não
+   corresponde a nenhuma conta/usuário válido na Vercel no momento da
+   chamada — consistente com um token expirado, revogado, digitado
+   incorretamente ao cadastrar o secret, ou gerado para uma conta diferente
+   da que tem o projeto `destino-ideal-ljs` linkado. Não é um problema de
+   nome de secret (`gh secret list --env staging` confirma que
+   `VERCEL_TOKEN` existe, criado em `2026-09-12T22:30:58Z`, antes deste
+   run) nem de posição no workflow (`vercel pull` é chamado corretamente
+   depois de `Install Vercel CLI`). Este Validador não tem acesso ao valor
+   do secret nem deve manuseá-lo — só pode reportar o sintoma observado no
+   log.
+4. **Checagem do domínio já configurado manualmente**: `curl -sI
+   https://destino-ideal-ljs.vercel.app` retornou `HTTP/1.1 200 OK` (headers
+   `Server: Vercel`, `X-Vercel-Cache: HIT`, `X-Vercel-Id: gru1::...`). **Isto
+   não é evidência de que este deploy funcionou** — o job falhou antes de
+   chegar em `Deploy (Vercel)`, então nenhuma versão nova foi publicada por
+   este run. O `200 OK` reflete um deployment pré-existente no domínio
+   (provavelmente o projeto default criado pela própria Vercel ao linkar o
+   repositório, ou um deploy manual anterior do usuário), não o conteúdo dos
+   12 lotes aprovados neste ciclo. Não dá para confirmar, sem acesso ao
+   dashboard, se esse conteúdo já corresponde ao `main` atual ou é um
+   placeholder anterior.
+
+**Pendência operacional exata para publicar staging de fato** (ação humana,
+fora do alcance deste agente): regenerar o `VERCEL_TOKEN` — em Vercel →
+Account Settings → Tokens, criar um novo token válido para a conta que tem
+o projeto `destino-ideal-ljs` linkado (confirmar que é a mesma conta que
+possui o projeto, não uma conta/time diferente) — e recadastrá-lo com `gh
+secret set VERCEL_TOKEN --env staging --repo leandrosegheto17/curtamais`
+(sobrescreve o valor atual, mesmo nome/secret). Depois disso, re-disparar:
+`gh workflow run deploy.yml --repo leandrosegheto17/curtamais -f
+environment=staging -f ref=main`.
+
+**Observabilidade/RNFs**: sem novidade em relação à Tentativa 1 — como o
+job não chegou a `Deploy (Vercel)`, nenhuma métrica/log nativo da Vercel
+passou a existir para esta versão específica; `LlmGenerationLog` continua
+pronto do lado da aplicação, sem mudança.
+
+**Status desta tentativa**: `Bloqueado (VERCEL_TOKEN inválido/expirado)`.
+Progresso real desde a Tentativa 1: infraestrutura (Vercel, Neon, secrets,
+step de migration) confirmadamente existe e a migration roda com sucesso —
+o único ponto de falha restante é a validade do próprio token. Nenhuma
+tarefa `Concluída` revertida. Registrado em `.md/BLOCKERS.md` (Bloqueio
+008), escalado ao gestor em paralelo (ação sobre credencial de conta
+de terceiro, fora do alcance de qualquer agente) — não é redesenho de
+infraestrutura nem de arquitetura, só regeneração de credencial.

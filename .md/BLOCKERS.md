@@ -598,8 +598,84 @@ qualquer nova tentativa de promoção a staging.
   infraestrutura/conta a provisionar por alguém com acesso de billing).
   Nenhuma tarefa `Concluída` revertida — o gap é puramente operacional,
   fora do código dos 12 lotes.
-- Status: Aberto — aguardando ação humana (criação de contas/credenciais
-  reais) fora do alcance de qualquer agente deste pipeline.
+- Status: Resolvido
+- Resolução (2026-09-12, validador — Terceira Tentativa, chapéu DevOps):
+  as 3 peças de infraestrutura real apontadas como faltantes foram
+  provisionadas pelo usuário (ação humana, fora do alcance de qualquer
+  agente, conforme já escalado ao gestor): (1) projeto Vercel criado e
+  linkado ao repositório `leandrosegheto17/curtamais`; (2) banco Postgres
+  gerenciado real criado no Neon (região `sa-east-1`); (3)
+  `VERCEL_TOKEN`/`DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY`
+  cadastrados como GitHub Secret no Environment `staging` (confirmado só
+  pelos nomes/timestamps via `gh secret list`, nunca pelos valores — este
+  Validador não solicita nem manuseia os valores reais) e as 3 variáveis de
+  aplicação também cadastradas como Environment Variables na Vercel.
+  Adicionalmente, `.github/workflows/deploy.yml` (commit `f17b0a0`, já em
+  `main`) ganhou o step "Aplicar migrations Prisma no banco do
+  ambiente-alvo" (`npm run db:migrate` = `prisma migrate deploy`, usando
+  `secrets.DATABASE_URL`), item que a sugestão original deste bloqueio já
+  apontava como pendência adicional. Confirmado por leitura direta do
+  `deploy.yml` em disco: o step de migration está posicionado depois de
+  `Install dependencies` e antes de `Install Vercel CLI`/`Pull configuração
+  do ambiente Vercel`/`Build (Vercel)`/`Deploy (Vercel)` — ou seja, o schema
+  do banco é aplicado antes de qualquer build/deploy consumir esse schema,
+  e usa a env var correta (`secrets.DATABASE_URL`, mesmo secret já
+  cadastrado no Environment `staging`). Este Validador não executou
+  `prisma migrate deploy` localmente contra o Neon real nem testou nenhuma
+  credencial real — isso é escopo do próprio workflow de deploy (próxima
+  etapa), não desta validação. Nenhuma nova peça de infraestrutura
+  pendente identificada. Ver `.md/QA-REPORT.md`, seção "Terceira Tentativa",
+  para o detalhamento completo desta confirmação.
+
+## Bloqueio 008 — 2026-09-12
+
+- Reportado por: validador (chapéu DevOps, Comando 3/`EXECUTION-FLOW.md`,
+  Tentativa 2 de deploy real em staging, depois do Bloqueio 007 já
+  `Resolvido`)
+- Escalado para: gestor (em paralelo, não como pré-requisito — ação sobre
+  credencial de conta de terceiro/Vercel, fora do alcance de qualquer
+  agente; não é redesenho de infraestrutura nem decisão de arquitetura)
+- Artefato/trecho afetado: `.md/DEPLOY.md` Seção 7, "Tentativa 2 — Staging"
+- Descrição: disparo real do `deploy.yml` (run
+  [`34724116900`](https://github.com/leandrosegheto17/curtamais/actions/runs/34724116900))
+  passou por `Checkout`/`Setup Node`/`Install dependencies`/`Aplicar
+  migrations Prisma no banco do ambiente-alvo` (**sucesso real, primeira
+  vez que a migration roda contra o Neon**)/`Install Vercel CLI`, e falhou
+  no step `Pull configuração do ambiente Vercel` com `Error: User not
+  found.` depois de `Loading teams…` — log real, não hipotético (`gh run
+  view 34724116900 --log`). Diferente da falha da Tentativa 1 (token
+  literalmente vazio: `--token=` sem valor), desta vez o comando passa um
+  valor de token, mas a Vercel não reconhece esse valor como pertencente a
+  nenhum usuário/conta válida. Causa mais provável: o `VERCEL_TOKEN`
+  cadastrado no GitHub Environment `staging` está expirado, foi revogado,
+  foi digitado incorretamente ao cadastrar o secret, ou foi gerado numa
+  conta Vercel diferente da que tem o projeto `destino-ideal-ljs` linkado.
+  `gh secret list --env staging` confirma que o secret existe (nome e
+  timestamp `2026-09-12T22:30:58Z`, anterior a este run) — não é ausência
+  de secret, é valor inválido, algo que este Validador não tem acesso para
+  diagnosticar com mais precisão sem manusear o próprio valor (o que não
+  deve fazer).
+- Impacto se não resolvido: os 12 lotes continuam sem nenhuma URL de
+  staging real publicada — o `200 OK` observado em
+  `https://destino-ideal-ljs.vercel.app` (via `curl -sI`) é de um
+  deployment pré-existente (provavelmente o placeholder criado ao linkar o
+  projeto, ou um deploy manual anterior do usuário), não do conteúdo dos 12
+  lotes aprovados neste ciclo — o job falhou antes de chegar em `Deploy
+  (Vercel)`.
+- Sugestão (do validador, não uma decisão): regenerar o token em Vercel →
+  Account Settings → Tokens (confirmando que a conta usada é a mesma que
+  tem o projeto `destino-ideal-ljs` linkado) e recadastrar com `gh secret
+  set VERCEL_TOKEN --env staging --repo leandrosegheto17/curtamais`. Depois
+  disso, re-disparar `gh workflow run deploy.yml --repo
+  leandrosegheto17/curtamais -f environment=staging -f ref=main`.
+- Severidade (chapéu DevOps): **bloqueia publicação real de staging** — não
+  é débito de baixa/média severidade registrável em `Refatoração Lote-X`
+  (não é código dos 12 lotes a corrigir; a dupla aprovação QA + DevSecOps
+  permanece válida). É estritamente uma credencial de infraestrutura
+  inválida, mais estreito que o Bloqueio 007 (ali faltava toda a
+  infraestrutura; aqui a infraestrutura existe e a migration já funciona —
+  só o token precisa ser regenerado).
+- Status: Aberto
 
 ## Nota de escopo — o que a L4-T01 implementou apesar do bloqueio
 
