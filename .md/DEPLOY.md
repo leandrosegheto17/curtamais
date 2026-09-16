@@ -387,3 +387,93 @@ tarefa `Concluída` revertida. Registrado em `.md/BLOCKERS.md` (Bloqueio
 008), escalado ao gestor em paralelo (ação sobre credencial de conta
 de terceiro, fora do alcance de qualquer agente) — não é redesenho de
 infraestrutura nem de arquitetura, só regeneração de credencial.
+
+### Tentativa 3 — Staging, 2026-09-15 (Validador, chapéu DevOps, Comando 3/EXECUTION-FLOW.md)
+
+**Contexto**: usuário reportou ter regenerado o `VERCEL_TOKEN` em Vercel →
+Account Settings → Tokens e recadastrado via `gh secret set VERCEL_TOKEN
+--env staging`, endereçando a causa raiz apontada na Tentativa 2 (Bloqueio
+008, status `Causa raiz endereçada pelo usuário (não re-verificado)`).
+Esta tentativa é o disparo real que deveria confirmar (ou não) essa
+correção.
+
+**Resultado: deploy real NÃO publicado de novo — mesmo sintoma exato da
+Tentativa 2 (`Error: User not found.`), com evidência adicional de que o
+secret no GitHub nunca foi de fato atualizado.**
+
+**O que foi de fato executado**:
+
+1. Disparo real: `gh workflow run deploy.yml --repo leandrosegheto17/curtamais
+   -f environment=staging -f ref=main` → run
+   [`35032873650`](https://github.com/leandrosegheto17/curtamais/actions/runs/35032873650).
+2. Acompanhamento via `gh run watch --exit-status` até a conclusão real:
+   - `Checkout ref aprovado` / `Setup Node` / `Install dependencies` /
+     `Aplicar migrations Prisma no banco do ambiente-alvo` / `Install
+     Vercel CLI`: **passaram** (mesmo padrão da Tentativa 2 — infra e
+     migration seguem saudáveis).
+   - `Pull configuração do ambiente Vercel`: **falhou de novo**, ~49s de
+     duração total do job. Log real (`gh run view 35032873650 --log`):
+     ```
+     vercel pull --yes --environment=preview --token=***
+     Vercel CLI 59.17.0 (Node.js 20.20.2)
+     Loading teams…
+     Error: User not found.
+     ##[error]Process completed with exit code 1.
+     ```
+     Erro idêntico, literalmente, ao da Tentativa 2 — não é uma variação
+     nova, é a mesma falha.
+   - `Build (Vercel)`, `Deploy (Vercel)`, `Registrar deployment_url para o
+     relatório`: não executados (job interrompido no mesmo step de novo).
+   - Run concluído: `completed / failure`.
+3. **Achado adicional, por leitura direta (não suposição)**: `gh secret
+   list --env staging --repo leandrosegheto17/curtamais` mostra
+   `VERCEL_TOKEN  2026-09-12T22:30:58Z` — **o mesmo timestamp exato**
+   registrado na Tentativa 2 (antes da suposta regeneração/recadastro do
+   usuário). Se o `gh secret set VERCEL_TOKEN --env staging` reportado
+   pelo usuário tivesse sido executado com sucesso contra este
+   repositório/ambiente, o timestamp teria mudado (GitHub atualiza
+   `updated_at` a cada `secret set`, mesmo mantendo o mesmo nome). Isso é
+   evidência direta, não inferência especulativa sobre a causa do erro em
+   si: **o valor do secret `VERCEL_TOKEN` no GitHub Environment `staging`
+   deste repositório não foi alterado desde 2026-09-12T22:30:58Z** —
+   consistente com o erro idêntico observado. Não há como este Validador
+   confirmar, sem acesso ao lado da Vercel, se o token foi de fato
+   regenerado lá; só pode reportar que, do lado do GitHub, nada mudou.
+4. **Checagem do domínio**: não repetida nesta tentativa — sem alteração
+   de estado desde a Tentativa 2 (o job segue falhando antes de `Deploy
+   (Vercel)`, então nenhuma versão nova foi publicada).
+
+**Causa provável mais específica que a da Tentativa 2** (achado, não
+decisão de correção — este Validador não deve manusear o valor do
+secret): o passo `gh secret set VERCEL_TOKEN --env staging --repo
+leandrosegheto17/curtamais` relatado pelo usuário não chegou a
+efetivamente sobrescrever o secret neste repositório/ambiente — por
+exemplo, rodado no diretório/repositório errado, contra um Environment
+diferente de `staging`, com autenticação `gh` para outra conta/organização
+sem permissão de escrita nesse secret (falha silenciosa comum do `gh
+secret set` quando falta permissão), ou o comando nunca chegou a ser
+executado de fato apesar do relato. Recomenda-se ao usuário: (a)
+re-executar `gh secret set VERCEL_TOKEN --env staging --repo
+leandrosegheto17/curtamais` e, em seguida, imediatamente `gh secret list
+--env staging --repo leandrosegheto17/curtamais` para confirmar que o
+timestamp de `VERCEL_TOKEN` mudou antes de pedir um novo disparo deste
+workflow; (b) confirmar que o valor colado é o token gerado na conta
+Vercel correta (a que tem o projeto `destino-ideal-ljs` linkado), sem
+espaços/quebras de linha extras.
+
+**Observabilidade/RNFs**: sem novidade em relação às Tentativas 1-2 — como
+o job não chegou a `Deploy (Vercel)`, nenhuma métrica/log nativo da Vercel
+passou a existir para esta versão específica; `LlmGenerationLog` continua
+pronto do lado da aplicação, sem mudança. Bloqueio 009 (`NO_SECRET`/rota
+`/api/diag`) segue não confirmado nem infirmado — não foi possível chegar
+a testar a aplicação real nesta tentativa.
+
+**Status desta tentativa**: `Bloqueado (VERCEL_TOKEN — secret no GitHub
+não foi de fato atualizado, apesar do relato em contrário)`. Nenhum
+progresso adicional em relação à Tentativa 2 (mesmo erro, mesmo
+timestamp de secret). Nenhuma tarefa `Concluída` revertida. Bloqueio 008
+em `.md/BLOCKERS.md` **mantido em aberto** (não reclassificado como
+`Resolvido`), com a evidência do timestamp inalterado acrescentada,
+escalado ao gestor em paralelo — segue sendo ação sobre credencial de
+conta/infraestrutura de terceiro, fora do alcance de qualquer agente
+corrigir diretamente.

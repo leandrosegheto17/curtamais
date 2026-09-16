@@ -675,7 +675,125 @@ qualquer nova tentativa de promoção a staging.
   inválida, mais estreito que o Bloqueio 007 (ali faltava toda a
   infraestrutura; aqui a infraestrutura existe e a migration já funciona —
   só o token precisa ser regenerado).
-- Status: Aberto
+- Status: **Ainda aberto — run real refuta a resolução relatada pelo
+  usuário** — atualizado por: validador (chapéu DevOps, disparo real de
+  `deploy.yml`, Comando 3/`EXECUTION-FLOW.md`, 2026-09-15). Usuário
+  reportou ter regenerado o `VERCEL_TOKEN` em Vercel → Account Settings →
+  Tokens e recadastrado via `gh secret set VERCEL_TOKEN --env staging`,
+  exatamente a sugestão registrada acima. Este Validador então disparou de
+  fato o `deploy.yml` (run
+  [`35032873650`](https://github.com/leandrosegheto17/curtamais/actions/runs/35032873650))
+  e acompanhou com `gh run watch` até a conclusão real: **o job falhou de
+  novo no mesmo step, `Pull configuração do ambiente Vercel`, com o mesmo
+  erro exato** (`Error: User not found.` depois de `Loading teams…`) — ver
+  `.md/DEPLOY.md`, "Tentativa 3". Achado adicional: `gh secret list --env
+  staging --repo leandrosegheto17/curtamais` mostra `VERCEL_TOKEN`
+  ainda com timestamp `2026-09-12T22:30:58Z` — **idêntico** ao registrado
+  antes do relato do usuário, o que indica que o `gh secret set` reportado
+  não chegou a sobrescrever o secret neste repositório/Environment (rodado
+  em local/conta/Environment errado, permissão insuficiente, ou não
+  executado de fato). Recomendação ao usuário: re-executar `gh secret set
+  VERCEL_TOKEN --env staging --repo leandrosegheto17/curtamais` e conferir
+  com `gh secret list --env staging --repo leandrosegheto17/curtamais`
+  que o timestamp mudou, antes de pedir um novo disparo deste workflow.
+  Não reclassificar como `Resolvido` até um run real do `deploy.yml`
+  passar do step `Pull configuração do ambiente Vercel`.
+
+## Bloqueio 009 — 2026-09-15
+
+- Reportado por: validador (chapéus QA+DevSecOps, confirmação final,
+  Comando 3/`EXECUTION-FLOW.md`, Passo 1 — verificação de `git log`/`git
+  status` desde os vereditos já registrados em `QA-REPORT.md`/
+  `SECURITY-REVIEW.md`)
+- Escalado para: gestor (em paralelo, não como pré-requisito — achado de
+  relevância estratégica: risco de a jornada crítica de autenticação estar
+  quebrada no ambiente real de deploy, mesmo com os 12 lotes aprovados
+  localmente); coordenador, só se a causa raiz do NO_SECRET exigir mudança
+  de configuração/arquitetura além de um valor de env var mal cadastrado
+  (a definir depois que o próximo run real do `deploy.yml` confirmar o
+  sintoma)
+- Artefato/trecho afetado: `src/app/api/diag/route.ts` (commits `494c08c`,
+  `e53a3d2`, 2026-09-14) — código novo em `src/`, fora do escopo de
+  qualquer tarefa do `TASK.md`, criado diretamente pelo usuário/Opus fora
+  do fluxo `executor`/`/executar`, sem revisão inline nem passagem por
+  `/validar`
+- Descrição: os commits `494c08c`/`e53a3d2` (entre a "Terceira Tentativa"
+  de confirmação, commit `f17b0a0`, e esta Quarta confirmação) adicionam
+  uma rota de diagnóstico temporária, `GET /api/diag` (renomeada de
+  `/api/_diag`, que retornava 404 por o App Router tratar prefixo `_` como
+  pasta privada). A mensagem do commit `494c08c` documenta o motivo:
+  **"NextAuth fails with NO_SECRET in production despite NEXTAUTH_SECRET
+  being configured on Vercel for Production."** — ou seja, houve pelo
+  menos uma tentativa real de deploy/acesso ao ambiente de produção/preview
+  da Vercel, posterior à Tentativa 2 (`.md/DEPLOY.md`, bloqueada por
+  `VERCEL_TOKEN` inválido), que chegou a rodar a aplicação e encontrou
+  autenticação quebrada por variável de ambiente não injetada — e essa
+  tentativa/achado **nunca foi registrada em `.md/DEPLOY.md` nem como
+  entrada própria em `.md/BLOCKERS.md`**, só existe nas mensagens de commit
+  e no comentário do arquivo. Por leitura direta do código
+  (`src/app/api/diag/route.ts`), a rota: (a) não exige autenticação — é
+  pública, qualquer requisição `GET /api/diag` dispara a checagem; (b)
+  nunca retorna o valor de nenhuma variável no corpo HTTP (sempre `204`
+  vazio); (c) registra em `console.log` (log de função da Vercel, painel
+  autenticado) a presença (`Boolean`) e o **tamanho** de
+  `NEXTAUTH_SECRET`/`NEXTAUTH_URL`/`DATABASE_URL`/`OPENAI_API_KEY`, mais o
+  **nome literal** de qualquer variável de ambiente cujo nome bata com
+  `/NEXTAUTH|DATABASE|OPENAI|AI_GATEWAY/i`. Nenhum valor de segredo é lido
+  para log (guardrail 15 do `GUARDRAILS.md` não é violado literalmente),
+  mas é uma superfície pública, não autenticada, de reconhecimento
+  operacional (confirma quais segredos existem e seu tamanho) — se
+  publicada em produção real, é achado de exposição de dados sensíveis
+  (chapéu DevSecOps, `sensitive-data-exposure-check`) de severidade
+  **baixa/média**, não alta/crítica (nenhum segredo em si é exposto, só
+  metadado, e só via log — não na resposta HTTP).
+- Impacto se não resolvido: (1) esta rota, sendo código já em `main`,
+  seria publicada junto com os 12 lotes no próximo deploy real, deixando um
+  endpoint de diagnóstico "temporário" (o próprio comentário do arquivo diz
+  "Remover assim que a causa do NO_SECRET for identificada") permanente em
+  produção até alguém lembrar de removê-lo; (2) mais relevante: o sintoma
+  que motivou a rota (`NO_SECRET` do NextAuth em produção apesar de
+  `NEXTAUTH_SECRET` configurado na Vercel) nunca foi confirmado como
+  resolvido em nenhum artefato — se ainda ocorrer, a autenticação (guardrail
+  16, Lote 11 cross-cutting) estaria quebrada no ambiente real mesmo com a
+  dupla aprovação QA+DevSecOps válida para o código local, porque o gap é
+  de configuração/injeção de variável de ambiente na plataforma de deploy,
+  não de lógica de aplicação — exatamente o tipo de regressão cruzada
+  específica de ambiente que uma validação por lote isolado (rodada
+  localmente, sem Vercel real) não cobre.
+- Sugestão (do validador, não uma decisão): (a) confirmar explicitamente,
+  no próximo run real de `deploy.yml`, se o `NO_SECRET` ainda ocorre —
+  usando a própria rota de diagnóstico já presente, ou inspecionando as
+  Environment Variables da Vercel diretamente (conferir se `NEXTAUTH_SECRET`
+  está marcado para o ambiente correto — Production vs. Preview — já que
+  `vercel pull --environment=preview` no `deploy.yml`, Bloqueio 008, usa o
+  ambiente Preview, que pode ter um conjunto de env vars diferente do de
+  Production na Vercel); (b) remover `src/app/api/diag/route.ts` assim que
+  a causa for confirmada e corrigida, antes de qualquer deploy de produção
+  (não é aceitável como débito permanente, já que o próprio autor a marcou
+  como temporária); (c) registrar a resolução formal aqui e em
+  `SECURITY-REVIEW.md` quando isso ocorrer.
+- Severidade (chapéu DevSecOps): **não bloqueia sozinha** a promoção a
+  staging dos 12 lotes já aprovados (a rota em si é baixa/média severidade,
+  vira débito em `Refatoração Lote-X` se mantida por mais tempo) — mas o
+  sintoma subjacente (`NO_SECRET` em produção) é potencialmente **crítico**
+  se ainda ativo (autenticação quebrada é achado alto/crítico, guardrail
+  16), e este Validador não tem como confirmar se já foi corrigido sem um
+  run real do `deploy.yml`/inspeção do ambiente Vercel. Por isso a
+  recomendação é **confirmar o sintoma antes de assumir a rota como sem
+  função** — não prosseguir para produção sem essa confirmação, mesmo que
+  o próximo disparo de staging siga adiante.
+- Status: **Causa raiz reportada como corrigida pelo usuário (2026-09-16) —
+  `NEXTAUTH_SECRET` ajustado no ambiente correto (Preview/Production) nas
+  Environment Variables do projeto na Vercel.** Não confirmado por este
+  Validador via run real (o próximo `deploy.yml` real segue bloqueado pelo
+  Bloqueio 008, `VERCEL_TOKEN`), consistente com a sugestão (a) acima — só
+  poderá ser marcado `Resolvido` de fato quando um deploy real completar e
+  os Runtime Logs da Vercel confirmarem ausência do erro `NO_SECRET`.
+  Sugestão (b) endereçada nesta mesma data: `src/app/api/diag/route.ts`
+  **removida** (`git status`: `D src/app/api/diag/route.ts`; sem outro
+  arquivo de código/teste referenciando a rota; `npm run lint` limpo após
+  a remoção). Pendência remanescente: confirmação real via deploy
+  bem-sucedido (sugestão (a)), condicionada à resolução do Bloqueio 008.
 
 ## Nota de escopo — o que a L4-T01 implementou apesar do bloqueio
 

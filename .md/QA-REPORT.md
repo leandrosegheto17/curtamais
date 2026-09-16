@@ -3307,3 +3307,71 @@ real de `workflow_dispatch` do `deploy.yml` sobre `environment: staging`,
 `ref: main` (SHA `f17b0a0`). Ver `.md/DEPLOY.md` para o registro da
 execução do deploy em si, que é o próximo passo (fora do escopo desta
 validação).
+
+## Validação Final de Confirmação — Quarta Tentativa (pré-staging, 2026-09-15)
+
+Executada como o Comando 3/Seção 3 de `EXECUTION-FLOW.md`, chapéu QA, sobre
+o conjunto completo Lotes 1-12, em resposta à execução real do Bloqueio 008
+(`VERCEL_TOKEN` inválido — ver `.md/DEPLOY.md`, "Tentativa 2 — Staging") e
+ao reporte do usuário de que o token foi regenerado/recadastrado.
+
+### 1. `git log`/`git status` desde a Terceira Tentativa
+
+`git status`: working tree limpo, branch `main` sincronizada com
+`origin/main`. `git log`/`git diff --stat f17b0a0..726bba0`: 3 commits
+novos desde a Terceira Tentativa — `494c08c`/`e53a3d2` (rota de diagnóstico
+temporária, `src/app/api/diag/route.ts`, fora do escopo de qualquer tarefa
+do `TASK.md`) e `726bba0` (documentação da Tentativa 2/Terceira Tentativa
+de deploy real, só `.md/`). **Nenhuma mudança em código de tela/Server
+Action pertencente aos 12 lotes.** Detalhamento do achado de segurança da
+rota de diagnóstico em `.md/SECURITY-REVIEW.md`, "Quarta Tentativa", e
+`.md/BLOCKERS.md`, Bloqueio 009 — não é reprovação de nenhuma tarefa
+funcional (a rota não pertence a nenhum critério de aceite do `TASK.md`),
+por isso não classificada como crítica/simples no sentido de reprovação de
+lote, só registrada como achado do chapéu DevSecOps.
+
+### 2. Integração entre os 12 lotes (regressão cruzada)
+
+`npm run lint` e `npm run build` reexecutados nesta sessão: ambos limpos,
+19 rotas geradas (18 já confirmadas na Segunda Tentativa + `/api/diag`,
+fora do escopo dos lotes). Nenhuma rota da jornada T00→T-END ausente ou
+alterada. Jornada completa (`/`, `/entrada/*`, `/destino`,
+`/destino/confirmacao`, `/hospedagem`, `/passeios`, `/roteiro`,
+`/encerramento`) permanece idêntica à topologia já confirmada na Segunda
+Tentativa — nenhuma regressão cruzada nova entre lotes identificada.
+Autorização cross-cutting do Lote 11 (`assertSessionOwnership`) segue
+aplicada nos mesmos pontos já auditados nos Lotes 7-10/12, sem alteração de
+código desde a última confirmação.
+
+### 3. `RL12-T01` — reconfirmado não bloqueante
+
+Sem mudança desde a Segunda/Terceira Tentativa: continua `Pendente` em
+`TASK.md`, achado simples de documentação (classe `min-h-11`), sem impacto
+funcional/de segurança. **Confirmado novamente: não bloqueia este deploy.**
+
+### 4. `Bloqueio 008` — status atualizado, não fechado
+
+Usuário reportou ter regenerado e recadastrado o `VERCEL_TOKEN`. Este
+Validador **não** re-verifica o valor do secret (sem acesso, e não deveria
+manuseá-lo) nem dispara um novo `deploy.yml` nesta validação de
+confirmação — atualizei o campo `Status` do Bloqueio 008 em
+`.md/BLOCKERS.md` para refletir que a causa raiz foi endereçada pelo
+usuário, mas a confirmação real (um run do `deploy.yml` passando do step
+`Pull configuração do ambiente Vercel`) fica para a próxima etapa (o
+próprio workflow de deploy), fora do escopo desta validação.
+
+### 5. Veredito final desta Quarta Tentativa
+
+**Os 12 lotes permanecem liberados para deploy em staging — nenhuma
+reprovação, crítica ou simples, nesta confirmação.** O único achado novo
+desde a Terceira Tentativa é a rota de diagnóstico temporária
+(`src/app/api/diag/route.ts`), fora do escopo de qualquer tarefa dos 12
+lotes, registrada como Bloqueio 009 (severidade baixa/média, não bloqueia
+sozinha a promoção a staging) — ver `.md/SECURITY-REVIEW.md` para o
+veredito equivalente do chapéu DevSecOps, que recomenda confirmar a causa
+do `NextAuth NO_SECRET` antes de promover a **produção** (staging pode
+seguir). `npm run lint`/`npm run build` limpos. `RL12-T01` confirmado não
+bloqueante. Bloqueio 008 com status atualizado (causa raiz endereçada,
+confirmação real pendente do próprio workflow). Nenhuma mudança de código
+nos 12 lotes desde a Segunda Tentativa que exigisse nova reauditoria
+funcional.

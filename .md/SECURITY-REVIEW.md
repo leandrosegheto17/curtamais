@@ -2006,3 +2006,68 @@ erro/warning nos arquivos do lote. **Lote 12 liberado para deploy**
 do chapéu QA (`QA-REPORT.md`, "Lote 12 — Integração de Rotas": Aprovado,
 sem ressalvas) — fechando a jornada T00→T-END com navegação real
 auditada em segurança.
+
+## Validação Final de Confirmação — Quarta Tentativa (pré-staging, 2026-09-15)
+
+Executada como o Comando 3/Seção 3 de `EXECUTION-FLOW.md`, chapéu
+DevSecOps, sobre o conjunto completo Lotes 1-12, confirmando o que já foi
+auditado acima. Escopo: (1) `git log`/`git diff` desde a Terceira Tentativa
+(`QA-REPORT.md`, commit `f17b0a0`) até o `HEAD` atual (`726bba0`); (2)
+achado novo identificado nessa checagem; (3) reconfirmação de que o veredito
+por lote acima permanece válido.
+
+### 1. Mudança de código identificada desde a Terceira Tentativa
+
+`git diff --stat f17b0a0..726bba0` mostra 4 arquivos: 3 são documentação
+(`.md/BLOCKERS.md`, `.md/DEPLOY.md`, `.md/QA-REPORT.md` — a própria
+Terceira Tentativa e o registro da Tentativa 2 real de deploy, sem código de
+aplicação) e **1 é código novo**: `src/app/api/diag/route.ts` (commits
+`494c08c`/`e53a3d2`, fora do escopo de qualquer tarefa do `TASK.md`,
+adicionado diretamente pelo usuário/Opus para diagnosticar um erro
+`NO_SECRET` do NextAuth observado numa tentativa real de acesso ao
+ambiente de produção/preview da Vercel — tentativa essa nunca registrada em
+`.md/DEPLOY.md`/`.md/BLOCKERS.md` até esta confirmação.
+
+### 2. Achado — rota de diagnóstico pública em `src/`, não revisada
+
+`GET /api/diag` (confirmado no `next build` desta sessão, 19 rotas geradas
+em vez das 18 anteriores) não exige autenticação, sempre retorna `204` sem
+corpo, mas registra em log de função (painel Vercel, autenticado) a
+presença/tamanho de `NEXTAUTH_SECRET`/`NEXTAUTH_URL`/`DATABASE_URL`/
+`OPENAI_API_KEY` e o nome literal de qualquer env var que bata com
+`/NEXTAUTH|DATABASE|OPENAI|AI_GATEWAY/i`, a cada requisição. Nenhum valor
+de segredo é lido/logado (guardrail 15 não é violado), mas é um endpoint
+público de reconhecimento operacional — classificado como achado de
+`sensitive-data-exposure-check`, **severidade baixa/média** (metadado, não
+segredo; só via log, não via resposta HTTP). Detalhamento completo
+registrado como **Bloqueio 009** (`.md/BLOCKERS.md`, 2026-09-15).
+
+**Mais relevante que a rota em si**: o sintoma que a motivou (`NextAuth
+NO_SECRET` em produção apesar de `NEXTAUTH_SECRET` configurado na Vercel)
+nunca foi confirmado como corrigido em nenhum artefato. Se ainda ativo, é
+achado potencialmente **alto/crítico** (guardrail 16 — autenticação é
+pré-condição de toda autorização de dono de sessão auditada nos Lotes
+8-11), mas este Validador não tem como confirmar o sintoma sem um run real
+de `deploy.yml`/inspeção do ambiente Vercel (fora do alcance desta
+validação de confirmação, mesmo escopo já declarado para o Bloqueio 008).
+
+### 3. Reconfirmação dos 12 lotes
+
+Nenhuma mudança em `src/` além da rota de diagnóstico (fora do escopo de
+qualquer lote) — todo o veredito por lote registrado acima (Lotes 1-12)
+permanece integralmente válido, sem necessidade de reauditoria de
+segurança do código já aprovado. `npm run lint` e `npm run build`
+reexecutados nesta sessão: ambos limpos.
+
+### 4. Veredito final desta Quarta Tentativa
+
+**Os 12 lotes permanecem aprovados em segurança, sem mudança de veredito.**
+A rota de diagnóstico (`src/app/api/diag/route.ts`) é código novo, fora do
+escopo dos 12 lotes, **não bloqueia sozinha** a promoção a staging (achado
+próprio, baixa/média severidade, registrado em Bloqueio 009) — mas **não
+deve seguir para um deploy de produção** sem antes confirmar se o
+`NO_SECRET` subjacente já foi corrigido e, uma vez confirmado, remover a
+rota (ela mesma se declara temporária). Recomendação: prosseguir para
+**staging** é aceitável (mesmo ambiente onde o diagnóstico é necessário),
+mas produção deve aguardar essa confirmação — ver Bloqueio 009 para
+detalhamento e sugestão de próximo passo.
