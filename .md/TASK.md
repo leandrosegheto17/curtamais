@@ -11,6 +11,12 @@ tela/endpoint/regra de negócio/SQL, canário de ~300k tokens de contexto de
 trabalho) foi rodado sobre a decomposição antes de publicar este documento — ver
 Seção 6 para o registro de divisões feitas durante o autocheck.
 
+**Incremento V2.0 (2026-09-16):** a Seção 3 acrescenta os lotes `V2-L1` a
+`V2-L8` (43 tarefas), decompondo `SDD.md` §8 e `UX-SPEC.md` §8 (RF-12 a
+RF-18, RNF-08 a RNF-13, ADR-009 a ADR-012). Os Lotes 1-12 e as
+Refatoração Lote-X do MVP acima **não são alterados**. As Seções 1, 2, 4, 5
+e 6 recebem acréscimos próprios do V2.0, sinalizados como tal.
+
 ## 1. Diretrizes de Implementação
 
 Regras práticas extraídas dos 7 ADRs e do `SDD.md`/`UX-SPEC.md`, obrigatórias
@@ -62,6 +68,42 @@ para todo Executor, independentemente da tarefa:
 13. **RN-06**: nenhuma tarefa expande o quiz guiado além das 4 perguntas de
     RF-03.1 sem nova rodada de validação de uso real — fora de escopo deste
     TASK.md.
+
+**Diretrizes novas do V2.0 (2026-09-16):**
+
+14. **Sem recuperação de senha nem verificação de e-mail (SDD §8.6, decisão do
+    dono)**: nenhuma tarefa do V2.0 referencia, testa ou assume a existência de
+    "esqueci minha senha"/confirmação de e-mail; T-GATE/T-LOGIN não exibem
+    esse link. Fora de escopo do V2.0, não uma lacuna.
+15. **Migration do V2.0 é aditiva e isolada (`V2-L1-T01`)**: nenhuma outra
+    tarefa do V2.0 altera schema Prisma fora dela; qualquer coluna/índice novo
+    necessário e não previsto no `SDD.md` §8.5 é lacuna estrutural — escalada
+    ao Coordenador via `BLOCKERS.md`, nunca decidida em silêncio.
+16. **Fronteira de import da home (ADR-011, RN-08)**: `src/app/page.tsx`,
+    `src/app/roteiro-exemplo/**`, `src/components/home/**` e `src/content/**`
+    nunca importam `@/lib/gateway-ia*`, `@/lib/stage-rules*`, `openai` ou
+    `@/lib/prisma` — verificado por regra de lint (`no-restricted-imports`) e
+    teste, não por revisão manual.
+17. **Catálogo é a única fonte de imagem de destino (ADR-010, RN-10)**:
+    nenhuma tela busca imagem em serviço externo em tempo de execução,
+    nenhuma imagem gerada por IA, nenhuma correspondência aproximada/fuzzy
+    entre sugestão e catálogo — só igualdade exata após normalização.
+18. **`assertSessionAccess` é o único guard de posse+conta do V2.0
+    (ADR-009)**: nenhuma Server Action nova de hospedagem/passeios/roteiro/
+    meus-roteiros implementa checagem de conta própria — todas usam o guard
+    central de `V2-L6-T03`.
+19. **`ContaNecessariaError` nunca cruza a fronteira de Server Action como
+    exceção**: toda ação que pode exigir conta devolve o resultado
+    discriminado `{status:"conta_necessaria", sessionId}`, nunca lança para o
+    cliente (Next.js apaga classe/mensagem de exceção de Server Action em
+    produção).
+20. **Vocabulário proibido (RN-07/RNF-11)**: nenhuma tela nova usa os termos
+    da tabela do `UX-SPEC.md` §8.8 (reserva/venda, agência/humano, linguagem
+    de sistema) — verificação final é do Validador, mas o Executor não
+    introduz esse vocabulário.
+21. **State machine do V2.0 não muda (ADR-009)**: nenhuma tarefa do V2.0
+    adiciona estado, ação ou transição a `state-machine.ts`; verificação de
+    conta é sempre pré-condição de transição, nunca um estado novo.
 
 ## 2. Spikes Técnicos
 
@@ -187,6 +229,14 @@ Nada foi implementado neste spike além da confirmação da decisão já refleti
 em `buildRoteiroPrompt`/`roteiroEstruturadoSchema` (L3-T02) — a REGRA de
 negócio que consome esses dois (`generateRoteiro`) é a própria L10-T01, ver
 nota de implementação após a tabela do Lote 10 (Seção 3).
+
+**Spikes do V2.0 (2026-09-16):** nenhum spike técnico novo identificado.
+Todas as decisões de mecanismo do V2.0 (vínculo atômico de sessão, guard de
+conta, catálogo estático, home com ISR) já foram fechadas no `SDD.md` §8 e
+nos ADR-009 a ADR-012 pelo próprio Coordenador (chapéu Software Architect),
+sem incerteza técnica de alto risco pendente de validação empírica antes de
+estimar — diferente do MVP, em que SPIKE-01/02 existiam porque o `SDD.md`
+deixava o mecanismo em aberto ("streaming quando disponível").
 
 ## 3. Lista de Tarefas
 
@@ -4067,6 +4117,124 @@ tempo). Nenhuma das 5 tarefas se aproxima do canário de ~300 mil tokens —
 cada uma toca no máximo 2-3 arquivos novos, reaproveitando componentes/schema
 já existentes e prontos.
 
+---
+
+### V2.0 — Lotes novos (2026-09-16)
+
+Decompõe o Incremento V2.0 do `SDD.md` §8 e do `UX-SPEC.md` §8 (RF-12 a
+RF-18, RNF-08 a RNF-13, ADR-009 a ADR-012) em 8 lotes novos (`V2-L1` a
+`V2-L8`, 43 tarefas), sem alterar nenhuma tarefa dos Lotes 1-12/
+Refatoração acima. Autocheck de granularidade rodado sobre esta
+decomposição antes de publicar — ver Seção 6 para as divisões e
+justificativas de inseparabilidade.
+
+Dois clusters independentes entre si a nível de lote, para paralelismo
+real (pedido explícito desta rodada): **conteúdo público**, sem nenhum
+toque em autenticação (`V2-L2` catálogo, `V2-L3` roteiro de exemplo,
+`V2-L4` home, `V2-L5` entradas pré-preenchidas) e **conta/gate**
+(`V2-L6` verificação de conta no servidor, `V2-L7` cadastro/vínculo/telas
+de conta, `V2-L8` meus roteiros), com `V2-L1` (migration) isolado e
+paralelo aos dois clusters. Ver Seção 4 para o grafo completo.
+
+#### V2-L1 — Schema V2.0 (migration)
+
+Migration isolada, mesmo padrão de `L1-T02`/`L11-T02a` no MVP: schema
+sempre em tarefa própria, separada da lógica que o usa.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L1-T01 | Migration Prisma aditiva `v2_consent_and_session_link` (SDD §8.5, ADR-009/012): `User.privacyConsentAt`, `User.privacyConsentVersion`, `TripSession.linkedAt`, índice `(userId, updatedAt)` | BE | 0.5 dia | — | — | Pendente | Migration aplica sem erro sobre o schema do MVP; colunas nullable, sem backfill, sem enum/coluna obrigatória nova; índice presente e usado pela query de `V2-L8-T01` |
+
+#### V2-L2 — Catálogo de destinos e estratégia de imagens (RF-15, RN-10, ADR-010)
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L2-T01 | Módulo `catalogo/destinos.ts` (tipos `DestinoCatalogo`/`ImagemCurada`, 23 destinos do `PRD.md`, `imagem: null` como placeholder válido) + `next.config.mjs` (`images.formats`, `minimumCacheTTL`, sem `remotePatterns`) | BE | 1 dia | — | V2-L3-T01, V2-L5-T02, V2-L6-*, V2-L7-T03 | Pendente | 23 destinos presentes; exatamente 8 com `vitrine` 1..8 sem repetição e exatamente 1 `hero`; `slug` único `^[a-z0-9-]+$`; build passa mesmo sem nenhuma imagem curada (todas com `imagem: null`) |
+| V2-L2-T02 | `resolver-imagem.ts`: `normalizarNomeDestino`, mapa de correspondência exata, `resolverImagemDestino`, fallback FNV-1a sobre paleta de 8 gradientes (RF-15.2/15.3/15.4) | BE | 1 dia | V2-L2-T01 | V2-L2-T03 | Pendente | Testes: nenhuma colisão de chave normalizada entre destinos; mesmo nome em grafias diferentes gera o mesmo gradiente; nome fora do catálogo cai em fallback, nunca em correspondência aproximada |
+| V2-L2-T03 | `DestinationImage` (cliente, `next/image` + troca para fallback no `onError`) e `DestinationFallbackArt` (gradiente + inicial) | FE | 1 dia | V2-L2-T01 | V2-L2-T02 | Pendente | Imagem curada renderiza via `next/image`; falha de carregamento troca para fallback sem layout shift (RF-15.9); todo gradiente da paleta tem contraste >= 4.5:1 com `#FAFAFA` (RNF-09), coberto por teste |
+| V2-L2-T04 | `gerarSugestoesDestino` (T04) ganha campo `imagem: ImagemResolvida` por sugestão, calculado depois da resposta do Gateway; campo ignorado em `aprovarDestinoSugerido`/`DestinationApproval` | BE | 0.5 dia | V2-L2-T02 | V2-L2-T03 | Pendente | Prompt e schema do Gateway de IA (ADR-003) inalterados; toda sugestão de T04 tem `imagem` resolvida; aprovar destino não persiste o campo `imagem` |
+| V2-L2-T05 | `SuggestionCard` ganha prop `media` (16:9 mobile / 4:3 desktop) e `eyebrow`; T04 exibe selo "imagem ilustrativa" e crédito de autor/fonte (RF-15.5/15.6) | FE | 1 dia | V2-L2-T03, V2-L2-T04 | — | Pendente | T04 exibe imagem ou fallback conforme `V2-L2-T02`; crédito visível junto da imagem curada, ausente no fallback; `alt` nunca contém "foto do local"; T06/T07 continuam sem `media` (layout idêntico ao MVP) |
+
+#### V2-L3 — Roteiro de exemplo estático (RF-14, ADR-011)
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L3-T01 | `content/roteiro-exemplo.ts` + `scripts/exportar-roteiro-exemplo.ts`: roda o fluxo real em dev para Gramado (3 dias), exporta e tipa com `RoteiroDayResult`/`RoteiroItemResult` | BE | 1 dia | — | V2-L2-* | Pendente | Script gera o arquivo a partir de uma `TripSession` concluída real; **conteúdo revisado pelo dono antes do commit** (sem preço fora de faixa, sem afirmação factual duvidosa, voz de consultor — ver Seção 6); dias rotulados "Dia N — {dia da semana}", sem data de calendário |
+| V2-L3-T02 | Rota estática `/roteiro-exemplo` (T-EX): `ExampleBadge`, resumo, `ItineraryDayBlock` em modo leitura, dois CTAs | FE | 1 dia | V2-L3-T01 | V2-L2-* | Pendente | Página renderiza sem chamada a `gateway-ia`/Prisma (lint de `V2-L4-T01`); rotulada como exemplo; CTA "Planejar minha viagem para Gramado" leva a `/entrada/data-livre?destino=gramado` |
+
+#### V2-L4 — Home vitrine (RF-12, RF-18; ADR-011)
+
+Lote grande (10 tarefas) porque mapeia 1:1 as seções independentes da
+home (RF-12.1) — mesmo padrão de tamanho já usado nos Lotes 6/7 do MVP,
+justificado pelo ganho real de paralelismo entre seções que não dependem
+umas das outras (ver Seção 6).
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L4-T01 | `src/app/page.tsx` estático (`revalidate = 3600`, sem `cookies()`/`getServerSession`) + `HeroSection` + `SectionBand` + regra de lint `no-restricted-imports` (RN-08) + teste garantindo zero chamada ao Gateway de IA | FE | 1 dia | V2-L2-T01 (hero usa o destino `hero: true`) | V2-L4-T06a, T09 | Pendente | Página builda estática; hero usa a imagem do destino `hero` do catálogo com overlay AA (RNF-09); nenhum import de `gateway-ia`/`stage-rules`/`prisma`/`openai` nos arquivos do ADR-011 item 5, verificado por lint em CI |
+| V2-L4-T02 | `EntryPathsSection` (`id="caminhos"`, reaproveita `ENTRY_PATHS` de T00) | FE | 0.5 dia | V2-L4-T01 | V2-L4-T03, T04, T05, T06b, T07, T08 | Pendente | Três blocos com peso igual, nenhum pré-selecionado (RF-12.1 item 2); foco vai para o título ao chegar via `#caminhos` |
+| V2-L4-T03 | `HowItWorksSteps` (4 passos) | FE | 0.5 dia | V2-L4-T01 | V2-L4-T02, T04, T05, T06b, T07, T08 | Pendente | 4 passos na ordem destino→hospedagem→passeios→roteiro, com os textos do `UX-SPEC.md` §8.2 |
+| V2-L4-T04 | `ShowcaseSection` (8 `ShowcaseCard`) + `ImageCreditsSection` | FE | 1 dia | V2-L4-T01, V2-L2-T01, V2-L2-T03 | V2-L4-T02, T03, T05, T06b, T07, T08 | Pendente | 8 cards na ordem do catálogo, sem preço/temporada (decisão confirmada, RF-12.3); cada card leva a `/entrada/data-livre?destino={slug}`; crédito acessível a partir de cada card (RF-15.5) |
+| V2-L4-T05 | `ExamplePreviewSection` (prévia do Dia 1) | FE | 0.5 dia | V2-L4-T01, V2-L3-T01 | V2-L4-T02, T03, T04, T06b, T07, T08 | Pendente | Prévia usa o mesmo arquivo de `V2-L3-T01`; nota de faixa aproximada visível (RF-12.3); CTA leva a T-EX |
+| V2-L4-T06a | `getProximosFeriados(hoje, 3)` (função pura, reaproveita `getNationalHolidaysWithBridgeInRange`/ADR-007) | BE | 0.5 dia | — | V2-L4-T01 | Pendente | 3 próximos feriados a partir da data civil `America/Sao_Paulo`; nenhum cálculo paralelo ao de RF-02.2 (RNF-07); testado para cada mês do ano |
+| V2-L4-T06b | `UpcomingHolidaysSection` (`HolidayCallout` × 3) | FE | 0.5 dia | V2-L4-T01, V2-L4-T06a | V2-L4-T02, T03, T04, T05, T07, T08 | Pendente | Acento `holiday`, nunca cor de CTA (RF-18.4); link leva a `/entrada/feriados?feriado=AAAA-MM-DD`; seção some se não houver feriado futuro |
+| V2-L4-T07 | `FaqSection` + `SiteFooter` | FE | 0.5 dia | V2-L4-T01 | V2-L4-T02, T03, T04, T05, T06b, T08 | Pendente | 5 perguntas do `UX-SPEC.md` §8.2 item 7, `<details>` fechados por padrão; identificação como IA visível no FAQ (RNF-11) |
+| V2-L4-T08 | `MobileStickyCta` (`IntersectionObserver` sobre o hero) | FE | 0.5 dia | V2-L4-T01 | V2-L4-T02, T03, T04, T05, T06b, T07 | Pendente | Aparece só abaixo de `md` e só quando o hero sai da tela; some quando `#caminhos` está visível; respeita `prefers-reduced-motion` (RNF-10) |
+| V2-L4-T09 | `AccountNav` (cliente, `getSession` de `next-auth/react`, sem `SessionProvider` global) | FE | 0.5 dia | — | V2-L4-T01 | Pendente | "Entrar" sem conta; "Meus roteiros"/"Sair" com conta; espaço reservado sem CLS até a sessão resolver |
+
+#### V2-L5 — Entradas pré-preenchidas (RF-13, RF-18.3)
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L5-T01 | T01 (`/entrada/data-livre?destino={slug}`) resolve o `slug` no catálogo, preenche o campo (editável), datas vazias e obrigatórias | FE | 1 dia | V2-L2-T01 | V2-L5-T02 | Pendente | `slug` inválido/ausente = tela do MVP, sem erro; só `slug` aceito na URL, nunca texto livre; destino mantido segue RF-01.3 → T05, apagado segue T04 |
+| V2-L5-T02 | T02 (`/entrada/feriados?feriado=AAAA-MM-DD`) pré-seleciona o item na lista, rola até ele, anuncia via `aria-live` | FE | 0.5 dia | — | V2-L5-T01 | Pendente | Data inválida = lista sem seleção, sem erro; avanço continua exigindo clique explícito (INT-10); usuário pode trocar o feriado normalmente |
+
+#### V2-L6 — Verificação de conta no servidor (RF-16.7, ADR-009)
+
+**Retrofit de risco isolado**, mesmo cuidado de `L11-T02a`/`L11-T02` no
+MVP: `V2-L6-T03` muda a semântica do guard central usado por toda
+leitura/escrita de `TripSession`. Nenhuma outra tarefa deste TASK.md
+reimplementa checagem de posse/conta em paralelo a ela — ver Seção 6 para
+a justificativa completa do isolamento.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L6-T01 | `transicaoExigeConta` (função pura, `account-gate.ts`) | BE | 0.5 dia | — | V2-L6-T02, T09 | Pendente | `encerrar` nunca exige conta (RN-12); toda transição de/para estado pós-destino exige conta; testes cobrindo as 11 transições da state machine |
+| V2-L6-T02 | `resolveRequestIdentity` (par `{userId, anonSessionId}`, sem criar cookie novo) | BE | 0.5 dia | — | V2-L6-T01, T09 | Pendente | Lê `getServerSession` e o cookie existente sem efeito colateral; nunca resolve por precedência (isso continua só em `resolveSessionOwner`, criação) |
+| V2-L6-T03 | `assertSessionAccess(sessionId, record, {exigeConta})` substitui `assertSessionOwnership` em todos os chamadores (alias mantido durante a transição); `ContaNecessariaError` só depois da posse confirmada | BE | 1.5 dia (retrofit de um guard central usado por ~10 chamadores existentes, mesma natureza de `L11-T02a`; dividir por chamador fragmentaria uma mudança de contrato única — ver Seção 6) | V2-L6-T02 | — | Pendente | Tabela de 5 casos do ADR-009 item 2 coberta por teste; toda negação de posse continua 404; dono anônimo autenticado continua acessando a própria sessão anônima; `ContaNecessariaError` nunca vaza como exceção ao cliente |
+| V2-L6-T04 | `confirmarDestino` ganha `exigeConta = transicaoExigeConta(...)`; sem conta, devolve `{status:"conta_necessaria"}` e mantém `destino_confirmado` | BE | 0.5 dia | V2-L6-T01, T03 | V2-L6-T05, T06, T07, T08 | Pendente | Sem conta: sessão permanece em `destino_confirmado`, `DestinationApproval` já gravada, resposta discriminada nunca lança exceção |
+| V2-L6-T05 | `gerarSugestoesHospedagem`/`aprovarHospedagem` ganham `exigeConta: true` antes de montar o prompt | BE | 0.5 dia | V2-L6-T03 | V2-L6-T04, T06, T07, T08 | Pendente | Chamada sem conta é recusada sem chamar o Gateway de IA (teste verifica que o mock do Gateway não é invocado) |
+| V2-L6-T06 | `gerarSugestoesPasseios`/`aprovarPasseios` ganham `exigeConta: true` | BE | 0.5 dia | V2-L6-T03 | V2-L6-T04, T05, T07, T08 | Pendente | Idem V2-L6-T05, para a etapa de passeios |
+| V2-L6-T07 | `gerarRoteiro`/`aprovarRoteiro` ganham `exigeConta: true` | BE | 0.5 dia | V2-L6-T03 | V2-L6-T04, T05, T06, T08 | Pendente | Idem V2-L6-T05, para a etapa de roteiro |
+| V2-L6-T08 | Remoção de `POST /api/gateway-ia/[etapa]` (ADR-009 item 5) | BE | 0.5 dia | V2-L6-T03 | V2-L6-T04, T05, T06, T07 | Pendente | Busca no código confirma ausência de consumidor antes de remover (registrada no PR); nenhuma tela quebra depois da remoção |
+| V2-L6-T09 | `rotaDaEtapa(flowState, sessionId, destino?)` (função pura, fonte única do mapeamento estado→tela) | BE | 0.5 dia | — | V2-L6-T01, T02 | Pendente | Cobre os 7 casos da tabela do SDD §8.2.5, incluindo os 3 estados transitórios `*_aprovad*` |
+
+#### V2-L7 — Cadastro, vínculo e telas de conta (RF-16, RNF-13; ADR-009 item 3, ADR-012)
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L7-T01 | Server Action `criarConta({email, senha, consentimento})` (ADR-012) + remoção de `POST /api/auth/signup` | BE | 1 dia | V2-L1 | V2-L7-T03 | Pendente | Sem `consentimento === true`, nada é gravado; `privacyConsentAt`/`Version` gravados com relógio do servidor; e-mail duplicado vira "e-mail já cadastrado" (P2002); senha mínima de 8 caracteres |
+| V2-L7-T02 | Server Action `vincularSessaoAConta({sessionId})` (ADR-009 item 3): `updateMany` condicional atômico + idempotência + continuação de transição se `destino_confirmado` | BE | 1 dia | V2-L1, V2-L6-T02, V2-L6-T09 | — | Pendente | Só a sessão indicada muda de dono; `count === 0` com mesmo `userId` é sucesso idempotente; qualquer outro caso é 404; sessão em `destino_confirmado` avança para `hospedagem_pendente` na mesma transação |
+| V2-L7-T03 | `AuthForm` (modos cadastro/entrar) + `ConsentCheckbox` (componentes compartilhados T-GATE/T-LOGIN) | FE | 1 dia | — | V2-L7-T01, V2-L2-* | Pendente | Campos com `autocomplete` corretos; `ConsentCheckbox` desmarcado por padrão com `CONSENTIMENTO_TEXTO` exato; erros inline com `aria-describedby` para as mensagens do `UX-SPEC.md` §8.2 item 9 |
+| V2-L7-T04 | Página T-GATE (`/cadastro?sessionId=`): contexto do destino, alternância cadastro/entrar, estado "já autenticado", orquestra `criarConta`+`signIn`+`vincularSessaoAConta`, saídas ("Agora não"/"Voltar") | FE | 1.5 dia (tela com 4 sub-estados distintos — cadastro, entrar, já autenticado, erro — e orquestração de 3 chamadas em sequência; ver Seção 6) | V2-L7-T01, V2-L7-T02, V2-L7-T03 | — | Pendente | Sessão inexistente/de outra conta redireciona para `/`; sessão terminal redireciona para T-END; vínculo só ocorre no clique, nunca no GET; "Agora não" leva a T-END parcial sem perder o destino |
+| V2-L7-T05 | Página T-LOGIN (`/entrar?retorno=`, RF-17.7) | FE | 0.5 dia | V2-L7-T03 | V2-L7-T04 (arquivos distintos) | Pendente | Sem sessão em andamento; `retorno` restrito à allowlist (`/meus-roteiros`, `/hospedagem`, `/passeios`, `/roteiro`, `/destino/confirmacao`); qualquer outro valor cai em `/` |
+| V2-L7-T06 | T05 (Confirmação de destino) trata `conta_necessaria` navegando para T-GATE; linha de aviso "no próximo passo eu peço um e-mail" para quem não tem conta | FE | 0.5 dia | V2-L6-T04, V2-L7-T04 | V2-L7-T07 | Pendente | Com conta: segue direto para T06 (RF-16.6); sem conta: navega para T-GATE preservando `sessionId` |
+| V2-L7-T07 | T06/T07/T08 tratam `conta_necessaria` (redirect para T-GATE) — mesma mudança mecânica aplicada aos 3 pontos de chamada de `gerar*`/`aprovar*` (inseparável, ver Seção 6) | FE | 1 dia | V2-L6-T05, V2-L6-T06, V2-L6-T07, V2-L7-T04 | V2-L7-T06 | Pendente | Acesso direto por URL ou sessão anônima antiga (RF-16.9) em qualquer uma das 3 telas leva a T-GATE, sem exceção não tratada |
+| V2-L7-T08 | Rate limit em `authorize`/`criarConta` (SDD §8.7) + mitigação de enumeração de e-mail (mensagem única + tempo equalizado na entrada) | BE | 1 dia | V2-L7-T01 | — | Pendente | 5 cadastros/IP a cada 10 min; 10 entradas por (IP, hash do e-mail) a cada 10 min; e-mail nunca aparece em log; tempo de resposta de entrada não revela se o e-mail existe |
+| V2-L7-T09 | T-END: copy V2.0 (com conta: "Está salvo em 'Meus roteiros'" + CTA; sem conta: aviso honesto de que não foi salvo) | FE | 0.5 dia | V2-L7-T04 | — | Pendente | Nunca afirma "salvo" para quem desistiu do cadastro (RNF-11); com conta, CTA leva a `/meus-roteiros` |
+
+#### V2-L8 — Meus roteiros (RF-17)
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L8-T01 | `listarMeusRoteiros()` (query por `userId` da sessão do servidor, nunca por parâmetro; RF-17.8) + `rotuloDaSessao` (função pura) | BE | 1 dia | V2-L1, V2-L6-T03 | V2-L8-T02, T03 | Pendente | Usa o índice `(userId, updatedAt)`; ordenado por atualização mais recente; rótulo cobre os 3 casos de RF-17.3 |
+| V2-L8-T02 | Server Action `retomarSessao(sessionId)` (aplica `avancar` se estado `*_aprovad*`, devolve `rotaDaEtapa`) | BE | 0.5 dia | V2-L6-T03, V2-L6-T09 | V2-L8-T01, T03 | Pendente | POST, nunca GET com efeito colateral; sessão de outra conta = 404; devolve a rota correta para os 7 casos de `rotaDaEtapa` |
+| V2-L8-T03 | Server Action `obterRoteiroLeitura(sessionId)` (lê `ItineraryItem` ordenado, sem IA) | BE | 0.5 dia | V2-L6-T03 | V2-L8-T01, T02 | Pendente | Nenhuma chamada ao Gateway de IA; divergência de posse devolve 404 lógico |
+| V2-L8-T04 | Página T-MEUS (`/meus-roteiros`): lista, `TripListItem`/`StatusPill`, estado vazio, **"Excluir minha conta"** (`AlertDialog` + `DELETE /api/account` já existente + `signOut`) | FE | 1.5 dia (lista + 2 ações por linha + fluxo de exclusão de conta com diálogo de confirmação; ver Seção 6) | V2-L8-T01, V2-L8-T02 | V2-L8-T05 | Pendente | Sem conta redireciona para `/entrar?retorno=/meus-roteiros`; sessão vazia mostra `EmptyState` com CTA; **botão "Excluir minha conta" chama a API de exclusão já existente desde o Lote 11 do MVP (`DELETE /api/account`), sem recriar a lógica de exclusão** (decisão do dono, 2026-09-16); depois de excluir, `signOut` + redirect para `/` com aviso |
+| V2-L8-T05 | Página T-MEUS-DET (`/meus-roteiros/[sessionId]`): resumo (T-END) + roteiro em leitura (T08 `readOnly`) | FE | 1 dia | V2-L8-T03 | V2-L8-T04 | Pendente | Sessão de outra conta/inexistente volta a T-MEUS com aviso; concluída mostra os dias; encerrada sem roteiro mostra só o resumo |
+
+---
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):
@@ -4167,6 +4335,50 @@ paralelo por equipes/instâncias diferentes do Executor, não apenas as tarefas
 dentro de um mesmo lote. O Lote 10 é o único que depende de outro lote de
 tela (Lote 9) além da camada de fundação.
 
+### V2.0 — Dependências e Ordem de Execução (2026-09-16)
+
+```
+V2-L1 (migration)                                  [independente, paralelo a tudo]
+V2-L2 (catálogo) ─┬─→ V2-L4 (home: T04 vitrine, T05 exemplo)
+                  └─→ V2-L5-T01 (T01 pré-preenchido)
+V2-L3 (roteiro de exemplo) ─→ V2-L4-T05 (prévia)
+V2-L2 + V2-L3 → V2-L4 (home)                       [T01/T06a/T09 não esperam nem V2-L2 nem V2-L3]
+V2-L5 (entradas pré-preenchidas)                   [V2-L5-T01 depende só de V2-L2-T01; V2-L5-T02 independente]
+
+V2-L6 (verificação de conta) ─┬─→ V2-L7-T02/T04/T06/T07 (vínculo e telas de conta)
+                               └─→ V2-L8-T01/T02/T03 (meus roteiros)
+V2-L1 + V2-L6 → V2-L7 (cadastro/vínculo/telas de conta)
+V2-L1 + V2-L6 → V2-L8 (meus roteiros)
+
+Clusters mutuamente paralelos a nível de lote:
+  { V2-L2, V2-L3, V2-L5, V2-L6 } — nenhum depende de outro do mesmo grupo
+  V2-L4 depende de V2-L2 + V2-L3 (mas não de V2-L5/V2-L6/V2-L7/V2-L8)
+  V2-L7 depende de V2-L1 + V2-L6 (mas não de V2-L2/V2-L3/V2-L4/V2-L5)
+  V2-L8 depende de V2-L1 + V2-L6 (mas não de V2-L2/V2-L3/V2-L4/V2-L5/V2-L7)
+```
+
+Isso concretiza o pedido desta rodada: o cluster de conteúdo público
+(`V2-L2`/`V2-L3`/`V2-L4`/`V2-L5`) e o cluster de conta/gate
+(`V2-L6`/`V2-L7`/`V2-L8`) não têm nenhuma dependência cruzada entre si —
+podem ser executados em paralelo por instâncias diferentes do Executor
+desde o início, com `V2-L1` correndo em paralelo aos dois.
+
+Dentro de cada lote novo, "Paralelizável com" na Seção 3 já indica o que
+pode rodar simultaneamente. Contagem de paralelismo máximo por lote (pico
+de tarefas elegíveis ao mesmo tempo, considerando a ordem de dependência
+interna):
+
+| Lote | Tarefas | Pico de paralelismo interno |
+|---|---|---|
+| V2-L1 | 1 | 1 |
+| V2-L2 | 5 | 2 (T02+T03, depois de T01) |
+| V2-L3 | 2 | 1 (sequencial: T01 → T02) |
+| V2-L4 | 10 | 3 no início (T01+T06a+T09); depois 4-5 simultâneas (T02/T03/T07/T08, e T06b/T04/T05 conforme V2-L2/V2-L3 concluem) |
+| V2-L5 | 2 | 2 (T01+T02, sem dependência entre si) |
+| V2-L6 | 9 | 3 no início (T01+T02+T09); depois 5 simultâneas (T04-T08, após T03) |
+| V2-L7 | 9 | 2 no início (T01+T03); depois 2-3 conforme T02/T04/T05 liberam |
+| V2-L8 | 5 | 3 (T01+T02+T03, após V2-L6-T03/T09) |
+
 ## 5. Riscos de Prazo
 
 | Risco | Impacto | Mitigação |
@@ -4176,6 +4388,10 @@ tela (Lote 9) além da camada de fundação.
 | Fundador (único executor humano de fato) toca este projeto em paralelo a outros três do portfólio (ver `CTO-REVIEW.md` Gate 1, ressalva 2) | Risco de capacidade real, não de decomposição | Fora do escopo deste TASK.md resolver; registrado aqui só para não se perder — parecer ad hoc de `capacity-and-timeline-validation` fica a critério do Gestor |
 | L6-T06 (quiz wizard) e L10-T01 (roteiro) estimados acima de 1 dia-pessoa | Risco de subestimar esforço real de tarefas maiores que o alvo | Ambas justificadas na Seção 6 como inseparáveis; se a implementação real mostrar que passam de ~1.5-2 dias, sinal de que deveriam ter sido divididas — Executor deve escalar via `BLOCKERS.md` se isso ocorrer |
 | Lote 3 (Gateway de IA) é pré-requisito de Lotes 7, 8, 9 e 10 | Qualquer atraso no Lote 3 propaga para 4 lotes de tela em cascata | Lote 3 deve ser priorizado logo após Lote 1; dentro dele, L3-T03/L3-T04 e L3-T05/L3-T02 já são paralelizáveis para reduzir o caminho crítico |
+| **V2.0** — `V2-L6-T03` (retrofit do guard central) atrasa em cascata `V2-L6-T04..T08`, `V2-L7-T02/T04/T06/T07` e `V2-L8-T01/T02/T03` | Maior caminho crítico do V2.0 — um único ponto de atraso propaga para 2 dos 3 lotes do cluster de conta | Priorizar `V2-L6-T01/T02/T03` logo no início do cluster de conta; `V2-L6-T04-T08` já paralelizáveis entre si para reduzir o caminho crítico depois de `T03` |
+| **V2.0** — curadoria das 23 fotos do catálogo (dono) pode atrasar em relação ao código | Baixo: `imagem: null` é estado válido (ADR-010) — a vitrine e T04 continuam funcionais com fallback | Nenhuma tarefa de `V2-L2`/`V2-L4`/`V2-L5` espera a curadoria; ver decisão em Seção 6 |
+| **V2.0** — revisão humana do roteiro de exemplo (`V2-L3-T01`) antes do commit é etapa do dono, não do Executor | Atrasa só `V2-L3-T02`/`V2-L4-T05`, não os demais lotes | `V2-L3-T01` fica `Bloqueada` (aguardando revisão) em vez de `Concluída` até o commit do conteúdo revisado; o Executor sinaliza a pendência, não decide sozinho o que fica no roteiro |
+| **V2.0** — recuperação de senha/verificação de e-mail fora de escopo (decisão do dono) | Quem esquece a senha perde acesso aos roteiros salvos; risco aceito no protótipo (SDD §8.6) | Nenhuma mitigação nova neste TASK.md — já é decisão registrada, não um risco de decomposição |
 
 ## 6. Lacunas Sinalizadas
 
@@ -4343,6 +4559,128 @@ inalterados (nenhuma decisão arquitetural/de experiência muda; é decomposiç�
 de trabalho de wiring que já estava implícito na jornada navegável descrita
 em ambos). Nenhum ADR novo. Ver `.md/BLOCKERS.md`, Bloqueio 006, para o
 registro completo do achado e desta resolução.
+
+---
+
+### V2.0 — Lacunas Sinalizadas (2026-09-16)
+
+**Divisões feitas durante o autocheck de granularidade (antes/depois):**
+
+- Decomposição inicial do cluster de conta havia sido pensada como um único
+  lote "Cadastro e conta" (`V2-L6` unificado com o que virou `V2-L7`, ~18
+  tarefas). Redividido em dois lotes (`V2-L6` verificação de conta no
+  servidor, `V2-L7` cadastro/vínculo/telas de conta) porque misturavam duas
+  preocupações com riscos e donos de decisão diferentes: `V2-L6` é
+  segurança/autorização (retrofit de um guard já existente, ADR-009 itens 1-2
+  e 5), `V2-L7` é produto novo (telas e Server Actions que não existiam,
+  ADR-009 item 3 e ADR-012) — separar deixa `V2-L6-T03` isolada como o
+  retrofit de risco único, sem diluir sua visibilidade dentro de um lote de
+  18 tarefas.
+- `gerar*`/`aprovar*` de hospedagem, passeios e roteiro (ADR-009) inicialmente
+  cogitados como uma única tarefa "aplicar `exigeConta` em todas as Server
+  Actions pós-destino" — dividida em `V2-L6-T05`/`T06`/`T07` (uma por etapa)
+  porque cada uma toca um arquivo de Server Action diferente (endpoint
+  distinto por definição do `PRD-TECNICO.md`, hospedagem/passeios/roteiro
+  são regras de negócio/etapas separadas) e não têm dependência real entre
+  si depois de `V2-L6-T03` — mantê-las juntas eliminaria paralelismo real
+  sem nenhum ganho de coesão.
+- `V2-L4` (home) inicialmente cogitada como duas tarefas grandes ("seções de
+  cima" e "seções de baixo") — redividida em 9 tarefas de FE + 1 de BE
+  (`T06a`), uma por seção independente do RF-12.1, pelo mesmo raciocínio já
+  usado no Lote 5 do MVP (componentes de design system divididos por família
+  para paralelismo real): a maioria das seções só depende de `V2-L4-T01`
+  (o `page.tsx` base), não umas das outras.
+- `V2-L2` (catálogo) inicialmente cogitada como duas tarefas ("dados" e
+  "apresentação") — dividida em 5 (dados/tipos, resolução de imagem,
+  componentes de imagem, integração em `gerarSugestoesDestino`, integração
+  em `SuggestionCard`) para separar claramente regra de negócio (correspondência
+  determinística, ADR-010) de UI, e para permitir que `V2-L2-T02`
+  (resolvedor) e `V2-L2-T03` (componentes visuais) rodem em paralelo, já que
+  um não depende da lógica interna do outro, só dos tipos de `V2-L2-T01`.
+
+**Tarefas mantidas acima de ~1 dia-pessoa (justificativa de inseparabilidade):**
+
+- **`V2-L6-T03`** (guard `assertSessionAccess`, 1.5 dia): é o mesmo tipo de
+  retrofit que `L11-T02a`/`L11-T02` no MVP — uma mudança de contrato única
+  (par de identidade + `exigeConta`) aplicada a um guard já usado por ~10
+  chamadores existentes (`confirmarDestino`, `gerarSugestoesHospedagem`,
+  `aprovarHospedagem`, `gerarSugestoesPasseios`, `aprovarPasseios`,
+  `gerarRoteiro`, `aprovarRoteiro`, `retomarSessao`, `obterRoteiroLeitura`,
+  além dos usos já existentes do MVP). Dividir por chamador fragmentaria uma
+  mudança de contrato que precisa ser coerente em todos os pontos ao mesmo
+  tempo (a tabela de 5 casos do ADR-009 item 2 só faz sentido testada como
+  um todo) — mesmo raciocínio já registrado para `L11-T02a` no MVP. Canário
+  de contexto: estimado em torno de 150-250 mil tokens (arquivo do guard +
+  os ~10 chamadores a reler + os testes de autorização existentes), abaixo
+  do limite de ~300 mil, mas próximo o suficiente para o Executor monitorar
+  o canário em tempo real durante a execução.
+- **`V2-L7-T04`** (página T-GATE, 1.5 dia): a tela tem 4 sub-estados
+  genuinamente distintos (cadastro, entrar, já autenticado, erro — Seção
+  8.2 item 9 do `UX-SPEC.md` lista 8 mensagens de erro diferentes) e
+  orquestra 3 chamadas em sequência (`criarConta` → `signIn` →
+  `vincularSessaoAConta`), todas parte do mesmo fluxo de tela único (RF-16.2
+  a RF-16.4) — dividir por sub-estado fragmentaria uma única tela coesa sem
+  ganho de paralelismo real, já que os 4 sub-estados compartilham o mesmo
+  componente `AuthForm` (`V2-L7-T03`) e a mesma orquestração.
+- **`V2-L8-T04`** (página T-MEUS, 1.5 dia): lista com duas ações por linha
+  (continuar/ver) mais o fluxo de exclusão de conta com diálogo de
+  confirmação (RF-17 + decisão do dono desta rodada) — mantida como uma
+  única tarefa porque exclusão de conta e listagem são a mesma tela
+  (`/meus-roteiros`) e a exclusão reaproveita a API já existente (`DELETE
+  /api/account`, Lote 11 do MVP), sem regra de negócio nova a implementar;
+  dividir criaria uma tarefa "criar botão que chama endpoint existente" sem
+  tamanho real para justificar overhead de tarefa própria.
+
+**Decisão de fronteira: catálogo de imagens não bloqueia entrega técnica
+(dono decide sozinho o momento da curadoria):** o `SDD.md`/ADR-010 já
+resolve isso como decisão arquitetural (`imagem: null` é um estado válido
+do catálogo), e esta decomposição segue a mesma linha — nenhuma tarefa de
+`V2-L2`/`V2-L4`/`V2-L5` espera a curadoria real das 23 fotos. O código é
+entregue com todos os 23 destinos cadastrados e `imagem: null`, caindo no
+fallback de gradiente determinístico (RNF-09 garante contraste mesmo sem
+foto). Quando o dono curar uma foto, o commit troca só o campo `imagem` do
+destino correspondente em `catalogo/destinos.ts` — nenhuma tarefa de
+código precisa ser reaberta. Isso é uma decisão de detalhe de
+implementação dentro do que o `SDD.md`/ADR-010 já permite, não uma lacuna
+estrutural nova.
+
+**Decisão de fronteira: roteiro de exemplo tem uma etapa humana dentro da
+tarefa (`V2-L3-T01`), não uma tarefa separada para o dono:** o script
+gera o conteúdo automaticamente a partir de uma sessão real, mas o ADR-011
+exige revisão humana antes do commit (sem preço fora de faixa, sem
+afirmação factual duvidosa). Diferente do catálogo (onde a ausência de
+curadoria tem um fallback funcional pronto), aqui não há fallback — sem o
+conteúdo revisado, T-EX e a prévia da home (`V2-L4-T05`) não têm o que
+exibir. Por isso `V2-L3-T01` inclui a revisão como parte do critério de
+aceite (o Executor gera o rascunho; o dono aprova antes do commit que fecha
+a tarefa como `Concluída`), em vez de tratar geração e aprovação como duas
+tarefas — a geração sozinha não é "pronta" sem a aprovação, e não há
+paralelismo a ganhar dividindo isso.
+
+**Diretrizes já existentes traduzidas para o V2.0 (nenhuma lacuna, só
+verificação explícita):** as diretrizes 1-13 da Seção 1 (fronteira do
+Gateway de IA, state machine como única fonte de verdade, RN-01, retry
+único, observabilidade, segurança, acessibilidade) continuam valendo sem
+exceção para as telas/Server Actions novas do V2.0 — nenhuma tarefa desta
+seção as contradiz. As diretrizes 14-21 (Seção 1) cobrem o que é
+genuinamente novo do V2.0.
+
+**Nenhuma lacuna estrutural nova do `SDD.md`/`UX-SPEC.md` foi encontrada
+durante esta decomposição** — diferente do MVP (Bloqueios 001-006), o
+V2.0 chegou ao Loop C com a arquitetura (ADR-009 a ADR-012) e a
+especificação de tela (`UX-SPEC.md` §8) já fechadas na sequência interna
+do Coordenador (Loop B), sem gap entre o que a decomposição precisa e o
+que os dois documentos já definem. Os dois pontos abaixo não são lacunas
+estruturais — são decisões de negócio já resolvidas pelo dono nesta
+mesma rodada, registradas aqui só para rastreabilidade:
+
+- Recuperação de senha/verificação de e-mail: **fora do V2.0** (decisão do
+  dono, 2026-09-16). Nenhuma tarefa deste TASK.md as implementa ou assume
+  sua existência (diretriz 14, Seção 1).
+- Botão "Excluir minha conta" em "meus roteiros": **dentro do V2.0**
+  (decisão do dono, 2026-09-16) — `V2-L8-T04` reaproveita a API já
+  existente desde o Lote 11 do MVP (`DELETE /api/account`), sem tarefa
+  nova de backend.
 
 ## Rascunho de GUARDRAILS.md
 

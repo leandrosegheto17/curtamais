@@ -90,6 +90,68 @@ agentes (Executor e Validador incluídos).
 27. Todo ADR aceito é imutável — mudança de decisão arquitetural sempre gera
     um novo ADR com `Status: Superseded by ADR-NNN`, nunca edição do anterior.
 
+## Regras novas do V2.0 (2026-09-16) — aprovadas pelo Gestor em 2026-09-16
+
+Extraídas de `SDD.md` §8, `UX-SPEC.md` §8 e ADR-009 a ADR-012, junto com o
+`TASK.md` (lotes `V2-L1` a `V2-L8`). Regras 1-27 acima continuam valendo sem
+exceção; as regras abaixo são acréscimos, não substituições.
+
+28. **Nunca commitar imagem do catálogo sem autor, fonte, licença e URL de
+    origem registrados** (`catalogo/destinos.ts`, ADR-010, RF-15.5) — imagem
+    sem esses quatro campos não entra em `public/destinos/`.
+29. **Nunca usar correspondência aproximada/fuzzy entre a sugestão da IA e o
+    catálogo de destinos** — só igualdade exata após normalização
+    determinística (`normalizarNomeDestino`); na dúvida, sempre o fallback de
+    gradiente (RF-15.4, RN-10, ADR-010).
+30. **Nunca buscar imagem em serviço externo em tempo de execução, nem usar
+    imagem gerada por IA para representar um lugar real** — o catálogo do
+    V2.0 é só curadoria manual versionada em repositório (RN-10, ADR-010); a
+    busca automática (Unsplash/Pexels API) fica para um ADR próprio do V2.1.
+31. **Nunca criar conta sem o consentimento explícito marcado** — o checkbox
+    de consentimento (`ConsentCheckbox`) é desmarcado por padrão; sem
+    `consentimento === true`, nenhuma escrita em `User` acontece, e a versão
+    do texto aceito (`CONSENTIMENTO_VERSAO`) é sempre gravada junto da conta
+    (RNF-13, ADR-012).
+32. **Nunca gerar sugestão, roteiro ou qualquer conteúdo via Gateway de IA a
+    partir de uma rota/Server Action pública sem a verificação de conta
+    exigida pela etapa** — toda etapa pós-destino (hospedagem, passeios,
+    roteiro) verifica `exigeConta` no servidor antes de montar o prompt,
+    mesmo que a interface já pareça ter bloqueado o acesso (RF-16.7,
+    ADR-009); a checagem nunca é só client-side.
+33. **A home vitrine e o roteiro de exemplo nunca chamam o provider de LLM
+    nem o Prisma** — zero custo de IA e zero acesso a banco em ambos, em
+    qualquer uma de suas seções, verificado por regra de lint
+    (`no-restricted-imports`) e teste, não só por revisão manual (RN-08,
+    RF-12.7, RF-14.2, ADR-011).
+34. **`ContaNecessariaError` nunca é lançada como exceção para o cliente** —
+    toda Server Action que pode exigir conta devolve o resultado
+    discriminado `{status: "conta_necessaria", sessionId}` (ADR-009 item 2).
+35. **A state machine do fluxo guiado não ganha nenhum estado novo por causa
+    da verificação de conta** — a exigência de conta é sempre pré-condição de
+    transição (`transicaoExigeConta`), nunca um estado/ação novo em
+    `state-machine.ts` (ADR-009 item 1; o `PRD.md` já proíbe mudar a state
+    machine).
+36. **Vínculo de sessão anônima à conta é sempre explícito, atômico e restrito
+    à sessão indicada** — nunca migra todas as sessões do cookie anônimo de
+    uma vez, nunca faz merge de conteúdo entre sessões, e o cookie
+    `anon_session_id` nunca é apagado/trocado no login ou no vínculo (RN-11,
+    ADR-009 itens 3-4).
+37. **Vocabulário de reserva/venda e de agência/atendimento humano é proibido
+    em toda tela nova do V2.0** — CTA, título, card e `aria-label` seguem a
+    lista de termos proibidos de `UX-SPEC.md` §8.8 (RN-07, RNF-11).
+38. **Nenhum destino/data vindo de parâmetro de URL chega ao prompt do
+    Gateway de IA sem validação contra uma lista fechada** — T01 só aceita
+    `slug` do catálogo, T02 só aceita uma data presente na lista de feriados
+    calculada; nenhum texto livre de querystring é tratado como confiável
+    (RF-13, RF-18.3, SDD §8.7).
+39. **`retorno`/`callbackUrl` de entrada/cadastro só aceitam a allowlist de
+    caminhos relativos definida no SDD §8.2.5** — qualquer outro valor cai em
+    `/`, para impedir redirecionamento aberto.
+40. **Recuperação de senha e verificação de e-mail continuam fora de escopo
+    até decisão explícita em contrário do dono** — nenhuma tela ou Server
+    Action do V2.0 assume ou implementa esses dois mecanismos (decisão do
+    dono, 2026-09-16, `SDD.md` §8.6).
+
 ---
 
 Este rascunho segue para aprovação do usuário (orquestrador) junto com
@@ -102,3 +164,4 @@ severidade alta, não como preferência de estilo.
 | Data | Proposto por | Aprovado por | Mudança | Motivo |
 |---|---|---|---|---|
 | 2026-09-07 | coordenador | gestor | Aprovação da versão inicial (regras 1-27), com duas ressalvas não bloqueantes: (1) adicionar regra explícita proibindo implementação de entidades/funcionalidades de Fase 2 (Checklist, TripDocument, Expense, TripMember) neste ciclo do MVP, mesmo que o schema as preveja como extensão futura (SDD.md §5); (2) adicionar regra travando ADR-001 (PWA vs. nativo) contra mudança sem novo ADR, no mesmo padrão já aplicado à regra 26 (plataforma de deploy) — nenhuma das duas contradiz o conteúdo aprovado, ambas fecham lacuna de cobertura em relação à ressalva 3 do Gate 1 (CTO-REVIEW.md) e à simetria de tratamento entre ADRs | Ver parecer ad hoc em `CTO-REVIEW.md` (2026-09-07) |
+| 2026-09-16 | coordenador | gestor | Aprovação das regras 28-40 (V2.0), extraídas de `SDD.md` §8, `UX-SPEC.md` §8 e ADR-009 a ADR-012 — catálogo de imagens (crédito/licença, correspondência exata, sem busca externa/IA), consentimento no cadastro, verificação de conta no servidor antes de qualquer chamada de IA pós-destino, state machine inalterada, vínculo de sessão explícito/atômico, vocabulário proibido, allowlist de parâmetros de URL e de redirecionamento, e exclusão explícita de recuperação de senha/verificação de e-mail do escopo. `guardrails-governance` (Gestor) checou consistência com as regras 1-27: nenhuma contradição, nenhuma exceção estrutural sem justificativa — todas as 13 regras novas reforçam ou detalham princípios já aprovados (Gateway de IA único ponto de chamada a LLM, state machine server-side imutável em transições, isolamento de dados pessoais/sessão, imutabilidade de ADR por superação). Sem ressalvas | Ver `TASK.md`, Seção 3 (lotes `V2-L1` a `V2-L8`) e Seção 6 (V2.0) |
