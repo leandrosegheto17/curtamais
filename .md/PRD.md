@@ -138,9 +138,13 @@ previsível.
   registrado aqui para não ser reintroduzido por engano depois. Justificativa: o
   objetivo da sessão de gastos da Fase 2 é registro simples de total gasto, não
   ferramenta de controle financeiro.
-- **Modelo de monetização** — não decidido nesta release; não bloqueia o
-  desenvolvimento do MVP funcional, mas fica registrado como pergunta em aberto
-  (Seção 7).
+- **Modelo de monetização** — não implementado nesta release (MVP/Fase 1, os 12
+  lotes já `Validado`); não bloqueia o MVP funcional. A direção estratégica foi
+  decidida em 2026-09-16 (ver parecer ad hoc em `CTO-REVIEW.md` e decisão do
+  usuário nesta rodada) e está registrada como escopo de **V2** na subseção
+  "Direção futura — V2" abaixo — fecha o risco R-04 (Seção 6) apenas quanto à
+  direção escolhida; o detalhamento técnico (RF/RNF) fica para um ciclo de
+  planejamento dedicado ao V2, não para este MVP.
 - **Escolha final de stack/plataforma** — não decidida nesta release; avaliação
   de PWA/web responsivo (como já usado no projeto de Leitura Bíblica) versus
   outra abordagem cabe ao Coordenador no SDD.md, não a este PRD.
@@ -155,6 +159,282 @@ não ser perdido)
 - Compartilhamento com acompanhantes/grupo.
 - Sessão de lançamento de gastos reais (registro simples, total ao final da
   viagem — sem categorização detalhada nem comparação "previsto x realizado").
+
+### Direção futura — V2 (fora do MVP e fora da Fase 2 acima; decisão de produto
+registrada em 2026-09-16, sem detalhamento técnico ainda)
+
+Distinta da "Fase 2" acima (que é sobre organização pós-decisão — cronograma,
+checklist, gastos). O V2 aqui tratado é sobre monetização/controle de custo de
+IA e reposicionamento visual do produto, decidido pelo usuário (dono do
+produto) nesta rodada de reabertura pontual, a partir do parecer ad hoc do
+chapéu CTO em `CTO-REVIEW.md` (2026-09-16). **Nenhum item desta subseção
+altera o escopo dos 12 lotes já `Validado` em `TASK.md` — é direção futura,
+não retrabalho do MVP atual.**
+
+- **Trial anônimo com limite de sessões, cadastro obrigatório para continuar**
+  (fecha o risco R-04, Seção 6, quanto à direção escolhida — Opção C do
+  parecer ad hoc; **ponto de corte refinado em 2026-09-16**: destino grátis
+  e sem cadastro, cadastro exigido a partir da hospedagem — ver plano
+  consolidado abaixo): o uso segue 100% anônimo (sem cadastro) até um limite de
+  sessões/ciclos de uso da IA ainda não quantificado; ao atingir o limite, o
+  sistema passa a exigir cadastro para continuar usando. Justificativa: mantém
+  fricção zero na primeira interação, preservando a métrica de sucesso do MVP
+  (Seção 3 — taxa de conclusão do fluxo), e cria um ponto de conversão natural
+  a partir de uso recorrente demonstrado. Quantidade exata de sessões
+  gratuitas, definição precisa do que conta como "sessão" para esse limite, e
+  modelo de cobrança associado (freemium/plano pago) ficam para o
+  detalhamento técnico do V2 — não decididos nesta rodada.
+- **Cadastro básico**: quando exigido (acima), o cadastro deve permanecer o
+  mais simples possível, reaproveitando o NextAuth já implementado (e-mail/
+  senha ou magic link) — sem campos adicionais além do mínimo necessário para
+  autenticação. Não é um requisito novo de infraestrutura (a base já existe
+  via ADR-008); é uma diretriz de produto para a experiência de cadastro no
+  V2, a ser detalhada como RF/RNF quando o V2 entrar em planejamento técnico.
+- **Reformulação visual — "agência de viagem virtual"** (nome original
+  do pedido; posicionamento redefinido em 2026-09-16 como **"consultor de
+  roteiros de viagem"**, ver plano consolidado abaixo): direção de
+  produto/branding a explorar no V2, ainda sem requisito técnico detalhado.
+  Intenção declarada pelo usuário: elevar a percepção visual do produto para
+  se aproximar da experiência de um consultor de roteiros (não de uma
+  agência de viagens), para além do padrão
+  visual já implementado no MVP (RNF-03 do `PRD-TECNICO.md`). Sem escopo,
+  wireframe ou critério de aceite definidos nesta rodada — fica registrado
+  aqui só como direção a não perder, para detalhamento em ciclo futuro
+  (chapéu PM/BA, com possível consulta a `UX-SPEC.md` já existente como ponto
+  de partida).
+- Nenhum destes três itens gera RF/RNF novo no `PRD-TECNICO.md` nesta rodada
+  — ver `PRD-TECNICO.md`, nova subseção equivalente na Seção 5, para o
+  registro técnico espelho desta decisão.
+
+#### Plano consolidado V2 — "consultor de roteiros de viagem" — RASCUNHO (2026-09-16), direção aprovada em backlog
+
+> **Status: DIREÇÃO APROVADA, EM BACKLOG — NÃO PLANEJADA TECNICAMENTE NEM
+> INICIADA.** O dono do produto decidiu (2026-09-16) não iniciar o V2
+> agora. Não gera `PRD-TECNICO.md` (RF/RNF), ADR nem `TASK.md` até que o
+> dono decida iniciar o V2. Consolida o levantamento do Gestor (chapéu PM)
+> e o de UX do Coordenador (chapéu UX/UI), ambos de 2026-09-16, já com as
+> decisões do dono registradas em "Decisões do dono do produto", no fim
+> desta subseção. Os itens marcados como pendentes continuam em aberto.
+
+**Posicionamento (decidido).** O produto é um **consultor de roteiros de
+viagem**, e **não uma agência de viagens**. A promessa funcional não muda:
+o produto **sugere e organiza, não reserva nem vende**. O que muda é a
+moldura e a voz: um consultor que fala em primeira pessoa e se declara IA,
+uma vitrine antes do fluxo, uma faixa visual do destino e o roteiro final
+apresentado como um documento de consultoria. A state machine, as etapas e
+os 4 estados do MVP não mudam. É proibido usar vocabulário de reserva ou
+venda ("Reservar", "Comprar"), enfraquecer o rótulo de faixa aproximada
+(RNF-01) ou sugerir que existe atendimento humano. A home deve dizer
+explicitamente que o produto não é uma agência, com uma linha do tipo
+"montamos o plano; a reserva você faz onde preferir".
+
+**Funil alvo (corte de cadastro decidido pelo dono).** Visitante frio →
+home vitrine (sem custo de IA) → início do fluxo (CTA ou card com o
+destino já preenchido) → **escolha do destino, grátis e sem cadastro** →
+**ativação = destino aprovado** (primeira etapa aprovada, mesma definição
+da métrica primária da Seção 3) → **pedido de cadastro logo depois do
+destino aprovado** → hospedagem → passeios → roteiro (as três etapas
+exigem cadastro) → retorno via "meus roteiros". Isso substitui a
+proposta anterior de cadastro depois do primeiro roteiro. Efeito colateral
+positivo: só uma etapa de IA roda sem identidade, o que reduz a exposição
+de custo anônimo (R-08).
+
+**Efeito na métrica primária (Seção 3).** A ativação (destino aprovado)
+continua mensurável sem cadastro. A taxa de conclusão do **fluxo completo**
+passa a depender da conversão do cadastro e deve ser lida em duas partes:
+(a) ativação anônima (início do fluxo → destino aprovado) e (b) conclusão
+pós-cadastro (cadastro → roteiro concluído). Comparar a conclusão
+completa do V2 com a do MVP sem essa separação é inválido, porque o
+cadastro passa a ficar no meio do fluxo.
+
+**Reconciliação dos levantamentos.**
+- *Tamanho do catálogo (8–12 no PM vs. 30–50 no UX).* São dois usos
+  diferentes. Na home, **8 cards** (dentro dos 6–8 do UX e do mínimo do
+  PM). O catálogo também ilustra o resultado da IA em T04, por isso
+  precisa ser maior que a vitrine. Recomendação do PM: **~24 destinos no
+  V2.0**, com expansão para 30–50 no V2.1 condicionada à taxa de acerto do
+  catálogo em T04. O fallback visual por gradiente + inicial cobre o
+  restante sem risco de foto errada. **Critério decidido pelo dono:
+  destinos mais visitados de 2025. Pendente: lista final**, que o
+  Coordenador vai apresentar ao dono (sugestão do PM: priorizar, dentro
+  desse critério, os destinos que a IA mais sugere segundo o
+  `LlmGenerationLog`). **A curadoria das fotos é do próprio dono**, com
+  prazo definido só quando o V2 começar.
+- *Busca automática de fotos no Pexels/Unsplash (camada 2 do UX).*
+  **Adiada para o V2.1**, e só entra se a taxa de acerto do catálogo ficar
+  baixa: a busca automática é a principal fonte de descasamento entre
+  imagem e sugestão (quebra de confiança). No V2.0, a imagem vem do
+  catálogo (camada 1) ou do fallback de gradiente (camada 3).
+- *Nova moldura das etapas vs. "não redesenhar o wizard" (PM).* A troca de
+  copy e a imagem em T04 entram no V2.0: são baixo risco e quitam uma
+  dívida já prometida no UX-SPEC §2 T04. A faixa visual em todas as etapas
+  e o roteiro como documento de consultoria vão para o V2.1, depois do
+  baseline, para não confundir o efeito da home com o do fluxo na
+  métrica (confirmado pelo dono, item 7).
+- *Voz do consultor em primeira pessoa* (o UX propôs "concierge"). Aceita,
+  desde que a IA se declare como tal (mitiga R-05).
+- *`/encerramento`.* A rota existe e foi validada (L12-T05). Não é vazamento
+  de funil. O comentário desatualizado em
+  `src/components/encerramento/encerramento-screen.tsx` é só débito de
+  documentação.
+
+**Pré-requisitos do V2.0** (valem quando o V2 sair do backlog).
+1. `next/image` no `SuggestionCard`, com imagem maior (16:9 no mobile,
+   4:3 lateral no desktop). `images.remotePatterns` só será necessário se
+   a camada 2 entrar (V2.1), porque o catálogo é servido pelo próprio
+   domínio.
+2. Catálogo com os 23 destinos definidos em "Catálogo do V2.0", abaixo,
+   e fotos curadas pelo dono, **só de fontes gratuitas (Unsplash/Pexels) neste primeiro
+   momento**, com licença e autor registrados para cada imagem. Nunca
+   imagem gerada por IA para lugar real, nunca legenda "foto do local".
+3. Revisão do UX-SPEC §3/§6 e ADR de estratégia de imagens (Coordenador),
+   feitos só quando o V2 entrar em planejamento técnico.
+
+**Catálogo do V2.0 — decidido pelo PM (2026-09-16, a pedido do dono)**
+
+Critério: destinos nacionais mais visitados de 2025. Não há ranking
+oficial de visitas; a fonte usada são os rankings da Decolar de buscas por
+hospedagem (2º semestre de 2025 e verão 2025/26), mais uma pesquisa de
+interesse de 2025 (Mercado & Eventos) para Noronha e Lençóis.
+
+*Vitrine da home (8)* — os mais bem colocados nas duas listas da Decolar,
+com uma troca deliberada:
+Rio de Janeiro (RJ), Porto de Galinhas (PE), Gramado (RS), Maceió (AL),
+Porto Seguro (BA), Florianópolis (SC), Foz do Iguaçu (PR) e Campos do
+Jordão (SP).
+- Campos do Jordão entra no lugar de Natal: com Natal seriam 6 praias em
+  8 cards, e a home precisa ter o que mostrar para quem viaja em
+  junho–agosto, época forte da seção de feriados. Natal fica no catálogo.
+
+*Restante do catálogo (15)*:
+Natal (RN), Fortaleza (CE), Maragogi (AL), Salvador (BA), João Pessoa
+(PB), Imbassaí (BA), Búzios (RJ), Ilhéus (BA), Aracaju (SE), Praia do
+Forte (BA), Caldas Novas (GO), Olímpia (SP), Poços de Caldas (MG),
+Fernando de Noronha (PE) e Lençóis Maranhenses (MA).
+
+*Fora*:
+- **São Paulo (SP):** aparece alto nas buscas, mas em boa parte por viagem
+  de trabalho, e é a principal cidade de origem do público. O produto
+  planeja viagens de lazer curtas; sugerir a própria cidade de quem busca
+  não ajuda. O fallback de gradiente cobre o caso se a IA sugerir.
+- **Destinos da página de design** (Bonito, Jericoacoara, Ouro Preto,
+  Chapada dos Veadeiros): não aparecem nos rankings de 2025. Entram só se
+  o V2.1 ampliar o catálogo por taxa de acerto.
+
+Total: 23 destinos. O "~24" era estimativa; não completo a conta com um
+destino fora do critério. A validação da P-05 (cruzar com
+`LlmGenerationLog`) só é possível quando houver uso real registrado, ou
+seja, quando o V2 sair do backlog; se a IA sugerir com frequência algo
+fora da lista, a troca é feita nesse momento.
+
+**Pré-requisitos de "colocar no ar de verdade e divulgar" (não do V2.0).**
+Decisão do dono: enquanto o produto for protótipo, nenhum dos dois itens
+abaixo é tratado.
+1. Teto diário (global) de custo de IA, além do rate limit por sessão/IP,
+   conforme o parecer ad hoc de `CTO-REVIEW.md` (2026-09-16). No
+   protótipo, é aceito que o app pare se o saldo da API acabar. O desenho
+   técnico (ADR do Coordenador) fica para esse momento.
+2. Medição de uso (RUM, `@vercel/analytics`), pendente em `DEPLOY.md` §5.
+
+**V2.0 — mínimo que entrega a percepção de "consultor de roteiros"**
+- Dentro:
+  - Home na ordem proposta pelo UX: hero com foto e dois CTAs ("Montar
+    minha viagem" / "Ver roteiro de exemplo"), 3 caminhos de entrada com
+    peso igual, "como funciona" em 4 passos, vitrine de 8 destinos com o
+    destino já preenchido no fluxo, roteiro de exemplo **estático, gerado
+    uma vez** (sem custo por visita), próximos feriados prolongados
+    (determinístico, entra em T02) e FAQ com a nota de faixa aproximada.
+  - Barra de CTA fixa no mobile.
+  - Catálogo de 23 destinos (8 na home) e imagem em T04
+    (camadas 1 e 3).
+  - Revisão de copy para a voz de consultor de roteiros.
+  - Tokens visuais novos do UX (#101A2B, terracota #E07A5F só como acento
+    de feriado, #1F1F23), mantendo o dark-first e o dourado #D4AF6A.
+  - **Decidido pelo dono:** pedido de cadastro logo depois do destino
+    aprovado (hospedagem, passeios e roteiro exigem cadastro) e tela
+    simples "meus roteiros".
+- Fora: todo o conteúdo do V2.1 e do "Fora do V2", abaixo.
+
+**V2.1 — incremento condicionado ao baseline de 4 semanas do V2.0**
+- Faixa visual do destino em todas as etapas; roteiro final (T08/T-END)
+  como documento de consultoria.
+- Catálogo ampliado para 30–50 destinos; camada 2 (Pexels/Unsplash no
+  servidor, com cache no banco) só se a taxa de acerto do catálogo em T04
+  justificar.
+
+**Fora do V2 (qualquer fase)**
+- Páginas de detalhe por destino e conteúdo editorial longo/SEO.
+- Sugestões geradas por IA na home: seria custo por visitante anônimo sem
+  teto.
+- Busca e filtro na vitrine.
+- Depoimentos e selos sem usuários reais.
+- Pagamento e planos.
+- Reserva/booking (o produto não é agência de viagens).
+- Autoplay, parallax e vídeo.
+- Qualquer mudança na state machine.
+
+**Métricas do V2 — INTENÇÃO, não medição no protótipo.** Sem RUM (decisão
+do dono), as métricas de comportamento na home e na navegação (clique no
+CTA/card, origem de entrada) **não são medidas no protótipo**. Ficam
+registradas como intenção para quando o produto for colocado no ar de
+verdade. Contagens que já saem do banco (destinos aprovados, cadastros,
+roteiros concluídos, `LlmGenerationLog`) continuam disponíveis como
+leitura manual, sem compromisso de meta. (Todas as metas numéricas só
+depois de 4 semanas de baseline, contadas a partir do RUM ativo, mesmo racional da P-01. A meta de partida de >= 20% proposta
+antes para o cadastro pós-primeiro roteiro foi **retirada**: com o corte
+movido para logo depois do destino, o usuário vê menos valor antes do
+pedido de cadastro, e o número não tem base de comparação)
+- Taxa de clique da home para o fluxo, por CTA e por card.
+- Taxa de ativação anônima (destino aprovado ÷ fluxos iniciados), sem
+  dependência do cadastro.
+- **Taxa de cadastro pós-destino aprovado** (cadastros ÷ destinos
+  aprovados), sem meta até ter baseline.
+- Taxa de conclusão pós-cadastro (roteiro concluído ÷ cadastros), lida
+  separada da ativação.
+- As taxas acima **segmentadas por origem de entrada** (card da vitrine,
+  CTA genérico, data livre, feriado, quiz). Sem essa segmentação, a
+  mudança no mix de tráfego distorce a métrica primária da Seção 3.
+- Retorno de usuários cadastrados em 7 e 30 dias.
+- Custo de IA por ativação e por cadastro (`LlmGenerationLog`).
+- Taxa de acerto do catálogo em T04 (destinos sugeridos com foto curada).
+
+**Premissas e riscos novos (rascunho; entram na Seção 6 quando o plano for
+aprovado)**
+
+| ID | Tipo | Descrição | Dono | Validação |
+|---|---|---|---|---|
+| P-03 | Premissa | A home vitrine aumenta a quantidade absoluta de ativações e não reduz a conclusão dos que iniciam o fluxo | Gestor (PM) | Comparar 4 semanas pós-V2.0 com o baseline pós-RUM |
+| P-04 | Premissa | Ver o destino aprovado (com foto) é valor suficiente para o usuário aceitar se cadastrar antes de hospedagem/passeios/roteiro, sem abandono massivo nesse ponto | Gestor (PM) | Taxa de cadastro pós-destino aprovado nas 4 primeiras semanas; meta só depois do baseline |
+| P-05 | Premissa | Um catálogo formado pelos destinos mais visitados de 2025 cobre a maior parte das sugestões da IA em T04 | Gestor (PM/BA) + dono (escolha e curadoria) | Cruzar a lista candidata com o `LlmGenerationLog` antes da escolha; conferir a taxa de acerto no V2.0 por leitura do banco |
+| R-05 | Risco | O reposicionamento cria expectativa de reserva ou de atendimento humano | Gestor (PM) | Revisão de copy antes do lançamento; pergunta direta a testadores |
+| R-06 | Risco | Licenciamento indevido de imagem de terceiros | Gestor (PM) + dono (curadoria) | Só Unsplash/Pexels, com licença e autor registrados por imagem antes do deploy |
+| R-07 | Risco | O protótipo V2 roda sem RUM (aceito pelo dono): o efeito da home e do novo corte de cadastro não é medido, e decisões de ajuste no protótipo são qualitativas | Gestor (PM) + Coordenador/Executor | `@vercel/analytics` ativo antes de colocar no ar de verdade e divulgar; P-03/P-04 só são validadas a partir daí |
+| R-08 | Risco | Tráfego anônimo eleva o custo de IA sem teto. Atenuado: só a etapa de destino roda sem cadastro. Aceito no protótipo: se o saldo da API acabar, o app para | Gestor (CTO, ad hoc) + Coordenador | Teto diário implementado antes de colocar no ar de verdade e divulgar |
+| R-11 | Risco | O pedido de cadastro no meio do fluxo derruba a conclusão completa em relação ao MVP e isso é lido como regressão | Gestor (PM) | Ler a ativação anônima e a conclusão pós-cadastro separadas (ver "Efeito na métrica primária") |
+| R-09 | Risco | Diluição de foco: vitrine bonita, fluxo pouco usado | Gestor (PM) | Taxa de clique da home para o fluxo vs. baseline |
+| R-10 | Risco | Imagem que não corresponde ao destino sugerido | Coordenador | Só catálogo + fallback de gradiente no V2.0; camada 2 só no V2.1, se aprovada |
+
+**Decisões do dono do produto (2026-09-16)**
+1. **Decidido:** tom de "consultor de roteiros de viagem", não agência.
+2. **Decidido:** a escolha do destino é grátis e sem cadastro; hospedagem,
+   passeios e roteiro exigem cadastro.
+3. **Decidido:** critério do catálogo = destinos mais visitados de 2025;
+   curadoria das fotos pelo próprio dono, com prazo definido quando o V2
+   começar. **Decidido pelo PM, a pedido do dono:** 23 destinos, 8 na
+   home, São Paulo fora (ver "Catálogo do V2.0").
+4. **Decidido:** RUM não é tratado no protótipo. Passa a ser pré-requisito
+   de colocar no ar de verdade e divulgar, junto com o teto de custo.
+5. **Decidido:** o teto diário de custo de IA não é pré-requisito do V2
+   (protótipo; parar por saldo esgotado é aceito), e sim de colocar no ar
+   de verdade e divulgar. O valor do teto fica para esse momento.
+6. **Decidido:** cadastro e "meus roteiros" entram no V2.0.
+7. **Decidido:** a camada 2 de imagens (busca automática para destino
+   fora do catálogo) e o roteiro como documento de consultoria ficam no
+   V2.1.
+8. **Decidido:** fotos só de fontes gratuitas (Unsplash/Pexels) neste
+   primeiro momento, com licença e autor registrados por imagem.
+9. **Decidido:** o V2 fica como direção aprovada em backlog, sem
+   planejamento técnico (`PRD-TECNICO.md`, ADR, `TASK.md`) por enquanto.
 
 ## 5. Requisitos de Alto Nível Priorizados
 
@@ -172,6 +452,7 @@ não ser perdido)
 | R10 | Orçamento do usuário como filtro de entrada | Should-have | Melhora relevância da sugestão, mas o fluxo funciona (com sugestões não filtradas) mesmo sem o usuário informar orçamento |
 | R11 | Visual web cuidado/diferenciado | Must-have | Prioridade explícita do fundador; parte do valor percebido do produto, não só polimento |
 | R12 (Fase 2, não deste MVP) | Cronograma, checklist, dados de viagem, compartilhamento, gastos | Backlog priorizado para release seguinte | Valor de negócio confirmado, mas depende de validar primeiro a Fase 1 |
+| R13 (V2, não deste MVP nem da Fase 2) | Trial anônimo com limite de sessões + cadastro obrigatório básico para continuar; reformulação visual "consultor de roteiros de viagem" (ex-"agência de viagem virtual") | Backlog priorizado para ciclo de planejamento futuro dedicado | Decisão de direção de produto registrada em 2026-09-16 (ver Seção 4, "Direção futura — V2"); sem detalhamento técnico/RF ainda — não prioridade formal até entrar em planejamento |
 
 ## 6. Premissas e Riscos de Produto
 
@@ -182,7 +463,7 @@ não ser perdido)
 | R-01 | Risco | Sugestões geradas por LLM podem "alucinar" preços ou informações desatualizadas (ex.: preço de ingresso de atração, regras de entrada em outro país) | Coordenador (arquitetura de prompt/fallback) + Gestor (ressalva já registrada no Gate 1) | Antes do SDD.md ser aprovado pelo usuário — tratar como decisão de arquitetura de primeira classe |
 | R-02 | Risco | O produto compete por atenção/capacidade de execução do fundador com outros três projetos em paralelo (Metas Financeiras, Leitura Bíblica, site institucional) | Gestor (chapéu CTO, ad hoc) | Quando o TASK.md existir, se o usuário solicitar parecer de capacidade |
 | R-03 | Risco | Conjunto básico do quiz guiado (R3) pode não cobrir casos reais de uso suficientes, gerando abandono nesse caminho específico | Gestor (chapéu PM/BA) | Após os primeiros testes de uso reais, conforme já sinalizado no briefing como decisão adiada de propósito |
-| R-04 | Risco | Modelo de monetização não definido pode afetar decisões de arquitetura (ex.: limite de chamadas de IA por usuário gratuito) | Gestor (chapéu CTO, ad hoc) | Antes de escalar o produto além do MVP validado; não bloqueia o MVP em si |
+| R-04 | Risco | Modelo de monetização não definido pode afetar decisões de arquitetura (ex.: limite de chamadas de IA por usuário gratuito) | Gestor (chapéu CTO, ad hoc) | **Direção resolvida em 2026-09-16**: trial anônimo com limite de sessões + cadastro obrigatório básico para continuar (Opção C do parecer ad hoc, `CTO-REVIEW.md`), registrado como escopo V2 na Seção 4. Detalhamento técnico (quantidade de sessões, RF/RNF, modelo de cobrança) permanece em aberto para ciclo de planejamento dedicado ao V2 — não bloqueia nem altera o MVP já `Validado` |
 
 ## 7. Perguntas em Aberto (para o Business Analyst)
 

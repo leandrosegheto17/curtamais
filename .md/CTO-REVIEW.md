@@ -147,3 +147,65 @@ formal deste parecer (correção de completude, não mudança estrutural de
 regra já aprovada).
 
 ---
+
+## Parecer ad hoc — Estratégia de monetização / controle de custo de IA — 2026-09-16
+
+### Escopo do parecer
+Reabertura pontual solicitada pelo usuário (dono do produto), não uma nova
+ideia de produto. Reavalia o risco R-04 do `PRD.md` §6 ("Modelo de
+monetização não definido pode afetar decisões de arquitetura") e o item de
+escopo "Modelo de monetização — não decidido nesta release" do `PRD.md` §4,
+à luz do estado atual real do projeto: os 12 lotes de implementação estão
+`Validado` em `TASK.md`, a sessão anônima e autenticada já está implementada
+(ADR-008), rate limiting por sessão/IP já existe (L3-T05/RL3-T01), e há
+tentativas de deploy em staging em andamento (bloqueadas hoje por
+`VERCEL_TOKEN` inválido, não por decisão de produto).
+
+### Análise de urgência/criticidade (skill `tech-strategy-review`)
+A pergunta do usuário mistura duas questões de naturezas diferentes, que
+precisam ser respondidas separadamente:
+
+1. **"Precisa de cadastro para usar?"** — já está resolvida tecnicamente.
+   ADR-008 e o fluxo atual já suportam uso 100% anônimo (cookie httpOnly
+   `anon_session_id`) e uso autenticado opcional. Não há necessidade de
+   mudança de arquitetura para responder isso; a pergunta real do usuário é
+   se deve *tornar o cadastro obrigatório como controle de custo/monetização*
+   — isso é decisão de produto/negócio, não uma lacuna técnica.
+2. **"Estratégia de monetização"** — de fato não existe hoje (era decisão
+   explicitamente adiada no `PRD.md` §4 e §7, risco R-04). O que existe é
+   *observabilidade* de custo (`LlmGenerationLog` grava tokens/custo/latência
+   por chamada) e *defesa contra abuso técnico* (rate limiting por
+   sessão/IP) — nenhuma das duas é controle de cobrança, plano ou paywall.
+
+Veredito de urgência: **não é bloqueante para o primeiro deploy em
+staging/soft launch com escopo controlado**, mas **é recomendável decidir
+antes de qualquer divulgação pública ampla ou deploy de produção aberto ao
+público**, pelo seguinte motivo de risco: sem nenhum limite de custo por
+usuário/dia (só por sessão/IP), o pior caso de exposição financeira em
+produção aberta é proporcional ao tráfego, não a um teto orçamentário
+definido — isso é uma lacuna de controle financeiro, não de segurança. Em
+staging fechado (uso do próprio fundador e eventuais testadores conhecidos),
+o risco é baixo e pode ser aceito conscientemente por mais um ciclo.
+
+Recomendação: tratar a decisão de estratégia de monetização/controle de
+custo como pré-requisito do lançamento de produção público (não do staging
+já em curso), com uma salvaguarda mínima de baixo custo antes disso —
+detalhado abaixo.
+
+### Opções levantadas (chapéu CTO + PM, para decisão do usuário — nenhuma
+das três é adotada por este parecer)
+Ver relatório completo desta rodada no handback do Gestor. Resumo dos
+trade-offs centrais: (a) cadastro obrigatório vs. anônimo com limite,
+(b) modelo de cobrança (freemium por sessões grátis, paywall total,
+doação/patrocínio), (c) impacto sobre o rate limiting hoje implementado
+(por sessão/IP, não por usuário pagante/identidade).
+
+### Veredito
+**Consultivo — não bloqueia o pipeline nem o deploy de staging em curso.**
+Recomenda-se decisão do usuário antes do primeiro deploy de produção aberto
+ao público em geral. Nenhuma mudança de arquitetura/GUARDRAILS.md é proposta
+por este parecer; se o usuário aprovar uma das opções, o Coordenador deve
+ser acionado para desenhar a implementação técnica (rate limiting por
+identidade, integração de pagamento, etc.) via ADR novo.
+
+---

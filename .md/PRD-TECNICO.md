@@ -275,6 +275,31 @@ flowchart TD
 | Fonte de dados de feriados nacionais brasileiros | Base para a listagem de RF-02 | Pode ser calculado internamente (regra de calendário + feriados fixos/móveis conhecidos) ou via biblioteca/API de terceiros — decisão técnica do Coordenador; requisito de negócio é só a precisão do cálculo (RNF-07) |
 | Nenhuma API de preço real de voo/hotel/passeio | Fora de escopo do MVP (PRD.md Seção 4) | Não é integração deste MVP; registrado aqui só para deixar explícito que não há dependência externa de preço real |
 
+### Direção futura — V2 (fora deste MVP; registrado sem RF/RNF formal ainda)
+
+Espelho técnico da subseção "Direção futura — V2" do `PRD.md` Seção 4, decisão
+de produto de 2026-09-16. **Nenhum requisito funcional/não-funcional novo é
+criado nesta rodada** — o detalhamento técnico (RF/RNF, critério de aceite
+EARS, regra de negócio, dependências) fica para um ciclo de planejamento
+técnico dedicado ao V2 (`/planejar_tarefa` ou equivalente), quando o usuário
+decidir avançar. Registrado aqui só para não perder a direção e para o
+Coordenador ter contexto ao ser acionado futuramente:
+
+- **Limite de sessões/uso anônimo + cadastro obrigatório para continuar**:
+  vai exigir, no mínimo, um RF novo de controle de contagem de sessão (ligado
+  a `anon_session_id`, já existente) com limiar configurável, um RNF de
+  mensageria de bloqueio/CTA de cadastro, e possível ajuste na integração de
+  rate limiting hoje implementada (RL3-T01, por sessão/IP) para também
+  considerar identidade autenticada — decisão de arquitetura, não deste
+  documento.
+- **Cadastro básico via NextAuth**: infraestrutura de autenticação já existe
+  (ADR-008); direção de produto é não adicionar campos além do mínimo — vira
+  RNF de usabilidade/fricção quando detalhado.
+- **Reformulação visual "agência de viagem virtual"**: sem requisito técnico
+  ainda; quando detalhado, provavelmente estende RNF-03 (`PRD-TECNICO.md`
+  atual) em vez de criar categoria nova, mas isso é decisão do próximo ciclo
+  de BA/UX, não desta rodada.
+
 ## 6. Premissas e Riscos Resolvidos
 
 | ID (origem PRD.md) | Premissa/Risco | Validação/Refutação | Evidência citada |
@@ -283,6 +308,7 @@ flowchart TD
 | R-01 | Risco de alucinação de preço/informação pela LLM | Não eliminado (é um risco real de qualquer geração por LLM), mas mitigado por RNF-01 (rotulagem) e RNF-05 (tratamento de falha) neste documento; tratamento arquitetural completo (ex.: grounding, validação de faixa plausível) permanece como responsabilidade do Coordenador no SDD.md, conforme ressalva do Gate 1 | CTO-REVIEW.md, Gate 1, ressalva 1 |
 | R-03 | Quiz guiado básico pode não cobrir casos reais suficientes | Não resolvido nesta etapa — mantido como risco aberto, deliberadamente, para ser avaliado só após uso real (RN-06 formaliza essa decisão de não expandir preventivamente) | PRD.md R-03, briefing original ("decisão adiada de propósito") |
 | — | Ambiguidade: fluxo em etapas versus destino já informado precisa de checkpoint? | Resolvida: RF-11 introduz etapa de confirmação mesmo quando o destino já veio informado pelo usuário, para manter RN-01 consistente | Ver Interpretação INT-01, Seção 7 |
+| R-04 (PRD.md) | Modelo de monetização não definido | Direção resolvida em 2026-09-16 (trial anônimo + cadastro obrigatório básico após limite de sessões), registrada como escopo V2 na subseção "Direção futura — V2" acima; nenhum RF/RNF criado nesta rodada — resolução é só de direção de produto, não de requisito técnico | PRD.md Seção 6 (R-04 atualizado), CTO-REVIEW.md (parecer ad hoc 2026-09-16) |
 
 ## 7. Interpretações Registradas
 
