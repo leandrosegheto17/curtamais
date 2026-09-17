@@ -10,9 +10,9 @@ export default function OfflinePage() {
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
       <h1 className="text-2xl font-semibold">Você está offline</h1>
       <p className="max-w-md text-muted-foreground">
-        Não foi possível carregar esta página sem conexão. O CurtaMais precisa
-        de internet para gerar sugestões de viagem com IA. Verifique sua
-        conexão e tente novamente.
+        Não foi possível carregar esta página sem conexão. O Destino Ideal
+        precisa de internet para gerar sugestões de viagem com IA. Verifique
+        sua conexão e tente novamente.
       </p>
     </main>
   );

@@ -1,6 +1,6 @@
 {
-  "name": "CurtaMais — Planejador de Viagens com IA",
-  "short_name": "CurtaMais",
+  "name": "Destino Ideal — Planejador de Viagens com IA",
+  "short_name": "Destino Ideal",
   "description": "Planejador de viagens com decisão guiada por IA",
   "start_url": "/",
   "scope": "/",
@@ -11,13 +11,13 @@
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/icons/icon-192.svg",
+      "src": "/icons/icon-destino-ideal.svg",
       "sizes": "192x192",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.svg",
+      "src": "/icons/icon-destino-ideal.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any"

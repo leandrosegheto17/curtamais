@@ -152,7 +152,7 @@ describe("Home vitrine (V2-L4-T01, RF-12, ADR-011)", () => {
     render(<HomePage />);
     await screen.findByRole("link", { name: "Entrar" });
 
-    expect(screen.getByRole("link", { name: "CurtaMais" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Destino Ideal" })).toHaveAttribute(
       "href",
       "/",
     );
@@ -248,6 +248,6 @@ describe("RL-V2-L4-T01 — integração final das 9 seções (UX-SPEC.md §8.2 T
     await screen.findByRole("link", { name: "Entrar" });
 
     expect(screen.getByText("Quem monta o roteiro?")).toBeInTheDocument();
-    expect(screen.getAllByText("CurtaMais")).toHaveLength(2); // logotipo do header + nome no rodapé
+    expect(screen.getAllByText("Destino Ideal")).toHaveLength(2); // logotipo do header + nome no rodapé
   });
 });

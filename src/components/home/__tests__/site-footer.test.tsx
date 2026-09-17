@@ -11,7 +11,7 @@ describe("SiteFooter (V2-L4-T07)", () => {
     render(<SiteFooter />);
 
     expect(document.querySelector("footer")).not.toBeNull();
-    expect(screen.getByText("CurtaMais")).toBeInTheDocument();
+    expect(screen.getByText("Destino Ideal")).toBeInTheDocument();
     expect(
       screen.getByText("Eu monto o plano; a reserva você faz onde preferir."),
     ).toBeInTheDocument();

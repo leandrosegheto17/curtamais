@@ -17,7 +17,7 @@
 // slot `imageCredits` de `SiteFooter` (V2-L4-T07): um único rodapé de
 // créditos para as imagens curadas da vitrine.
 //
-// Cabeçalho (UX-SPEC.md §8.2 T-HOME: "logotipo 'CurtaMais' (link para /) à
+// Cabeçalho (UX-SPEC.md §8.2 T-HOME: "logotipo 'Destino Ideal' (link para /) à
 // esquerda e AccountNav à direita"): montado diretamente aqui, só para esta
 // página — `AccountNav` (V2-L4-T09) documenta explicitamente que é esta
 // tarefa que o consome pela primeira vez. Levar esse cabeçalho para
@@ -50,7 +50,7 @@ export default function HomePage() {
     <>
       <header className="relative z-20 flex items-center justify-between border-b border-border bg-background px-6 py-4 md:px-8">
         <Link href="/" className="font-serif text-lg text-foreground">
-          CurtaMais
+          Destino Ideal
         </Link>
         <AccountNav />
       </header>

@@ -17,7 +17,7 @@
 // JS/CSS gerados pelo Next.js (`/_next/static/...`), manifest e ícones.
 // Nenhuma resposta de rota que gera conteúdo dinâmico via LLM é armazenada.
 
-const CACHE_VERSION = "curtamais-shell-v1";
+const CACHE_VERSION = "destino-ideal-shell-v2";
 const OFFLINE_URL = "/offline";
 
 // Precache mínimo: shell inicial + fallback offline + manifest + ícones.
@@ -29,8 +29,7 @@ const PRECACHE_URLS = [
   "/",
   OFFLINE_URL,
   "/manifest.webmanifest",
-  "/icons/icon-192.svg",
-  "/icons/icon-512.svg",
+  "/icons/icon-destino-ideal.svg",
 ];
 
 // Prefixos de rota que NUNCA podem ser interceptados/cacheados por este

@@ -19,17 +19,17 @@ const geistMono = localFont({
 // `appleWebApp` cobre o comportamento de instalação em iOS/Safari, que não
 // segue o manifest padrão.
 export const metadata: Metadata = {
-  title: "CurtaMais",
+  title: "Destino Ideal",
   description: "Planejador de viagens com decisão guiada por IA",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "CurtaMais",
+    title: "Destino Ideal",
   },
   icons: {
-    icon: "/icons/icon-192.svg",
-    apple: "/icons/icon-192.svg",
+    icon: "/icons/icon-destino-ideal.svg",
+    apple: "/icons/icon-destino-ideal.svg",
   },
 };
 

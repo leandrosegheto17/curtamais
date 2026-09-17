@@ -103,7 +103,7 @@ export type StageContext = {
 };
 
 const BASE_SYSTEM_PROMPT =
-  "Você é o assistente de planejamento de viagens do CurtaMais. Responda " +
+  "Você é o assistente de planejamento de viagens do Destino Ideal. Responda " +
   "SEMPRE em português do Brasil, apenas com o JSON estruturado pedido " +
   "(sem texto fora do schema). Toda faixa de preço é uma estimativa " +
   "aproximada, nunca um valor garantido. Nunca invente restrições que o " +

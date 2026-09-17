@@ -30,7 +30,7 @@ export function SiteFooter({ imageCredits }: SiteFooterProps) {
   return (
     <footer className="w-full border-t border-border bg-background">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-6 py-10 md:px-8">
-        <p className="font-serif text-lg text-foreground">CurtaMais</p>
+        <p className="font-serif text-lg text-foreground">Destino Ideal</p>
         <p className="text-sm text-muted-foreground">
           Eu monto o plano; a reserva você faz onde preferir.
         </p>
