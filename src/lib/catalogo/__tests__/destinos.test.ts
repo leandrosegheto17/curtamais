@@ -14,9 +14,11 @@ describe("CATALOGO_DESTINOS", () => {
     expect(CATALOGO_DESTINOS).toHaveLength(23);
   });
 
-  it("todo destino builda/importa normalmente com imagem: null como placeholder válido", () => {
+  it("todo destino builda/importa normalmente, com imagem curada ou imagem: null como placeholder válido", () => {
     for (const destino of CATALOGO_DESTINOS) {
-      expect(destino.imagem).toBeNull();
+      expect(destino.imagem === null || typeof destino.imagem === "object").toBe(
+        true,
+      );
     }
   });
 

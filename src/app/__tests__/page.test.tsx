@@ -102,7 +102,12 @@ describe("Home vitrine (V2-L4-T01, RF-12, ADR-011)", () => {
     // A partir de RL-V2-L4-T01 a página tem outras imagens (vitrine, T04):
     // escopo a busca ao hero para continuar pegando só a imagem dele.
     if (destinoHero?.imagem) {
-      const img = within(hero).getByRole("img", { hidden: true }) as HTMLImageElement | null;
+      // A imagem do hero usa `alt=""` deliberadamente (decorativa — o nome
+      // do destino já está no texto do hero, RN-A11y), então não tem
+      // `role="img"` na árvore de acessibilidade — busca por `<img>` via
+      // seletor, não por role.
+      const img = hero.querySelector("img");
+      expect(img).not.toBeNull();
       expect(img?.getAttribute("src")).toBe(destinoHero.imagem.arquivo);
     } else {
       // `imagem: null` no catálogo (V2-L2-T01) é um estado válido — o hero
@@ -224,10 +229,13 @@ describe("RL-V2-L4-T01 — integração final das 9 seções (UX-SPEC.md §8.2 T
     render(<HomePage />);
     await screen.findByRole("link", { name: "Entrar" });
 
-    // Hoje nenhum destino do catálogo tem imagem curada (ADR-010), então
-    // `ImageCreditsSection` retorna `null` — a seção some inteira, mas o
-    // `SiteFooter` continua presente normalmente (o slot é opcional).
-    expect(document.querySelector("#creditos")).not.toBeInTheDocument();
+    // O Rio de Janeiro (vitrine 1, hero) já tem imagem curada — a seção de
+    // créditos aparece com o crédito dele, e o `SiteFooter` continua
+    // presente normalmente ao redor dela (o slot é opcional, mas está
+    // preenchido).
+    const secaoCreditos = document.querySelector("#creditos");
+    expect(secaoCreditos).toBeInTheDocument();
+    expect(secaoCreditos).toHaveTextContent("Rio de Janeiro");
     expect(
       screen.getByText("Eu monto o plano; a reserva você faz onde preferir.", {
         selector: "footer p",

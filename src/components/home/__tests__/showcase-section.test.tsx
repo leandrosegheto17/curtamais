@@ -2,11 +2,16 @@
 // item 4, RF-12.3, RF-15.5).
 //
 // Para os cenários com imagem curada, mutamos temporariamente o campo
-// `imagem` do destino real no `CATALOGO_DESTINOS` (nenhum destino do V2.0
-// tem foto curada ainda, ADR-010) e restauramos `null` no `afterEach` —
-// evita mockar `resolver-imagem.ts` inteiro só para testar a UI que consome
-// o resultado, e exercita o mesmo caminho de código de produção
-// (`resolverImagemDestino`) sem duplicar sua lógica de correspondência aqui.
+// `imagem` de um destino real no `CATALOGO_DESTINOS` e restauramos o valor
+// ORIGINAL capturado antes da mutação (nunca `null` "de olho fechado" —
+// desde a curadoria do Rio de Janeiro, RL-catálogo-fotos, alguns destinos
+// já têm `imagem` !== null de verdade) — evita mockar `resolver-imagem.ts`
+// inteiro só para testar a UI que consome o resultado, e exercita o mesmo
+// caminho de código de produção (`resolverImagemDestino`) sem duplicar sua
+// lógica de correspondência aqui. Os testes que mutam usam um destino que
+// hoje ainda não tem foto curada (`SEM_IMAGEM_CURADA`, resolvido em
+// runtime), nunca um índice fixo, para não depender de qual destino já foi
+// curado.
 import type { ImgHTMLAttributes } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +34,17 @@ afterEach(() => cleanup());
 const DESTINOS_VITRINE_ORDEM = CATALOGO_DESTINOS.filter((d) => d.vitrine !== null).sort(
   (a, b) => a.vitrine! - b.vitrine!,
 );
+
+/** Um destino da vitrine ainda sem foto curada — usado pelos testes que mutam `imagem`. */
+function pegarDestinoSemImagemCurada() {
+  const destino = DESTINOS_VITRINE_ORDEM.find((d) => d.imagem === null);
+  if (!destino) {
+    throw new Error(
+      "Todos os destinos da vitrine já têm imagem curada — ajuste estes testes para mutar um destino fora da vitrine.",
+    );
+  }
+  return destino;
+}
 
 const IMAGEM_CURADA_EXEMPLO: (slug: string, fonte: "unsplash" | "pexels") => ImagemCurada = (
   slug,
@@ -86,46 +102,62 @@ describe("ShowcaseSection (V2-L4-T04)", () => {
     expect(screen.getByRole("list", { name: "Destinos para começar" })).toBeInTheDocument();
   });
 
-  it("não mostra botão de crédito quando nenhum destino da vitrine tem imagem curada (estado atual do catálogo)", () => {
+  it("mostra botão de crédito só para os destinos da vitrine que já têm imagem curada", () => {
     render(<ShowcaseSection />);
 
-    expect(
-      screen.queryByRole("link", { name: /^Crédito da imagem de /i }),
-    ).not.toBeInTheDocument();
+    const comCredito = DESTINOS_VITRINE_ORDEM.filter((d) => d.imagem !== null);
+    const semCredito = DESTINOS_VITRINE_ORDEM.filter((d) => d.imagem === null);
+
+    for (const destino of comCredito) {
+      expect(
+        screen.getByRole("link", { name: `Crédito da imagem de ${destino.nome}` }),
+      ).toBeInTheDocument();
+    }
+    for (const destino of semCredito) {
+      expect(
+        screen.queryByRole("link", { name: `Crédito da imagem de ${destino.nome}` }),
+      ).not.toBeInTheDocument();
+    }
   });
 
   it("mostra o botão 'i' de crédito, fora do link principal, quando a imagem do card é curada (RF-15.5)", () => {
-    const primeiro = DESTINOS_VITRINE_ORDEM[0];
-    primeiro.imagem = IMAGEM_CURADA_EXEMPLO(primeiro.slug, "unsplash");
+    const destino = pegarDestinoSemImagemCurada();
+    const original = destino.imagem;
+    destino.imagem = IMAGEM_CURADA_EXEMPLO(destino.slug, "unsplash");
 
     try {
       render(<ShowcaseSection />);
 
       const botaoCredito = screen.getByRole("link", {
-        name: `Crédito da imagem de ${primeiro.nome}`,
+        name: `Crédito da imagem de ${destino.nome}`,
       });
       expect(botaoCredito).toHaveAttribute("href", "#creditos");
 
       const linkPrincipal = screen.getByRole("link", {
-        name: `Planejar viagem para ${primeiro.nome}`,
+        name: `Planejar viagem para ${destino.nome}`,
       });
       expect(linkPrincipal).not.toContainElement(botaoCredito);
     } finally {
-      primeiro.imagem = null;
+      destino.imagem = original;
     }
   });
 });
 
 describe("ImageCreditsSection (V2-L4-T04, RF-15.5)", () => {
   it("não renderiza nada quando nenhum destino recebido tem imagem curada", () => {
-    const { container } = render(<ImageCreditsSection />);
+    // Passa a lista explicitamente (em vez de usar o default `DESTINOS_VITRINE`)
+    // para não depender de quais destinos já têm foto curada no catálogo real.
+    const { container } = render(
+      <ImageCreditsSection destinos={DESTINOS_VITRINE_ORDEM.filter((d) => d.imagem === null)} />,
+    );
 
     expect(container).toBeEmptyDOMElement();
   });
 
   it('lista "Foto de {autor} no {fonte}" com links, sob id="creditos", quando há imagem curada', () => {
-    const primeiro = DESTINOS_VITRINE_ORDEM[0];
-    primeiro.imagem = IMAGEM_CURADA_EXEMPLO(primeiro.slug, "pexels");
+    const destino = pegarDestinoSemImagemCurada();
+    const original = destino.imagem;
+    destino.imagem = IMAGEM_CURADA_EXEMPLO(destino.slug, "pexels");
 
     try {
       render(<ImageCreditsSection />);
@@ -139,7 +171,7 @@ describe("ImageCreditsSection (V2-L4-T04, RF-15.5)", () => {
       const linkFonte = screen.getByRole("link", { name: "Pexels" });
       expect(linkFonte).toHaveAttribute("href", "https://pexels.com/photos/exemplo");
     } finally {
-      primeiro.imagem = null;
+      destino.imagem = original;
     }
   });
 });

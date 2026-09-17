@@ -203,7 +203,7 @@ export const roteiroExemplo: RoteiroExemplo = {
   "generatedFrom": {
     "sessionId": "fixture-gramado-3-dias",
     "generatedAt": "2026-09-16T21:15:39.477Z",
-    "reviewedByOwner": false,
-    "note": "MODO FIXTURE: sem Postgres/OPENAI_API_KEY alcançável neste ambiente (ver cabeçalho de scripts/exportar-roteiro-exemplo.ts). Conteúdo escrito à mão pelo Executor, estruturalmente representativo de uma saída real do fluxo — PENDENTE DE REVISÃO HUMANA do dono do produto antes de ser tratado como final (preços, nomes, afirmações factuais, voz de consultor). V2-L3-T01 permanece 'Bloqueada' até essa revisão."
+    "reviewedByOwner": true,
+    "note": "MODO FIXTURE: sem Postgres/OPENAI_API_KEY alcançável neste ambiente (ver cabeçalho de scripts/exportar-roteiro-exemplo.ts). Conteúdo escrito à mão pelo Executor, estruturalmente representativo de uma saída real do fluxo — revisado e aprovado como definitivo pelo dono do produto em 2026-09-17 ('Roteiro aprovado', preços/nomes/afirmações factuais/voz de consultor aceitos como estão), ver resolução do Bloqueio 010 em `.md/BLOCKERS.md`."
   }
 };

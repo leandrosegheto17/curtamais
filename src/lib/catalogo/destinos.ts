@@ -67,7 +67,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     variantes: [],
     vitrine: 1,
     hero: true,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/rio-de-janeiro-v1.jpg",
+      largura: 1600,
+      altura: 1066,
+      autor: "Raphael Nogueira",
+      autorUrl: "https://unsplash.com/@phaelnogueira",
+      fonte: "unsplash",
+      fonteUrl: "https://unsplash.com/photos/christ-redeemer-statue-brazil-CErddu-JwKw",
+      licenca: "Unsplash License",
+      curadaEm: "2026-09-18",
+    },
   },
   {
     slug: "porto-de-galinhas",

@@ -101,9 +101,13 @@ describe("resolverImagemDestino: grafias diferentes do mesmo destino resolvem ig
   });
 
   it("destinos do catálogo sem imagem curada (imagem: null) caem no fallback, não em 'curada'", () => {
-    // Hoje todos os 23 destinos têm imagem: null (T01) — correspondência
-    // exata existe, mas RF-15.2/15.3 exigem imagem !== null para "curada".
-    const resultado = resolverImagemDestino(CATALOGO_DESTINOS[0].nome);
+    // Correspondência exata existe para todo destino do catálogo, mas
+    // RF-15.2/15.3 exigem imagem !== null para "curada" — usa o primeiro
+    // destino ainda sem foto curada (nem todos têm mais, curadoria em
+    // andamento), não necessariamente o índice 0.
+    const semImagemCurada = CATALOGO_DESTINOS.find((d) => d.imagem === null);
+    expect(semImagemCurada).toBeDefined();
+    const resultado = resolverImagemDestino(semImagemCurada!.nome);
     expect(resultado.tipo).toBe("fallback");
   });
 });
