@@ -196,8 +196,13 @@ primeiro deploy de produção, não desta preparação.
   já previstos.
 - Instrumentação de RUM (`@vercel/analytics`/`@vercel/speed-insights`) não
   aplicada nesta sessão — ver Seção 5.
-- Nenhum deploy real ocorreu; nenhuma linha na tabela de histórico de deploy
-  (a ser criada na Seção 7 quando o primeiro deploy acontecer) existe ainda.
+- **Atualizado 2026-09-17 (Tentativa 4)**: o `deploy.yml` (`vercel deploy`
+  sem `--prod`/`--target`) publica sempre um deployment tipo Preview,
+  protegido por Vercel Deployment Protection (SSO) — o parâmetro
+  `environment: staging` do `workflow_dispatch` não promove/alia a
+  nenhum domínio staging estável e acessível sem login. Ver Seção 7,
+  "Tentativa 4", e `.md/BLOCKERS.md` Bloqueio 012 (severidade baixa,
+  aberto).
 
 ## 7. Histórico de deploys
 
@@ -498,3 +503,115 @@ em `.md/BLOCKERS.md` **mantido em aberto** (não reclassificado como
 escalado ao gestor em paralelo — segue sendo ação sobre credencial de
 conta/infraestrutura de terceiro, fora do alcance de qualquer agente
 corrigir diretamente.
+
+### Tentativa 4 — Staging, 2026-09-17 (Validador, chapéu DevOps)
+
+**Contexto**: entre a Tentativa 3 e esta chamada, o `deploy.yml` foi
+corrigido diretamente pelo usuário/outra sessão (fora do fluxo
+`/executar`), commits `15e9264` (`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`
+passados explicitamente ao `vercel pull`/`vercel deploy`, para linkar o
+projeto certo em vez de depender só do `VERCEL_TOKEN`) e `43ce275`
+(troca de `vercel build` local + `vercel deploy --prebuilt` para `vercel
+deploy` sem `--prebuilt`, buildando remotamente na própria Vercel — ver
+justificativa completa já registrada na Seção 4.2, "Decisão: build
+remoto"). Essa correção **já havia sido confirmada bem-sucedida duas
+vezes nesta mesma data**, antes desta chamada:
+
+- Run [`35244784239`](https://github.com/leandrosegheto17/curtamais/actions/runs/35244784239)
+  — `success`, contra o commit `810be02`.
+- Run [`35251451753`](https://github.com/leandrosegheto17/curtamais/actions/runs/35251451753)
+  — `success`, contra o mesmo `810be02`.
+
+Essas duas são a primeira confirmação real, em log de CI, de que o
+pipeline completo (`Checkout` → `migrations` → `Install Vercel CLI` →
+`Deploy (Vercel)`) roda do início ao fim sem falhar — resolvendo, de
+fato, o Bloqueio 008 (`VERCEL_TOKEN`) que travou as Tentativas 2 e 3.
+Nenhuma das duas, porém, cobria o commit mais recente de `main`
+(`87207bc`, que inclui V2-L4-T05 e fecha o backlog V2.0) nem havia sido
+registrada aqui ainda.
+
+**Disparo desta chamada**: `gh workflow run deploy.yml --repo
+leandrosegheto17/curtamais -f environment=staging -f ref=main` → run
+[`35255545544`](https://github.com/leandrosegheto17/curtamais/actions/runs/35255545544),
+contra o commit `87207bc` (confirmado via `git log -1 --oneline main`
+antes do disparo).
+
+**Resultado: job concluído com `success` (2m10s) — todos os steps
+passaram** (`Checkout ref aprovado`, `Setup Node`, `Install
+dependencies`, `Aplicar migrations Prisma no banco do ambiente-alvo`,
+`Install Vercel CLI`, `Deploy (Vercel)`, `Registrar deployment_url para
+o relatório`), acompanhado via `gh run watch --exit-status` do início ao
+fim (não presumido). Log real de `Deploy (Vercel)` (`gh run view
+35255545544 --log`) confirma build remoto completo na Vercel (`npm ci`,
+`prisma generate`, `next build`, `Build Completed in /vercel/output
+[1m]`) e publica a URL:
+
+```
+https://destinoideal-er0dtuckj-leandrosegheto17s-projects.vercel.app
+```
+
+**Achado novo, não bloqueante ao deploy em si, mas relevante à
+Seção 4.2/6 (lacuna de design do pipeline)**: `curl -sI` nessa URL
+retornou `HTTP/1.1 302 Found`, redirecionando para
+`https://vercel.com/sso-api?...` — **Vercel Deployment Protection
+(SSO)**, não um erro do build. Mesmo padrão confirmado nas duas URLs das
+execuções de sucesso anteriores hoje (`destinoideal-5ir06zi40-...` e
+`destinoideal-k5nrwxcly-...`, ambas também `302` ao SSO). Causa raiz,
+por leitura direta do próprio log da Vercel CLI (não suposição): o
+comando `vercel deploy` do `deploy.yml`, sem `--prod`/`--target
+staging`, sempre cria um deployment do tipo **Preview** — a própria CLI
+confirma isso na última linha do log: `To deploy to production
+(destino-ideal-ljs.vercel.app), run 'vercel --prod'`. Deployments
+Preview deste projeto têm proteção SSO ativada por padrão (nível de
+projeto na Vercel, fora deste repositório), então a URL de cada disparo
+do workflow é, hoje, inacessível sem login na conta Vercel — o parâmetro
+`environment: staging` do `workflow_dispatch` **não** promove/alia o
+resultado ao domínio "staging" real (`destino-ideal-ljs.vercel.app`);
+ele só rotula o GitHub Environment usado para os secrets, não afeta o
+comando `vercel deploy` executado.
+
+Verificação em separado, para não confundir os dois: `curl -sI
+https://destino-ideal-ljs.vercel.app` retornou `HTTP/1.1 200 OK`, e o
+conteúdo já contém o texto exato do CTA de `ExamplePreviewSection`
+("Ver o roteiro de exemplo completo", `src/components/home/example-preview-section.tsx`,
+tarefa V2-L4-T05) — ou seja, esse domínio já reflete `87207bc`. Isso
+**não é evidência de que esta run publicou nele**: por design (linha
+acima), o `deploy.yml` nunca chega a tocar esse domínio. O conteúdo
+provavelmente veio da integração Git nativa da Vercel (deploy automático
+de produção a cada push em `main`, fora deste repositório/workflow,
+como já registrado na Seção 3), não deste pipeline manual. Não
+confirmável sem acesso ao dashboard da Vercel.
+
+**Conclusão desta tentativa**: o pipeline de CI/CD em si está **saudável
+e correto de ponta a ponta** (3 sucessos consecutivos hoje, incluindo
+este, contra o commit mais recente de `main`) — o objetivo operacional
+do disparo foi cumprido. O HTTP 200 pedido não foi confirmável na URL
+que este workflow de fato publica, por proteção de acesso (SSO) alheia
+ao build, não por falha de deploy; o HTTP 200 real observado
+(`destino-ideal-ljs.vercel.app`) pertence a um caminho de publicação
+diferente (Git integration nativa), fora do escopo deste `deploy.yml`.
+Não é um bloqueio de severidade alta — não impede validação funcional
+via login na Vercel — mas é uma lacuna de design a corrigir: adicionar
+`--target staging`/promoção de alias ao `deploy.yml` (ou desativar
+Deployment Protection para o ambiente staging) para que o parâmetro
+`environment: staging` do workflow realmente publique num domínio
+estável e acessível sem login, em vez de uma URL de preview efêmera
+protegida. Registrada como nova lacuna na Seção 6; não escalada como
+bloqueio crítico (não é achado de segurança nem impede o merge/validação
+dos lotes) — fica como tarefa de ajuste de pipeline para a próxima vez
+que o chapéu DevOps deste Validador for chamado, sem necessidade de
+reabrir o `coordenador`.
+
+**Observabilidade/RNFs**: primeira vez que um deploy real chega a
+`Deploy (Vercel)` com sucesso contra o Postgres/projeto Vercel reais —
+Runtime Logs e métricas nativas da Vercel (Seção 5) já existem para
+esta versão a partir de agora, disponíveis no dashboard (fora do
+alcance de `curl`/`gh` para confirmar aqui). `LlmGenerationLog`
+continua pronto do lado da aplicação, sem mudança.
+
+**Status desta tentativa**: `Sucesso (pipeline saudável; achado de
+design registrado — proteção SSO impede validação HTTP direta da URL
+de preview publicada por este workflow)`. Nenhuma tarefa `Concluída`
+revertida. Bloqueio 008 em `.md/BLOCKERS.md` pode ser reclassificado
+para `Resolvido` (três sucessos reais confirmam o `VERCEL_TOKEN` válido
+e o pipeline funcional) — atualização feita nesta mesma chamada.

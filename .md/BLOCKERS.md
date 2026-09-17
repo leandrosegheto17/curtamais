@@ -698,6 +698,22 @@ qualquer nova tentativa de promoção a staging.
   que o timestamp mudou, antes de pedir um novo disparo deste workflow.
   Não reclassificar como `Resolvido` até um run real do `deploy.yml`
   passar do step `Pull configuração do ambiente Vercel`.
+- **Status atualizado: Resolvido — 2026-09-17** (validador, chapéu DevOps,
+  `.md/DEPLOY.md`, "Tentativa 4"). Três runs reais e sucessivos nesta
+  mesma data passaram do step `Pull configuração do ambiente Vercel` e de
+  todo o job até `Deploy (Vercel)`: run
+  [`35244784239`](https://github.com/leandrosegheto17/curtamais/actions/runs/35244784239)
+  (`success`, commit `810be02`), run
+  [`35251451753`](https://github.com/leandrosegheto17/curtamais/actions/runs/35251451753)
+  (`success`, mesmo commit), e run
+  [`35255545544`](https://github.com/leandrosegheto17/curtamais/actions/runs/35255545544)
+  (`success`, commit `87207bc`, disparado por este Validador). Nota: entre
+  a Tentativa 3 e estas execuções, o `deploy.yml` também mudou (commits
+  `15e9264`/`43ce275`, fora do fluxo `/executar` — `VERCEL_ORG_ID`/
+  `VERCEL_PROJECT_ID` explícitos + build remoto na Vercel), então a
+  resolução não é atribuível só à regeneração do token; de todo modo, o
+  sintoma exato deste bloqueio (`Error: User not found.` em `vercel
+  pull`) não se repetiu em nenhuma das três execuções — encerrado.
 
 ## Bloqueio 009 — 2026-09-15
 
@@ -794,6 +810,20 @@ qualquer nova tentativa de promoção a staging.
   arquivo de código/teste referenciando a rota; `npm run lint` limpo após
   a remoção). Pendência remanescente: confirmação real via deploy
   bem-sucedido (sugestão (a)), condicionada à resolução do Bloqueio 008.
+- **Atualização — 2026-09-17** (validador, chapéu DevOps, `.md/DEPLOY.md`,
+  "Tentativa 4"): Bloqueio 008 resolvido nesta mesma data (ver acima), mas
+  a pendência remanescente deste Bloqueio 009 (runtime livre de
+  `NO_SECRET`) continua **não confirmável**: a URL de Preview publicada
+  pelo `deploy.yml` (`https://destinoideal-er0dtuckj-...vercel.app`) está
+  atrás de Vercel Deployment Protection (SSO — nova lacuna registrada em
+  `.md/DEPLOY.md` Seção 6/7), então este Validador não conseguiu acessar
+  `/api/auth/[...nextauth]` nem qualquer rota autenticada dessa URL via
+  `curl` para confirmar ausência do erro em runtime. O build (`next
+  build`) completou sem erro e sem menção a `NO_SECRET`/`NEXTAUTH` no log,
+  necessário mas não suficiente (o erro original ocorria em runtime, não
+  em build-time). Status mantido: **não confirmado**, agora bloqueado por
+  motivo diferente (proteção de acesso à URL, não mais o Bloqueio
+  008/`VERCEL_TOKEN`).
 
 ## Bloqueio 010 — 2026-09-16
 
@@ -1040,3 +1070,56 @@ entregue.
     `coordenador`.
 - Status: **Fechado** (2026-09-16, Validador — checagem estrutural do lote
   V2-L6, ver `.md/TASK.md` bloco `#### V2-L6`).
+
+## Bloqueio 012 — 2026-09-17
+
+- Reportado por: validador (chapéu DevOps, `.md/DEPLOY.md`, "Tentativa 4")
+- Escalado para: ninguém como pré-requisito — registrado como lacuna de
+  design de pipeline para a próxima chamada do próprio chapéu DevOps deste
+  Validador corrigir; não é decisão de arquitetura (não exige o
+  `coordenador`) nem achado de segurança que bloqueie deploy (não exige o
+  `gestor` em paralelo)
+- Artefato/trecho afetado: `.github/workflows/deploy.yml`, step `Deploy
+  (Vercel)` (`vercel deploy` sem `--prod`/`--target`)
+- Descrição: o run
+  [`35255545544`](https://github.com/leandrosegheto17/curtamais/actions/runs/35255545544)
+  (disparado com `environment=staging`, `ref=main`, contra o commit
+  `87207bc`) completou com `success` e publicou
+  `https://destinoideal-er0dtuckj-leandrosegheto17s-projects.vercel.app`.
+  `curl -sI` nessa URL retornou `HTTP/1.1 302 Found`, redirecionando para
+  `https://vercel.com/sso-api?...` — Vercel Deployment Protection (SSO),
+  não falha de build. Mesmo padrão confirmado nas duas execuções de
+  sucesso anteriores nesta mesma data (`destinoideal-5ir06zi40-...` e
+  `destinoideal-k5nrwxcly-...`, ambas também `302`). Causa raiz, pelo
+  próprio log da Vercel CLI: `vercel deploy` sem `--prod`/`--target
+  staging` sempre cria um deployment tipo **Preview** (a última linha do
+  log confirma: `To deploy to production (destino-ideal-ljs.vercel.app),
+  run 'vercel --prod'`) — deployments Preview deste projeto têm proteção
+  SSO ativada por padrão. O parâmetro `environment: staging` do
+  `workflow_dispatch` hoje só rotula o GitHub Environment usado para
+  selecionar secrets; não promove/alia o resultado a nenhum domínio
+  "staging" estável.
+- Impacto se não resolvido: cada disparo de `deploy.yml` publica uma URL
+  de preview efêmera, protegida por login na conta Vercel — inacessível
+  para validação funcional (QA visual, `curl`, testes automatizados
+  externos) sem credencial de acesso à conta Vercel do projeto. O objetivo
+  declarado do ambiente `staging` (Seção 2 do `DEPLOY.md`: "ambiente
+  persistente pré-produção... usado para a validação de release-readiness
+  antes da promoção final") não está sendo cumprido por este workflow tal
+  como está hoje.
+- Sugestão (do validador, não uma decisão): adicionar `--target staging`
+  (ou equivalente `vercel alias set` pós-deploy) ao step `Deploy (Vercel)`
+  quando `environment == 'staging'`, promovendo o resultado a um alias
+  fixo e acessível sem SSO; ou, alternativamente, desativar Deployment
+  Protection para deployments gerados por este workflow especificamente
+  (configuração de projeto na Vercel, fora deste repositório). Qualquer
+  uma das duas resolve sem mudança de arquitetura.
+- Severidade (chapéu DevOps): **baixa** — não bloqueia a confirmação de
+  que o pipeline builda/publica com sucesso (isso já está confirmado por
+  3 runs reais), só impede a validação HTTP direta da URL publicada.
+  Não impede merge nem invalida a dupla aprovação QA+DevSecOps já
+  registrada para os lotes publicados. Vira tarefa de ajuste de pipeline
+  para a próxima chamada do chapéu DevOps.
+- Status: **Aberto — achado registrado, correção não aplicada nesta
+  chamada** (fora do escopo do disparo pedido: "não tente corrigir sozinho
+  o pipeline além do documentado, reporte o achado exato").
