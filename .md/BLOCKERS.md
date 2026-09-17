@@ -1123,3 +1123,63 @@ entregue.
 - Status: **Aberto — achado registrado, correção não aplicada nesta
   chamada** (fora do escopo do disparo pedido: "não tente corrigir sozinho
   o pipeline além do documentado, reporte o achado exato").
+
+## Bloqueio 013 — 2026-09-17
+
+- Reportado por: orquestrador (execução real de `gh workflow run deploy.yml
+  -f environment=production -f ref=main`, disparada pelo usuário
+  explicitamente)
+- Escalado para: usuário/dono do produto — ação sobre credencial/conta de
+  terceiro (GitHub Environment secrets), mesma natureza dos Bloqueios
+  007/008, fora do alcance de qualquer agente completar sem os valores reais
+- Artefato/trecho afetado: GitHub Environment `production` (e variantes
+  `Production`/`Production – curtamais`/`Production – destinoideal`, todas
+  auto-criadas por integrações — nenhuma delas tem secret cadastrado) vs.
+  GitHub Environment `staging`, que tem os 6 secrets completos
+  (`DATABASE_URL`, `NEXTAUTH_SECRET`, `OPENAI_API_KEY`, `VERCEL_ORG_ID`,
+  `VERCEL_PROJECT_ID`, `VERCEL_TOKEN`)
+- Descrição: run
+  [`35256502319`](https://github.com/leandrosegheto17/curtamais/actions/runs/35256502319)
+  (disparado pelo usuário com `environment=production`, `ref=main`, contra
+  o commit `5bf0bfb`) falhou no step "Aplicar migrations Prisma no banco do
+  ambiente-alvo" com `Error: Prisma schema validation... You must provide a
+  nonempty URL. The environment variable 'DATABASE_URL' resolved to an
+  empty string.` (log real, `gh run view 35256502319 --log-failed`).
+  Confirmado por `gh secret list --env <nome> --repo
+  leandrosegheto17/curtamais` contra as 4 variações de nome de ambiente de
+  produção existentes no repositório (`gh api
+  repos/.../environments`): **nenhuma tem nenhum secret cadastrado** —
+  `DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY`/`VERCEL_TOKEN`/
+  `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` só existem no Environment `staging`
+  (cadastrados entre 2026-09-12 e 2026-09-17). O workflow (`deploy.yml`,
+  `environment: ${{ github.event.inputs.environment }}`) resolve secrets a
+  partir do Environment cujo nome bate literalmente com o valor escolhido
+  no `workflow_dispatch` (`staging` ou `production`, minúsculo) — como
+  nenhum Environment `production` (minúsculo) tinha secret, `DATABASE_URL`
+  chegou vazia antes mesmo de chegar no step de deploy da Vercel.
+- Impacto se não resolvido: nenhum deploy de produção é possível — todo
+  disparo com `environment=production` falha no mesmo step, antes de
+  qualquer chamada à Vercel. Não há evidência de que produção já tenha
+  sido publicada por este workflow em algum momento (histórico de
+  `gh run list` só mostra sucessos com `environment=staging`).
+- Sugestão (do orquestrador, não uma decisão): cadastrar os mesmos 6
+  secrets (valores reais de produção — que podem ou não ser os mesmos de
+  staging, decisão do dono do produto: banco/API keys de produção
+  geralmente devem ser distintos dos de staging) no GitHub Environment
+  `production` (nome exato, minúsculo, batendo com a opção do
+  `workflow_dispatch`): `gh secret set DATABASE_URL --env production --repo
+  leandrosegheto17/curtamais` (repetir para os outros 5). Se a intenção for
+  reaproveitar o mesmo projeto/banco de staging para produção agora (não
+  recomendado a longo prazo, mas destrava o disparo), os valores podem ser
+  copiados de staging — decisão do usuário, este Validador/orquestrador não
+  tem acesso aos valores para copiar sozinho. Depois de cadastrados,
+  confirmar com `gh secret list --env production --repo
+  leandrosegheto17/curtamais` (mesma checagem de timestamp já usada nos
+  Bloqueios 008/009 para confirmar que o cadastro de fato aconteceu) antes
+  de re-disparar.
+- Severidade: **bloqueia publicação em produção** — não é achado de código
+  (nenhum dos 12+8 lotes já aprovados é afetado), é puramente ausência de
+  credencial no ambiente de produção do GitHub, nunca provisionada até
+  agora (só staging foi provisionado, Bloqueios 007/008). Não bloqueia
+  staging, que continua saudável (Tentativa 4, run `35255545544`).
+- Status: Aberto

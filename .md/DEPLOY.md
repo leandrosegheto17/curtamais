@@ -615,3 +615,67 @@ de preview publicada por este workflow)`. Nenhuma tarefa `Concluída`
 revertida. Bloqueio 008 em `.md/BLOCKERS.md` pode ser reclassificado
 para `Resolvido` (três sucessos reais confirmam o `VERCEL_TOKEN` válido
 e o pipeline funcional) — atualização feita nesta mesma chamada.
+
+### Deploy em Produção — 2026-09-17 (disparado pelo usuário)
+
+**Contexto**: com o staging confirmado (Tentativa 4, run `35255545544`,
+sucesso), o usuário confirmou explicitamente que queria publicar em
+produção e disparou o comando diretamente: `gh workflow run deploy.yml
+--repo leandrosegheto17/curtamais -f environment=production -f
+ref=main`, contra o commit `5bf0bfb` (`87207bc` + documentação do
+deploy de staging).
+
+**Resultado: FALHOU — `DATABASE_URL` vazia, ambiente `production` sem
+nenhum secret cadastrado no GitHub.**
+
+Run [`35256502319`](https://github.com/leandrosegheto17/curtamais/actions/runs/35256502319)
+acompanhado até a conclusão real (`gh run watch`/`gh run view --log-failed`):
+`Checkout`/`Setup Node`/`Install dependencies` passaram; falhou no step
+seguinte, "Aplicar migrations Prisma no banco do ambiente-alvo":
+
+```
+Error: Prisma schema validation - (get-config wasm)
+Error code: P1012
+error: Error validating datasource `db`: You must provide a nonempty URL.
+The environment variable `DATABASE_URL` resolved to an empty string.
+```
+
+**Causa raiz confirmada** (`gh secret list --env <nome>` contra as 4
+variações de Environment de produção existentes no repositório —
+`production`, `Production`, `Production – curtamais`, `Production –
+destinoideal`, listadas via `gh api repos/.../environments`): **nenhuma
+tem nenhum secret cadastrado**. Só o Environment `staging` tem os 6
+secrets (`DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY`/
+`VERCEL_TOKEN`/`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`) — produção nunca foi
+provisionada com credenciais próprias, só staging (Bloqueios 007/008).
+
+**Pendência operacional exata** (ação humana, fora do alcance de
+qualquer agente — requer os valores reais das credenciais de produção):
+cadastrar os mesmos 6 secrets no GitHub Environment `production`
+(nome exato, minúsculo — é o que o `workflow_dispatch` usa):
+
+```
+gh secret set DATABASE_URL --env production --repo leandrosegheto17/curtamais
+gh secret set NEXTAUTH_SECRET --env production --repo leandrosegheto17/curtamais
+gh secret set OPENAI_API_KEY --env production --repo leandrosegheto17/curtamais
+gh secret set VERCEL_TOKEN --env production --repo leandrosegheto17/curtamais
+gh secret set VERCEL_ORG_ID --env production --repo leandrosegheto17/curtamais
+gh secret set VERCEL_PROJECT_ID --env production --repo leandrosegheto17/curtamais
+```
+
+Decisão do dono do produto: se produção deve ter seu próprio banco
+Postgres/API keys distintos de staging (recomendado a longo prazo) ou
+se, por ora, reaproveita os mesmos valores de staging para destravar o
+primeiro deploy. `VERCEL_TOKEN`/`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`
+podem ser os mesmos de staging (é o mesmo projeto Vercel) sem problema —
+a distinção que importa é `DATABASE_URL` (schema/dados) e possivelmente
+`OPENAI_API_KEY` (billing separado). Depois de cadastrados, confirmar
+com `gh secret list --env production --repo leandrosegheto17/curtamais`
+antes de re-disparar `gh workflow run deploy.yml -f
+environment=production -f ref=main`.
+
+**Status desta tentativa**: `Bloqueado (GitHub Environment production
+sem nenhum secret cadastrado)`. Nenhuma tarefa `Concluída` revertida —
+não é achado de código, é infraestrutura de produção nunca provisionada.
+Staging permanece publicado e saudável (Tentativa 4). Registrado em
+`.md/BLOCKERS.md` (Bloqueio 013).
