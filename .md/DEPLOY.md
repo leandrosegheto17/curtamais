@@ -696,3 +696,54 @@ sem nenhum secret cadastrado)`. Nenhuma tarefa `Concluída` revertida —
 não é achado de código, é infraestrutura de produção nunca provisionada.
 Staging permanece publicado e saudável (Tentativa 4). Registrado em
 `.md/BLOCKERS.md` (Bloqueio 013).
+
+### Deploy em Produção — 2026-09-17, Segunda Tentativa (sucesso)
+
+**Contexto**: o dono do produto cadastrou os 4 secrets faltantes no
+GitHub Environment `production` (`VERCEL_TOKEN`/`VERCEL_ORG_ID`/
+`VERCEL_PROJECT_ID` copiados de `staging`; `DATABASE_URL` — decisão
+explícita: **reaproveitar o mesmo banco Neon de staging**, não criar um
+banco separado para produção) e disparou de novo: `gh workflow run
+deploy.yml --repo leandrosegheto17/curtamais -f environment=production
+-f ref=main`, contra o commit `73287ff`.
+
+**Resultado: SUCESSO — primeiro deploy real de produção deste
+projeto.**
+
+Run [`35260873990`](https://github.com/leandrosegheto17/curtamais/actions/runs/35260873990)
+acompanhado até a conclusão real (`gh run watch --exit-status`): todos
+os steps passaram, incluindo a migration Prisma (agora contra o mesmo
+banco de `staging`, ver ressalva abaixo). `Deploy (Vercel)` rodou
+`vercel deploy --prod` (`environment == 'production'` no `deploy.yml`
+adiciona `--prod`) e a CLI confirmou:
+
+```
+Production      https://destinoideal-rjm1cycnn-leandrosegheto17s-projects.vercel.app
+Aliased         https://destino-ideal-ljs.vercel.app
+```
+
+Diferente do deploy de staging (Preview, sempre protegido por SSO), um
+deploy `--prod` é automaticamente aliado ao domínio de produção real do
+projeto — confirmado por `curl -sI https://destino-ideal-ljs.vercel.app`:
+**`HTTP/1.1 200 OK`**, e o corpo da resposta contém o texto exato do CTA
+de `ExamplePreviewSection` ("Ver o roteiro de exemplo completo"),
+confirmando que é o conteúdo deste commit (V2.0 completo), não um
+deployment antigo.
+
+**Ressalva registrada, não bloqueante**: `staging` e `production` agora
+compartilham o mesmo banco Neon (decisão explícita do dono do produto,
+não lacuna técnica) — todo deploy futuro de staging roda
+`prisma migrate deploy` contra o banco que também serve produção, e
+dado de teste/staging convive com dado real de usuário na mesma base.
+Aceitável para este estágio do produto; recomendação (não decisão) para
+quando o produto tiver usuários reais: provisionar um segundo banco
+Neon dedicado a produção.
+
+**Observabilidade**: Runtime Logs/métricas nativas da Vercel agora
+existem para esta versão em produção (dashboard, fora do alcance de
+`curl`/`gh`). `LlmGenerationLog` do lado da aplicação, sem mudança.
+
+**Status desta tentativa**: `Sucesso`. Bloqueio 013 fechado
+(`.md/BLOCKERS.md`). Produção publicada: MVP (Lotes 1-12) + V2.0
+(Lotes V2-L1 a V2-L8) completos e ao vivo em
+`https://destino-ideal-ljs.vercel.app`.

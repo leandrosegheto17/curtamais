@@ -1198,4 +1198,19 @@ entregue.
   credencial no ambiente de produção do GitHub, nunca provisionada até
   agora (só staging foi provisionado, Bloqueios 007/008). Não bloqueia
   staging, que continua saudável (Tentativa 4, run `35255545544`).
-- Status: Aberto
+- Status: Resolvido
+- Resolução (2026-09-17, dono do produto): os 4 secrets cadastrados no
+  GitHub Environment `production` — `VERCEL_TOKEN`/`VERCEL_ORG_ID`
+  (`team_LGMpqv4TnLt60QJ52AKDqQI9`, decodificado do `VERCEL_OIDC_TOKEN`
+  já presente em `.env.local`)/`VERCEL_PROJECT_ID`
+  (`prj_n68BVEQ79MNw4dNuzA5sYZFENOMG`) copiados de `staging`;
+  `DATABASE_URL` cadastrado pelo próprio usuário via `gh secret set`
+  (decisão explícita: reaproveitar o mesmo banco Neon de `staging`, não
+  criar um banco separado — ver ressalva registrada em `.md/DEPLOY.md`,
+  "Deploy em Produção — Segunda Tentativa"). Re-disparo (`gh workflow run
+  deploy.yml -f environment=production -f ref=main`, run
+  [`35260873990`](https://github.com/leandrosegheto17/curtamais/actions/runs/35260873990))
+  completou com sucesso — `vercel deploy --prod`, aliado a
+  `https://destino-ideal-ljs.vercel.app`, confirmado `HTTP/1.1 200 OK`
+  servindo o conteúdo do commit `73287ff` (V2.0 completo). Primeiro
+  deploy de produção real deste projeto.

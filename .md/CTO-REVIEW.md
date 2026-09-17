@@ -209,3 +209,52 @@ ser acionado para desenhar a implementação técnica (rate limiting por
 identidade, integração de pagamento, etc.) via ADR novo.
 
 ---
+
+## Gate 4 — Fechamento pós-deploy de produção — 2026-09-17
+
+### Escopo do gate
+Registro de fechamento (PIPELINE-CONVENTIONS.md §1) do primeiro deploy de
+produção real deste projeto. Sem poder de veto — o deploy já aconteceu; este
+gate apenas formaliza o encerramento do ciclo com base em `DEPLOY.md`,
+`QA-REPORT.md`, `SECURITY-REVIEW.md` e `BLOCKERS.md`.
+
+### Resultado
+**Sucesso.** Commit `73287ff` (branch `main`) publicado em produção.
+
+- URL: `https://destino-ideal-ljs.vercel.app`, confirmado `HTTP/1.1 200 OK`
+  servindo o conteúdo correto (verificado por `curl` + presença do texto do
+  CTA de `ExamplePreviewSection`).
+- Run do workflow: `gh workflow run deploy.yml -f environment=production
+  -f ref=main` → run
+  [`35260873990`](https://github.com/leandrosegheto17/curtamais/actions/runs/35260873990),
+  todos os steps verdes (checkout, migration Prisma, deploy Vercel `--prod`).
+- Escopo publicado: todo o backlog do MVP (Lotes 1-12, `TASK.md`) e todo o
+  backlog do V2.0 (Lotes V2-L1 a V2-L8, incluindo V2-L4 — Home vitrine,
+  validado no mesmo dia, e as refatorações `RL-V2-L4-T01`/`T02`). Dupla
+  aprovação QA + DevSecOps registrada para todos em `QA-REPORT.md` e
+  `SECURITY-REVIEW.md`.
+- Nenhum rollback ou incidente pós-deploy. Houve uma tentativa anterior no
+  mesmo dia que falhou por ausência de credenciais no GitHub Environment
+  `production`, corrigida antes deste run — ver `BLOCKERS.md`, Bloqueio 013,
+  status `Resolvido`.
+
+### Ressalvas registradas (não bloqueantes)
+1. **Infraestrutura de banco de dados** — `staging` e `production`
+   compartilham o mesmo Postgres (Neon), por decisão explícita e consciente
+   do usuário (dono do produto), não erro técnico. Recomendado provisionar
+   banco separado para produção quando o produto tiver usuários reais.
+2. **Débito técnico pendente, não bloqueante** — `RL-V2-L4-T03` (`TASK.md`,
+   status `Pendente`): atualizar o metadado interno
+   `generatedFrom.reviewedByOwner`/`note` em
+   `src/content/roteiro-exemplo.ts`; não é lido por nenhuma UI hoje.
+3. Reforça-se a recomendação já registrada no parecer ad hoc de 2026-09-16
+   (monetização/controle de custo de IA): segue pendente de decisão do
+   usuário antes de qualquer divulgação pública ampla — este deploy é o
+   primeiro em produção, mas ainda sem tráfego externo divulgado.
+
+### Veredito
+**Registrado — sem poder de veto.** Ciclo de deploy encerrado com sucesso.
+Nenhuma ação corretiva obrigatória antes de seguir; ressalvas acima ficam
+como itens de acompanhamento para o próximo ciclo.
+
+---
