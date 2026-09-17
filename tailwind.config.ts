@@ -44,6 +44,8 @@ const config: Config = {
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+          // V2-L4-T01 (UX-SPEC.md §8.3): hover/pressionado do CTA dourado.
+          strong: "hsl(var(--accent-strong))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",
@@ -74,6 +76,14 @@ const config: Config = {
         error: {
           DEFAULT: "hsl(var(--error))",
           foreground: "hsl(var(--error-foreground))",
+        },
+        // V2-L4-T01 — tokens novos de UX-SPEC.md §8.3 ("Tokens novos" da home
+        // vitrine V2.0).
+        deep: "hsl(var(--deep))",
+        "surface-raised": "hsl(var(--surface-raised))",
+        holiday: {
+          DEFAULT: "hsl(var(--holiday))",
+          foreground: "hsl(var(--holiday-foreground))",
         },
       },
       fontFamily: {

@@ -29,6 +29,7 @@
 import { redirect } from "next/navigation";
 
 import { ConfirmacaoDestinoClient } from "./confirmacao-destino-client";
+import { prisma } from "@/lib/prisma";
 import {
   SESSION_FLOW_STATES,
   type SessionFlowState,
@@ -65,11 +66,27 @@ export default async function ConfirmacaoDestinoPage({
     redirect("/");
   }
 
+  // V2-L7-T06 (RF-16.6/RF-16.7, ADR-009 item 3, UX-SPEC.md §8.2 "T05") — o
+  // aviso "No próximo passo eu peço um e-mail..." só aparece para quem NÃO
+  // tem conta. A checagem de posse/autorização em si continua fora desta
+  // rota (delegada às Server Actions `confirmarDestino`/`trocarDestino`,
+  // Diretriz de Implementação 3) — esta leitura é só para decidir o aviso;
+  // `tripSession` ausente (ex.: `sessionId` inválido) cai no default seguro
+  // "com conta" (sem aviso), a mesma decisão que `assertSessionAccess`
+  // aplicaria de qualquer forma (`userId`/`anonSessionId` ausentes → nega
+  // acesso ao confirmar, nunca chega a precisar do aviso).
+  const tripSession = await prisma.tripSession.findUnique({
+    where: { id: sessionId },
+    select: { userId: true },
+  });
+  const temConta = tripSession ? tripSession.userId !== null : true;
+
   return (
     <ConfirmacaoDestinoClient
       sessionId={sessionId}
       destino={destino}
       currentState={resolveFlowState(flowState)}
+      temConta={temConta}
     />
   );
 }

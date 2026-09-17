@@ -25,6 +25,17 @@
 // ADR-007) — por isso não usa `LoadingStream`/`ErrorRetryState`/`EmptyState`
 // (UX-SPEC.md Seção 4: "Não aplicável... T02 usa cálculo determinístico
 // local, instantâneo").
+//
+// V2-L5-T02 (UX-SPEC.md §8, RF-18.3): `initialFeriadoDate` (vindo de
+// `?feriado=AAAA-MM-DD`, já validado no formato por `page.tsx`) pré-seleciona
+// o `HolidayListItem` correspondente ao montar, rola até ele e anuncia via
+// `aria-live="polite"`. Data ausente/sem formato válido/sem correspondência
+// na lista = nenhuma seleção, sem erro visível (mesmo espírito de T01,
+// L5-T01: pré-preenchimento é conveniência, nunca bloqueia o fluxo). O
+// avanço continua exigindo o clique explícito em "Continuar" (INT-10) — este
+// efeito só marca o radio, nunca chama `handleContinuar`. O usuário
+// continua livre para trocar a seleção clicando em outro item, como já
+// garantido pelo `groupName` de rádio único do `fieldset` (RL6-T03).
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
@@ -43,6 +54,12 @@ const GENERIC_ERROR_MESSAGE =
 export interface FeriadosScreenProps {
   feriados: FeriadoProlongado[];
   /**
+   * `?feriado=AAAA-MM-DD` (V2-L5-T02, RF-18.3), já validado no formato por
+   * `page.tsx`. `undefined` quando ausente ou fora do formato — trata igual
+   * a "sem correspondência" (nenhuma seleção, sem erro).
+   */
+  initialFeriadoDate?: string;
+  /**
    * Ponto de injeção só para testes automatizados — substitui a Server
    * Action real por um dublê, sem precisar mockar o módulo inteiro (mesmo
    * padrão de `HospedagemSugestoesScreen`, L8-T02). Em produção usa sempre
@@ -56,8 +73,14 @@ function holidayKey(holiday: FeriadoProlongado): string {
   return holiday.date.toISOString();
 }
 
+/** Data do feriado no formato `AAAA-MM-DD`, para casar com a querystring. */
+function holidayDateParam(holiday: FeriadoProlongado): string {
+  return holiday.date.toISOString().slice(0, 10);
+}
+
 export function FeriadosScreen({
   feriados,
+  initialFeriadoDate,
   actionOverride,
 }: FeriadosScreenProps) {
   const router = useRouter();
@@ -65,6 +88,7 @@ export function FeriadosScreen({
   const [destino, setDestino] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
   const destinoInputId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -74,6 +98,42 @@ export function FeriadosScreen({
   // etapa recebe foco ao montar, para leitores de tela em um fluxo linear.
   useEffect(() => {
     headingRef.current?.focus();
+  }, []);
+
+  // V2-L5-T02 (UX-SPEC.md §8, RF-18.3): casa `initialFeriadoDate` com um item
+  // real da lista só uma vez, ao montar. Sem correspondência (data ausente,
+  // fora do formato, ou feriado que não existe na lista) = não faz nada,
+  // lista renderiza normalmente sem seleção e sem erro visível.
+  useEffect(() => {
+    if (!initialFeriadoDate) {
+      return;
+    }
+
+    const match = feriados.find(
+      (holiday) => holidayDateParam(holiday) === initialFeriadoDate,
+    );
+
+    if (!match) {
+      return;
+    }
+
+    const key = holidayKey(match);
+    setSelectedKey(key);
+    setAnnouncement(`Feriado selecionado: ${match.name}, ${match.label}.`);
+
+    const element = document.getElementById(`feriado-${key}`);
+    if (element && typeof element.scrollIntoView === "function") {
+      const prefersReducedMotion =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      element.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleContinuar() {
@@ -123,6 +183,13 @@ export function FeriadosScreen({
         Feriados nacionais do ano corrente e do próximo, já com a emenda de
         fim de semana calculada.
       </p>
+
+      {/* V2-L5-T02 (UX-SPEC.md §8, RF-18.3): anúncio da pré-seleção para
+          leitores de tela — região sempre presente no DOM (evita perder o
+          anúncio por montar depois do texto), visualmente oculta. */}
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
 
       <fieldset className="flex flex-col gap-3">
         <legend className="sr-only">Feriados prolongados disponíveis</legend>

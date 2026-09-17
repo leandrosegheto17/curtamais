@@ -60,6 +60,7 @@ import {
   type DestinationSuggestionResult,
 } from "@/lib/actions/destino";
 import { cn } from "@/lib/utils";
+import { resolverImagemDestino } from "@/lib/catalogo/resolver-imagem";
 
 const GENERIC_ERROR_MESSAGE =
   "Não conseguimos gerar sugestões agora — tentar novamente";
@@ -257,6 +258,10 @@ export function DestinoSugestoesScreen({
         priceRangeMax: 0,
         withinBudget: true,
         exceedsBudget: false,
+        // V2-L2-T04: campo de apresentação, resolvido aqui só porque o
+        // destino manual nunca passa por `generateDestinationSuggestions`
+        // (não há sugestão da IA para carregar o campo a partir dela).
+        imagem: resolverImagemDestino(result.destino),
       });
       setManualEntryOpen(false);
     } catch (error) {
@@ -371,6 +376,17 @@ export function DestinoSugestoesScreen({
                   key={`${suggestion.name}-${index}`}
                   title={suggestion.name}
                   description={suggestion.justification}
+                  // V2-L2-T05 — "Combina com o seu período porque…" é um
+                  // rótulo fixo do UX-SPEC.md §8.2 (T04), colocado antes da
+                  // justificativa que a IA já devolve — nenhum texto novo é
+                  // gerado aqui.
+                  eyebrow="Combina com o seu período porque…"
+                  media={{
+                    imagem: suggestion.imagem,
+                    // RF-15.6: nunca "foto do local"/"foto de…".
+                    alt: `Imagem ilustrativa de ${suggestion.name}`,
+                    showIllustrativeTag: true,
+                  }}
                   price={{
                     min: suggestion.priceRangeMin,
                     max: suggestion.priceRangeMax,

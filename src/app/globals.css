@@ -60,6 +60,15 @@
     --input: 240 5% 26%;
     --ring: 39 55% 62%; /* foco visível: mesma cor do accent dourado */
     --radius: 0.5rem;
+
+    /* V2-L4-T01 — tokens novos de UX-SPEC.md §8.3 ("Tokens novos"), com os
+       valores hex/contraste já verificados na especificação (não recalculados
+       aqui, só convertidos para HSL no mesmo formato dos tokens acima). */
+    --deep: 218 46% 12%; /* ~#101A2B, fundo das faixas de seção (SectionBand tone="deep") */
+    --surface-raised: 240 6% 13%; /* ~#1F1F23, card elevado sobre `deep`/`background` */
+    --holiday: 13 68% 63%; /* ~#E07A5F, só acento de feriado — nunca CTA/link/erro */
+    --holiday-foreground: 15 63% 6%; /* ~#1A0B06, texto sobre a pílula `holiday` preenchida */
+    --accent-strong: 40 67% 73%; /* ~#E8C88A, hover/pressionado do CTA dourado */
   }
 
   .dark {
@@ -91,6 +100,11 @@
     --border: 240 5% 26%;
     --input: 240 5% 26%;
     --ring: 39 55% 62%;
+    --deep: 218 46% 12%;
+    --surface-raised: 240 6% 13%;
+    --holiday: 13 68% 63%;
+    --holiday-foreground: 15 63% 6%;
+    --accent-strong: 40 67% 73%;
   }
 }
 
@@ -100,5 +114,39 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /*
+   * V2-L4-T01 — `overlay-scrim` (UX-SPEC.md §8.3): gradiente sobre toda foto
+   * que recebe texto (hero, ShowcaseCard). É uma imagem de fundo (não uma cor
+   * Tailwind) porque é um gradiente com paradas fixas, não um token de cor
+   * única — por isso vive aqui como classe utilitária em vez de entrar no
+   * `tailwind.config.ts`.
+   */
+  .overlay-scrim {
+    background-image: linear-gradient(
+      to top,
+      rgb(10 10 11 / 0.88) 0%,
+      rgb(10 10 11 / 0.7) 40%,
+      rgb(10 10 11 / 0) 80%
+    );
+  }
+
+  /*
+   * No hero, soma-se uma camada uniforme `rgb(10 10 11 / .35)` sobre todo o
+   * `overlay-scrim`, para garantir a legibilidade do eyebrow (UX-SPEC.md
+   * §8.3, "Regra do overlay").
+   */
+  .overlay-scrim-hero {
+    background-image:
+      linear-gradient(rgb(10 10 11 / 0.35), rgb(10 10 11 / 0.35)),
+      linear-gradient(
+        to top,
+        rgb(10 10 11 / 0.88) 0%,
+        rgb(10 10 11 / 0.7) 40%,
+        rgb(10 10 11 / 0) 80%
+      );
   }
 }

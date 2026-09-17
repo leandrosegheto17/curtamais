@@ -144,4 +144,85 @@ describe("ItineraryDayBlock (UX-SPEC.md T08, RF-08)", () => {
     await user.click(screen.getByRole("button", { name: /Sex 12\/06/ }));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  describe("modo readOnly (V2-L8-T05, T-MEUS-DET)", () => {
+    it("sem readOnly, comportamento padrão continua inalterado (botão de acordeão presente)", () => {
+      render(
+        <ItineraryDayBlock
+          date="2026-06-12"
+          morning={[]}
+          afternoon={[]}
+          evening={[]}
+          expanded
+          onToggle={() => {}}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /Sex 12\/06/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("com readOnly, não renderiza botão de acordeão (sem ações, sem onToggle/expanded)", () => {
+      render(
+        <ItineraryDayBlock
+          date="2026-06-12"
+          morning={[
+            {
+              activity: "Café colonial",
+              suggestedTime: "08h00",
+              timingJustification: null,
+            },
+          ]}
+          afternoon={[]}
+          evening={[]}
+          readOnly
+        />,
+      );
+
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      expect(screen.getByText("Sex 12/06")).toBeInTheDocument();
+      expect(screen.getByText("Café colonial")).toBeInTheDocument();
+    });
+
+    it("com readOnly, o conteúdo dos 3 períodos está sempre visível (sem acordeão)", () => {
+      render(
+        <ItineraryDayBlock
+          date="2026-06-12"
+          morning={[]}
+          afternoon={[]}
+          evening={[
+            {
+              activity: "Jantar no centro histórico",
+              suggestedTime: "19h30",
+              timingJustification: null,
+            },
+          ]}
+          readOnly
+        />,
+      );
+
+      expect(screen.getByText("Manhã")).toBeInTheDocument();
+      expect(screen.getByText("Tarde")).toBeInTheDocument();
+      expect(
+        screen.getByText("Jantar no centro histórico"),
+      ).toBeInTheDocument();
+    });
+
+    it("dayLabel substitui o rótulo de data formatado quando presente", () => {
+      render(
+        <ItineraryDayBlock
+          date="2026-06-12"
+          dayLabel="Dia 1"
+          morning={[]}
+          afternoon={[]}
+          evening={[]}
+          readOnly
+        />,
+      );
+
+      expect(screen.getByText("Dia 1")).toBeInTheDocument();
+      expect(screen.queryByText("Sex 12/06")).not.toBeInTheDocument();
+    });
+  });
 });

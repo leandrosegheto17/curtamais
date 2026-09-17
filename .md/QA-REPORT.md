@@ -3375,3 +3375,897 @@ bloqueante. Bloqueio 008 com status atualizado (causa raiz endereçada,
 confirmação real pendente do próprio workflow). Nenhuma mudança de código
 nos 12 lotes desde a Segunda Tentativa que exigisse nova reauditoria
 funcional.
+
+## Lote V2-L1 — Schema V2.0 (migration) (2026-09-16)
+
+Única tarefa do lote: `V2-L1-T01`. Validação contra o critério de aceite
+literal da linha `V2-L1-T01` (`.md/TASK.md`, Seção 3) e contra `SDD.md`
+§8.5 — sem reinterpretar o requisito, sem usar a nota de implementação do
+Executor como base de aprovação.
+
+### 1. `git diff` de `prisma/schema.prisma` vs. `SDD.md` §8.5
+
+`model User` ganhou `privacyConsentAt DateTime? @map("privacy_consent_at")`
+e `privacyConsentVersion String? @map("privacy_consent_version")`;
+`model TripSession` ganhou `linkedAt DateTime? @map("linked_at")` e
+`@@index([userId, updatedAt])`. Os quatro itens batem literalmente com o
+bloco Prisma de `SDD.md` §8.5 — mesmos nomes, mesmos tipos, mesma
+nulidade, mesmo `@map`, mesma forma de índice `(userId, updatedAt)`.
+Nenhum campo obrigatório novo, nenhum enum novo, nenhuma FK nova de
+`trip_sessions.user_id` para `users` (decisão do MVP mantida, conforme
+`SDD.md` §8.5, item explícito). Nenhuma outra linha do schema alterada —
+`git diff --stat` confirma só `prisma/schema.prisma` e a migration nova.
+
+### 2. `migration.sql` vs. schema e critério de aceite
+
+`prisma/migrations/20260916173748_v2_consent_and_session_link/migration.sql`:
+dois `ALTER TABLE ... ADD COLUMN` (colunas nullable, sem `NOT NULL`, sem
+`DEFAULT`) e um `CREATE INDEX trip_sessions_user_id_updated_at_idx ON
+trip_sessions(user_id, updated_at)` — corresponde 1:1 às quatro mudanças do
+schema, sem backfill (nenhum `UPDATE`/`SET`), sem `DEFAULT` que forçaria
+preenchimento, sem coluna obrigatória. Índice na forma exata `(userId,
+updatedAt)` pedida pelo critério de aceite.
+
+### 3. "Migration aplica sem erro sobre o schema do MVP" — verificável sem Postgres real
+
+Mesma limitação de ambiente já aceita em `L11-T02a` (`localhost:55432`
+inacessível): não há como rodar `prisma migrate deploy`/`migrate dev`
+contra um banco real nesta validação. Dentro do que é verificável sem
+banco: `npx prisma validate` e `npx prisma generate` foram reexecutados
+nesta validação e passam sem erro; o SQL é sintaticamente `ALTER
+TABLE`/`CREATE INDEX` puro sobre colunas/tabela já existentes do MVP
+(`users`, `trip_sessions`), sem dependência de estado de dado específico
+que pudesse falhar em runtime (sem `NOT NULL` sem default, sem FK, sem
+enum). Não há evidência de que a migration falharia num Postgres real; a
+aplicação de fato contra um banco vivo continua pendência registrada na
+nota de implementação, fora do alcance desta validação de QA (mesmo
+padrão aceito para `L11-T02a` no MVP).
+
+### 4. Requisito não funcional
+
+Nenhum RNF de performance/usabilidade aplicável a uma migration aditiva
+sem backfill em volume de protótipo — sem achado.
+
+### Veredito (Lote V2-L1)
+
+**Aprovado.** `V2-L1-T01` cumpre o critério de aceite da Seção 3 dentro do
+limite do verificável sem Postgres real, batendo literalmente com
+`SDD.md` §8.5. Nenhuma reprovação crítica ou simples.
+
+## Lote V2-L2 — Catálogo de destinos e estratégia de imagens (RF-15, RN-10, ADR-010) (2026-09-16)
+
+5 tarefas (`V2-L2-T01` a `T05`), todas `Concluída` no `TASK.md` antes desta
+validação. Validado contra o critério de aceite literal de cada linha
+(Seção 3) e contra `PRD.md` ("Catálogo do V2.0"), `SDD.md` §8.2.2,
+`UX-SPEC.md` §8.3/§8.2, `ADR-010` e `GUARDRAILS.md` regras 28-30 — pelo
+código real (`git diff`), não pelas notas de implementação do Executor.
+
+### V2-L2-T01 — `catalogo/destinos.ts` + `next.config.mjs`
+
+Lidos os 23 objetos de `CATALOGO_DESTINOS` linha a linha e comparados
+contra `PRD.md` §"Catálogo do V2.0" (2026-09-16): os 8 da vitrine (Rio de
+Janeiro, Porto de Galinhas, Gramado, Maceió, Porto Seguro, Florianópolis,
+Foz do Iguaçu, Campos do Jordão) batem em nome/UF/ordem com `vitrine: 1..8`
+sem repetição; os 15 restantes (Natal, Fortaleza, Maragogi, Salvador, João
+Pessoa, Imbassaí, Búzios, Ilhéus, Aracaju, Praia do Forte, Caldas Novas,
+Olímpia, Poços de Caldas, Fernando de Noronha, Lençóis Maranhenses) batem
+com `vitrine: null`. São Paulo (excluído deliberadamente pelo PM) e os 4
+destinos da página de design (Bonito, Jericoacoara, Ouro Preto, Chapada dos
+Veadeiros) **não aparecem** — correto. Total 23, exatamente 1 `hero: true`
+(Rio de Janeiro), todo `slug` único e batendo `^[a-z0-9-]+$` (conferido por
+leitura, sem acento/maiúscula/espaço em nenhum). Todos os 23 com `imagem:
+null` — placeholder válido conforme ADR-010. `next.config.mjs`:
+`images.formats: ["image/avif", "image/webp"]`,
+`images.minimumCacheTTL: 31536000`, sem `images.remotePatterns` — bate com
+o critério e com ADR-010 §4 (catálogo servido do próprio domínio).
+`npx vitest run src/lib/catalogo/__tests__/destinos.test.ts`: 6/6.
+**Aprovado.**
+
+Nota não bloqueante (já registrada pelo Executor em `TASK.md`): a escolha
+do destino `hero` (Rio de Janeiro) e os textos de `rotuloRegiao` são
+interpretação de detalhe do Executor, sem artefato que os feche
+explicitamente — não é reprovação, é decisão pequena e documentada, e não
+compromete nenhum critério de aceite literal.
+
+### V2-L2-T02 — `resolver-imagem.ts`
+
+`normalizarNomeDestino` (NFD + remoção de diacríticos + minúsculas + troca
+de separadores por espaço + remoção de sufixo de UF) e
+`MAPA_CORRESPONDENCIA_EXATA` construído uma vez a partir de nome+variantes
+normalizados — lido e conferido contra o algoritmo descrito em ADR-010 §2.
+`resolverImagemDestino` só retorna `tipo: "curada"` quando o destino existe
+**e** `imagem !== null`; em qualquer outro caso cai no `gerarFallback`
+(FNV-1a 32 bits padrão, `hash % 8`, `(hash >> 8) % 4` sobre 4 ângulos) — sem
+nenhum caminho de correspondência aproximada no código (confirmado por
+leitura: não há `includes`/distância de edição/`Levenshtein` em nenhum
+ponto do módulo). `npx vitest run
+src/lib/catalogo/__tests__/resolver-imagem.test.ts`: 16/16, cobrindo
+especificamente: nenhuma colisão de chave normalizada entre os 23 destinos
+reais + variantes; grafias diferentes do mesmo nome resolvendo ao mesmo
+gradiente (3 exemplos); nome fora do catálogo em fallback determinístico;
+"Gramadoo" (grafia próxima, não idêntica) não casa por aproximação;
+contraste de cada cor da paleta >= 4.5:1 com `#FAFAFA`, calculado por
+fórmula WCAG independente no próprio teste (não reaproveita a paleta do
+módulo para "provar a si mesma"). **Aprovado.**
+
+### V2-L2-T03 — `DestinationImage`/`DestinationFallbackArt`
+
+`DestinationImage`: com `imagem.tipo === "curada"`, renderiza via
+`next/image` com `width`/`height` reais (evita CLS); `onError` liga
+`falhouAoCarregar`, que troca o filho para `DestinationFallbackArt`
+mantendo o mesmo `div` externo (`data-testid="destination-image-frame"`) —
+sem layout shift, conferido no teste (`destination-image.test.tsx`, 5
+casos) que o mesmo nó de contêiner persiste depois do evento `error`.
+`DestinationFallbackArt` preenche 100% do contêiner do chamador, nunca
+define altura própria — consistente com a exigência de "sem layout shift"
+(RF-15.9). Contraste: os 8 pares de `PALETA_FALLBACK` (importados
+diretamente de `resolver-imagem.ts`, não uma cópia local) testados contra
+`#FAFAFA` com fórmula de luminância WCAG própria do teste
+(`destination-fallback-art.test.tsx`, 13 casos) — todos >= 4.5:1 (a maioria
+com folga, >= 7:1). `npx vitest run src/components/catalogo`: 18/18.
+**Aprovado.**
+
+Achado de detalhe não bloqueante (registrado pelo Executor, confirmado por
+mim): `resolver-imagem.ts` não exporta `gerarFallback`, então
+`destination-image.tsx` duplica localmente o algoritmo de hash (só o passo
+de cálculo, não os dados — `PALETA_FALLBACK`/`ANGULOS_FALLBACK`/
+`normalizarNomeDestino` são sempre importados do módulo real). Resultado
+hoje é bit-a-bit idêntico ao que `gerarFallback` produziria; é duplicação
+de baixo risco, não um bug. Viro tarefa de refatoração de baixo esforço no
+fechamento estrutural abaixo, não reprovação.
+
+### V2-L2-T04 — `imagem` em `generateDestinationSuggestions`
+
+Confirmado por leitura de `src/lib/stage-rules/destino.ts`: `imagem:
+resolverImagemDestino(suggestion.nome)` é calculado no `.map(...)` final,
+DEPOIS de `generateStructuredCompletionWithRetry` já ter validado a
+resposta contra `destinoSugestoesSchema` e DEPOIS de `applyBudgetFilter` —
+`buildDestinoPrompt`/`destinoSugestoesSchema` (import de
+`@/lib/gateway-ia`) não foram tocados nesta mudança (confirmado por `git
+log`/ausência de diff nesses arquivos). Persistência: lido
+`aprovarDestinoSugerido` em `src/lib/actions/destino.ts` — `childData` é
+montado campo a campo (`stage`/`name`/`justification`/`priceRangeMin`/
+`priceRangeMax`/`source`), **nunca** via spread de `input.suggestion`, e o
+schema Prisma (`model DestinationApproval`, `prisma/schema.prisma`)
+confirma não ter coluna `imagem`. Teste de integração
+(`destino.integration.test.ts`) tem asserção explícita
+`expect(destination).not.toHaveProperty("imagem")` — não pôde ser
+executada neste ambiente (`Can't reach database server at localhost:55432`,
+limitação de ambiente já aceita em `L11-T02a`/`V2-L1`), mas a garantia
+estrutural (ausência de coluna + montagem campo a campo) já é suficiente
+para o veredito, e confirmada por leitura direta do código, não da nota do
+Executor. `npx vitest run src/lib/stage-rules/__tests__/destino.test.ts`:
+8/8, incluindo o caso de nome fora do catálogo (fallback determinístico,
+nunca aproximado) e a checagem de que `destinoSugestoesSchema` continua com
+exatamente os 4 campos originais. **Aprovado.**
+
+### V2-L2-T05 — `SuggestionCard` (`media`/`eyebrow`) e T04
+
+`SuggestionCard`: branch `if (!media)` preservado bit-a-bit (T06/T07
+continuam chamando sem `media` — conferido por leitura de
+`hospedagem-sugestoes-screen.tsx`/`passeios-sugestoes-screen.tsx`, nenhum
+dos dois passa `media`). Com `media`, crédito (`ImageCredit`) só renderiza
+quando `media.imagem.tipo === "curada"`; selo "Imagem ilustrativa" (em
+`DestinationImage`) só com `showIllustrativeTag` **e** imagem curada
+carregada. `alt` passado por `destino-sugestoes-screen.tsx`: `"Imagem
+ilustrativa de {name}"` — nunca contém "foto do local"/"foto de…"
+(conferido por leitura, RF-15.6). Rodei explicitamente os testes de
+T06/T07 para confirmar ausência de regressão:
+`npx vitest run src/components/design-system/__tests__/suggestion-card.test.tsx
+src/components/destino/__tests__/destino-sugestoes-screen.test.tsx
+src/components/hospedagem/__tests__/hospedagem-sugestoes-screen.test.tsx
+src/components/passeios/__tests__/passeios-sugestoes-screen.test.tsx`:
+**47/47 passando** (10+13+11+13) — T06 (hospedagem) e T07 (passeios) sem
+nenhuma falha nova. **Aprovado.**
+
+### Requisitos não funcionais
+
+RNF-09 (contraste >= 4.5:1 com `#FAFAFA` nos 8 gradientes de fallback):
+verificado com fórmula WCAG independente, não a do módulo — ver T02/T03
+acima. Sem layout shift ao trocar imagem/fallback (RF-15.9): verificado por
+teste de DOM (mesmo nó de contêiner) em T03. Usabilidade: crédito de
+autor/fonte com `target="_blank" rel="noreferrer"` (`ImageCredit`,
+`suggestion-card.tsx`) — abre em nova aba sem vazar `window.opener`
+(`noreferrer` já implica `noopener`).
+
+### Comandos rodados nesta validação (lote inteiro)
+
+`npx vitest run src/lib/catalogo src/components/catalogo
+src/lib/stage-rules/__tests__/destino.test.ts
+src/components/design-system/__tests__/suggestion-card.test.tsx
+src/components/destino/__tests__ src/components/hospedagem/__tests__
+src/components/passeios/__tests__`: **10 arquivos, 104/104 passando**, sem
+regressão em T06/T07/T05(confirmação). `npx tsc --noEmit` (projeto
+inteiro): mesmos erros pré-existentes já documentados nas notas do
+Executor (`.next/types/app/api/diag` — rota removida em commit anterior,
+stale cache de tipos; testes de página não tocados por este lote com erro
+de spread pré-existente; `auth-callbacks.test.ts` pré-existente) — nenhum
+erro novo atribuível a `catalogo/`, `resolver-imagem.ts`,
+`destination-image.tsx`, `destination-fallback-art.tsx`,
+`stage-rules/destino.ts`, `actions/destino.ts`, `suggestion-card.tsx` ou
+`destino-sugestoes-screen.tsx`. `npm run lint` (projeto inteiro): 0 erros;
+1 warning pré-existente já documentado (`_priority` não usado no mock de
+`next/image` em `destination-image.test.tsx`, mesmo padrão de outros mocks
+do projeto) — não bloqueante.
+
+### Veredito (Lote V2-L2)
+
+**Aprovado, sem ressalva bloqueante.** As 5 tarefas cumprem seu critério de
+aceite literal, confirmado por leitura do código e `git diff`, não pela
+nota do Executor. Nenhuma reprovação crítica. Um achado **simples**
+(duplicação de baixo risco do algoritmo de fallback em
+`destination-image.tsx`, T03) vira tarefa em `Refatoração Lote-V2-L2` no
+fechamento estrutural abaixo — não bloqueia o lote nem exige retorno ao
+`executor`.
+
+## Lote V2-L5 — Entradas pré-preenchidas (RF-13, RF-18.3) (2026-09-16)
+
+2 tarefas (`V2-L5-T01`, `V2-L5-T02`), ambas `Concluída` no `TASK.md` antes
+desta validação. Validado contra o critério de aceite literal de cada
+linha (Seção 3) e contra `PRD-TECNICO.md` (RF-01.2/.3/.4, RF-13, RF-18.3),
+`UX-SPEC.md` §8, `SDD.md` §8.2.4 — pelo código real (`git diff`), não
+pelas notas de implementação do Executor.
+
+### V2-L5-T01 — `/entrada/data-livre?destino={slug}`
+
+Lido `src/app/entrada/data-livre/page.tsx` linha a linha:
+`resolveDestinoInicial` só faz `CATALOGO_DESTINOS.find((item) => item.slug
+=== slug)` — comparação exata contra o catálogo estático (`@/lib/catalogo/
+destinos`, V2-L2-T01), nunca correspondência aproximada, nunca outro
+parâmetro de querystring lido. Slug ausente ou sem correspondência retorna
+`undefined` sem lançar erro — `DataLivreClient`/`T01DateRangeForm` caem no
+comportamento idêntico ao MVP (campo vazio, sem linha de contexto),
+confirmado pelos testes `page.test.tsx` ("slug inválido: destinoInicial
+fica undefined", "ausente: idem", "outro parâmetro de querystring é
+ignorado").
+
+Ramificação RF-01.3 (destino mantido → T05, apagado → T04): a lógica de
+decisão real está inteira em `submeterDataLivre`
+(`src/lib/actions/data-livre.ts`, linha 159-183) — o campo `destino` que o
+formulário envia no submit (controlado por `T01DateRangeForm`, editável
+pelo usuário a partir de `destinoInicial`) é sanitizado por
+`sanitizeDestino` e, se vazio após trim, retorna `proximaEtapa: "destino"`
+(RF-01.2, avança para T04); se não-vazio, retorna `proximaEtapa:
+"confirmacao_destino"` (RF-01.3, avança para T05). `DataLivreClient` não
+reimplementa essa decisão — só navega conforme o `proximaEtapa` devolvido
+pelo servidor (Diretriz de Implementação 3, nenhuma navegação client-side
+otimista). Confirmado nos dois testes dedicados de
+`page.test.tsx`("V2-L5-T01, RF-13"): "destino mantido pelo usuário: segue
+RF-01.3, avança para T05" e "destino apagado pelo usuário: segue o fluxo
+normal de T04" — ambos passam simulando o usuário editando o campo antes
+de submeter, não só o valor inicial da prop.
+
+`T01DateRangeForm`: `destinoInicial` só inicializa o `useState` do campo
+(`useState(destinoInicial ?? "")`), continua editável por
+`onChange`/`setDestino`. A linha de contexto
+(`arrivedWithDestinoInicial && destino.trim().length > 0`) aparece só
+quando chegou com `destinoInicial` E o campo ainda não foi esvaziado, e
+some ao apagar — bate com UX-SPEC.md §8.2 ("se o usuário apagar o destino,
+a linha de contexto some"), confirmado nos 3 testes novos de
+`t01-date-range-form.test.tsx`. Datas continuam `required`, vazias por
+padrão — nenhuma mudança de RF-13.3.
+
+**Aprovado.** Critério de aceite literal (Seção 3) cumprido em todos os
+três pontos: slug inválido/ausente sem erro; só slug aceito na URL, nunca
+texto livre (nenhum outro parâmetro repassado ao campo); ramificação
+RF-01.3/T04 confirmada pelo código real de `submeterDataLivre`, não
+assumida.
+
+### V2-L5-T02 — `/entrada/feriados?feriado=AAAA-MM-DD`
+
+`src/app/entrada/feriados/page.tsx`: `feriado` só é repassado adiante se
+bater `FERIADO_PARAM_FORMAT` (`/^\d{4}-\d{2}-\d{2}$/`); formato errado
+vira `undefined` sem lançar erro. `FeriadosScreen`: o `useEffect` de
+pré-seleção roda uma única vez ao montar (array de dependências vazio,
+`eslint-disable-next-line react-hooks/exhaustive-deps` documentado),
+compara `initialFeriadoDate` contra `holidayDateParam(holiday)` de cada
+item da lista recebida via prop (não recalcula nada, usa a mesma lista já
+renderizada) — sem correspondência (ausente, formato errado, ou data que
+não existe na lista atual) o efeito retorna cedo sem nenhum efeito
+colateral: nenhuma seleção, nenhum `role="alert"`, lista renderiza
+normal. Confirmado nos casos de `feriados-screen.test.tsx`: "data
+ausente/formato inválido/sem correspondência = sem seleção e sem
+role=alert".
+
+Com correspondência: `setSelectedKey(key)` marca o mesmo estado que o
+clique manual do usuário usaria (`HolidayListItem selected={selectedKey
+=== key}`) — nenhum caminho de estado paralelo. `setAnnouncement` popula a
+região `aria-live="polite"` (`sr-only`, sempre presente no DOM desde o
+primeiro render, evitando perder o anúncio por montar depois do texto).
+`scrollIntoView` é chamado condicionalmente (`typeof element.scrollIntoView
+=== "function"`, guarda contra jsdom sem a API) e respeita
+`prefers-reduced-motion` via `matchMedia`.
+
+Avanço continua exigindo clique explícito: o efeito de pré-seleção nunca
+chama `handleContinuar` (busca no código confirma: `handleContinuar` só é
+referenciado no `onClick` do botão "Continuar") — INT-10 preservado, sem
+auto-avanço. Usuário pode trocar a seleção livremente: o mesmo
+`groupName="feriado-escolhido"` de rádio único já existente (RL6-T03)
+governa a troca, `onSelect={() => setSelectedKey(key)}` não tem nenhuma
+guarda que privilegie o item pré-selecionado sobre um clique posterior.
+Confirmado no teste "usuário pode trocar a seleção livremente mesmo após
+pré-seleção" de `feriados-screen.test.tsx`.
+
+**Aprovado.** Critério de aceite literal (Seção 3) cumprido: data
+inválida/sem correspondência = sem seleção, sem erro; avanço continua
+exigindo clique explícito (nenhuma chamada a `handleContinuar`/`action`
+dentro do efeito); usuário pode trocar o feriado livremente.
+
+### Requisitos não funcionais
+
+Nenhuma regressão de performance introduzida (efeito roda uma única vez ao
+montar, sem polling/timer). Usabilidade conforme UX-SPEC.md §8: contexto
+visual (linha "Ótima escolha...") e sonoro (`aria-live`) reforçam a
+pré-seleção sem impor navegação. Acessibilidade: `aria-live="polite"`
+correto para anúncio não crítico (não interrompe leitor de tela em
+andamento), `scrollIntoView` respeita `prefers-reduced-motion` (RNF-10).
+
+### Testes de integração cruzada
+
+`submeterDataLivre` (Server Action, L6-T03) e `processarFeriadoEscolhido`
+(L6-T05) não foram alterados neste lote — só consumidos com um valor
+inicial diferente vindo da UI. Nenhum contrato de API (`API-CONTRACT.yaml`)
+tocado por este lote (ambas as rotas são Server Components/Server Actions
+internas ao App Router, sem endpoint HTTP externo novo).
+
+### Comandos rodados nesta validação (lote inteiro)
+
+`npx vitest run src/app/entrada/data-livre src/app/entrada/feriados
+src/components/entrada`: **4 arquivos, 42/42 passando** (11+16+11+4 —
+confirma também os testes pré-existentes de RL6-T02/RL6-T03, sem
+regressão pela nova assinatura assíncrona de `searchParams`). `npx tsc
+--noEmit` (projeto inteiro): mesmos erros pré-existentes já documentados
+em validações anteriores (`.next/types/app/api/diag` — rota removida em
+commit anterior, cache stale de tipos; `src/app/**/__tests__/page.test.tsx`
+de outras rotas com erro de spread pré-existente, não tocados por este
+lote; `auth-callbacks.test.ts` pré-existente) — nenhum erro novo
+atribuível a `data-livre/page.tsx`, `data-livre-client.tsx`,
+`t01-date-range-form.tsx`, `feriados/page.tsx` ou `feriados-screen.tsx`.
+Confirmado também que nenhum outro ponto do código que importa essas duas
+rotas quebrou com a mudança de assinatura síncrona → `searchParams:
+Promise<...>` (busca por `DataLivrePage`/`FeriadosPage`/
+`data-livre-client` no projeto: só os próprios arquivos do lote e seus
+testes referenciam esses módulos). `npm run lint` (projeto inteiro): 0
+erros; 1 warning pré-existente já documentado em validação anterior
+(`_priority` não usado em `destination-image.test.tsx`, fora do escopo
+deste lote) — não bloqueante.
+
+### Achados
+
+Nenhuma reprovação crítica. Nenhuma reprovação simples — código lido bate
+com o critério de aceite literal em ambas as tarefas, sem ajuste pontual
+pendente.
+
+### Veredito (Lote V2-L5)
+
+**Aprovado, sem ressalva.** As 2 tarefas cumprem seu critério de aceite
+literal, confirmado por leitura do código e `git diff`, não pela nota do
+Executor. Nenhuma reprovação crítica ou simples — nenhuma tarefa em
+`Refatoração Lote-V2-L5` originada pelo chapéu QA.
+
+## Lote V2-L6 — Verificação de conta no servidor (RF-16.7, ADR-009)
+
+Validação independente das notas do Executor (usadas só para saber onde
+olhar): leitura direta de `src/lib/session-flow/account-gate.ts`,
+`resolve-request-identity.ts`, `authorization.ts`, `persistence.ts`,
+`rota-da-etapa.ts`, `confirmacao-destino.ts`, `hospedagem.ts`,
+`passeios.ts`, `roteiro.ts`, `git status`/busca por `api/gateway-ia`, e
+execução própria de `tsc`/`eslint`/`vitest` (não apenas confiança na nota
+do Executor nem nas checagens já feitas pelo orquestrador pós-incidente do
+Bloqueio 011).
+
+### V2-L6-T01 — `transicaoExigeConta`
+
+`ESTADOS_POS_DESTINO` bate literalmente com o conjunto do ADR-009 item 1
+(`hospedagem_pendente` a `concluida`, `destino_confirmado` fora do
+conjunto). `acao === "encerrar"` retorna `false` antes de qualquer outra
+checagem (RN-12), cobrindo inclusive estados sem `encerrar` válido.
+26/26 testes de `account-gate.test.ts` passando (executado nesta
+validação, não só na nota do Executor). **Aprovado.**
+
+### V2-L6-T02 — `resolveRequestIdentity`
+
+Confirmado por leitura: nenhum `cookies().set(...)` no arquivo — só
+`cookies().get(...)`. `userId` só é devolvido depois de
+`prisma.user.findUnique` confirmar que o `User` ainda existe (conta
+excluída com JWT válido → tratado como sem conta, nunca lança). Par bruto
+devolvido sem decidir precedência (função não contém nenhum `if
+(userId) ... else` que descarte `anonSessionId`, ou vice-versa — os dois
+campos são resolvidos e devolvidos independentemente). **Aprovado.**
+
+### V2-L6-T03 — `assertSessionAccess`/`ContaNecessariaError`
+
+Comparação célula a célula entre a tabela do ADR-009 item 2 e
+`resolveSessionAccess` (`authorization.ts` linhas 180-201):
+
+| Célula do ADR | Implementação |
+|---|---|
+| `userId=U` / `userId=U` → granted (ambos `exigeConta`) | `record.userId === identity.userId ? "granted" : "denied"` — `exigeConta` nem é lido nesse branch. Confere. |
+| `userId=U` / outra identidade → denied (ambos `exigeConta`) | Mesmo branch, ramo `"denied"`. Confere. |
+| `anonSessionId=A` / cookie `A` → granted (`exigeConta:false`) / `conta_necessaria` (`exigeConta:true`) | `record.anonSessionId !== null` → se cookie bate, `exigeConta ? "conta_necessaria" : "granted"`. Confere. |
+| `anonSessionId=A` / cookie diferente → denied (ambos) | `record.anonSessionId !== identity.anonSessionId → "denied"`, antes de olhar `exigeConta`. Confere. |
+| nenhum dos dois gravado (ou `record` nulo) → denied (ambos) | `if (!record) return "denied"`; e o `return "denied"` final depois dos dois `if` de posse cobre o caso de registro sem nenhum campo. Confere. |
+
+Ordem "posse antes de conta" confirmada por leitura de controle de fluxo:
+`exigeConta` só é lido dentro do branch que já confirmou
+`record.anonSessionId === identity.anonSessionId` (linha 198) — nenhum
+outro `return` do arquivo consulta `exigeConta`. Negação de posse sempre
+`SessionNotFoundError` (`assertSessionAccess`, linha 233-235) — nunca um
+erro 403/dedicado. `assertSessionOwnership` (linha 251-256) é de fato só
+`return assertSessionAccess(sessionId, record, { exigeConta: false })`,
+sem lógica própria — os ~10 chamadores confirmados (`destino.ts`,
+`encerramento.ts`, `hospedagem.ts`, `passeios.ts`, `roteiro.ts`,
+`authorization.ts`/testes) continuam usando o alias sem alteração própria.
+26/26 testes de `authorization.test.ts` passando nesta validação. **Aprovado.**
+
+### V2-L6-T04 — `confirmarDestino`
+
+Fluxo real (não só a nota): `applySessionFlowTransition`
+(`persistence.ts`, passo 3b, linhas 241-250) calcula
+`transicaoExigeConta(currentState, action)` DEPOIS que
+`transitionSessionFlow` já confirmou a transição válida (passo 3) e ANTES
+de qualquer escrita (passo 4/gravação da entidade filha) — se `true`,
+chama `assertSessionAccess` de novo com `exigeConta: true`, dentro da
+mesma `prisma.$transaction`. `confirmarDestino`
+(`confirmacao-destino.ts` linhas 96-115) envolve a chamada num
+`try/catch` e converte `ContaNecessariaError` em
+`{status: "conta_necessaria", sessionId}` — nunca deixa vazar. Como a
+exceção é lançada de dentro do callback do `$transaction`, o rollback é
+automático: nenhuma escrita parcial. `trocarDestino` (ação `revisar`)
+corretamente não tratada (nem origem nem destino são pós-destino).
+**Aprovado.**
+
+### V2-L6-T05/T06/T07 — `hospedagem.ts`/`passeios.ts`/`roteiro.ts`
+
+Confirmado nos três arquivos (não apenas na nota) que
+`assertSessionAccess(sessionId, session, { exigeConta: true })` é a
+PRIMEIRA coisa chamada depois do `findUnique` de existência da sessão, em
+`gerarSugestoesHospedagem` (linha 200), `gerarSugestoesPasseios` (linha
+176) e `gerarRoteiro` (linha 201) — antes de qualquer leitura de
+`DestinationApproval`/`AccommodationApproval`/`ActivityApproval` e antes
+da chamada real ao Gateway de IA (`generateAccommodationSuggestions`/
+`generatePasseiosSuggestions`/`generateRoteiro`, todas depois do guard no
+fluxo de controle linear da função — nenhum caminho alternativo pula o
+guard). Mesmo padrão confirmado nas 3 funções `aprovar*`
+(`aprovarHospedagem` linha 382, `aprovarSelecaoPasseios` linha 377,
+`aprovarRoteiro` linha 462) — guard antes de `assertValid*Payload`/
+`applySessionFlowTransition`. Todas as 6 funções capturam
+`ContaNecessariaError` em `try/catch` dedicado e devolvem resultado
+discriminado — nenhuma delas deixa a exceção se propagar. **Aprovado** nas
+3 tarefas.
+
+Achado simples (documentação, não código executável): o comentário de
+`roteiro.ts` (linhas 435-439, nota de `aprovarRoteiro`) afirma que
+`applySessionFlowTransition` "ainda não computa `exigeConta`
+internamente" — isso ficou desatualizado depois que `V2-L6-T04` passou a
+computar `exigeConta` dentro de `persistence.ts` (passo 3b) para TODA
+ação, uniformemente (confirmado acima). Não é uma falha de segurança (o
+guard explícito em `roteiro.ts` é redundante, não substitutivo — a dupla
+checagem é inofensiva), só um comentário desatualizado que pode confundir
+quem ler depois. Registrado como tarefa em `Refatoração Lote-V2-L6`
+abaixo — não é motivo de reprovação da tarefa em si.
+
+### V2-L6-T08 — Remoção de `POST /api/gateway-ia/[etapa]`
+
+Confirmado por busca própria (`grep -rln`): `src/app/api/gateway-ia/`
+contém hoje só `streaming-spike/route.ts` (não tocado, fora de escopo) —
+`[etapa]/route.ts` e seu teste não existem mais no disco (confirmado
+também pelo `git status`: `D` para os dois arquivos). Toda referência
+restante a `api/gateway-ia/[etapa]` no código é comentário de
+documentação (`loading-stream.tsx`, `destino-sugestoes-screen.tsx`,
+`gateway-ia/index.ts`, `gateway-ia/prompts.ts`) — nenhum `fetch(` real
+para essa rota em nenhum arquivo de produção, confirmado por grep próprio
+sem filtro de exclusão. As 4 telas que usam `LoadingStream` já ligam via
+`fetchImpl` às Server Actions (`gerarSugestoesDestino`/
+`gerarSugestoesHospedagem`/`gerarSugestoesPasseios`/`gerarRoteiro`).
+**Aprovado.**
+
+### V2-L6-T09 — `rotaDaEtapa`
+
+Os 7 casos do SDD §8.2.5 cobertos em `rota-da-etapa.ts`: casos 1
+(`entrada_selecionada`/`destino_pendente` → `/destino`), 2
+(`destino_confirmado` → `/destino/confirmacao`, com querystring
+`destino`/`flowState`), 3-5 (`hospedagem_pendente`/`passeios_pendente`/
+`roteiro_pendente` → rota própria), 6 (os 3 transitórios `*_aprovad*` —
+resolvidos recursivamente via `transitionSessionFlow(flowState,
+"avancar")`, sem duplicar a tabela de transições), 7 (`concluida`/
+`encerrada_parcial` → `/meus-roteiros/{sessionId}`). Pequeno desvio
+documentado no próprio arquivo (caso 7 sempre usa a rota autenticada,
+mesmo para `encerrada_parcial`, por a assinatura pedida não ter parâmetro
+de "tem conta") — aceitável: os 3 chamadores reais de `rotaDaEtapa`
+(`V2-L7-T02`, `V2-L8-T02`, "meus roteiros") só operam em contexto já
+autenticado, e o fluxo anônimo de `/encerramento` não passa por esta
+função. **Aprovado.**
+
+### Comandos rodados nesta validação (lote inteiro, execução própria do Validador)
+
+`npx tsc --noEmit` (projeto inteiro): mesmos erros pré-existentes já
+documentados (TS2556 em `src/app/destino/confirmacao/__tests__/page.test.tsx`,
+`src/app/encerramento/__tests__/page.test.tsx`,
+`src/app/hospedagem/__tests__/page.test.tsx`,
+`src/app/passeios/__tests__/page.test.tsx`,
+`src/app/roteiro/__tests__/page.test.tsx`; TS2698 em
+`budget-insufficient-banner.test.tsx`; TS18048/TS2339 em
+`auth-callbacks.test.ts`) — nenhum erro novo, nenhum referente a
+`session-flow`/`actions` do lote. `npm run lint`: 0 erros; 1 warning
+pré-existente já documentado (`_priority` não usado em
+`destination-image.test.tsx`, fora deste lote). `npx vitest run
+src/lib/session-flow src/lib/actions/__tests__/resolve-request-identity.test.ts
+src/lib/actions/__tests__/hospedagem.test.ts
+src/lib/actions/__tests__/passeios.test.ts
+src/lib/actions/__tests__/roteiro.test.ts
+src/lib/actions/__tests__/confirmacao-destino.test.ts`: 123 testes
+passando em 7 arquivos; os 2 arquivos de integração
+(`persistence.integration.test.ts`,
+`create-session-with-range.integration.test.ts`) falham com 18 testes por
+`PrismaClientInitializationError: Can't reach database server at
+localhost:55432` — limitação conhecida deste ambiente (sem Postgres),
+não regressão do lote.
+
+### Achados
+
+Nenhuma reprovação crítica. 1 reprovação simples (comentário
+desatualizado em `roteiro.ts` sobre `applySessionFlowTransition`, ver
+V2-L6-T05/T06/T07 acima) — vira tarefa em `Refatoração Lote-V2-L6`,
+`V2-L6-T07` permanece `Concluída`.
+
+### Veredito (Lote V2-L6)
+
+**Aprovado, com ressalva simples.** As 9 tarefas cumprem seu critério de
+aceite literal, confirmado por leitura direta do código (não pela nota do
+Executor) e por execução própria de `tsc`/`eslint`/`vitest` — nenhuma
+reprovação crítica. 1 achado simples (comentário desatualizado, sem
+impacto funcional/de segurança) registrado em `Refatoração Lote-V2-L6`
+para correção de baixo esforço, sem bloquear o lote nem reabrir nenhuma
+
+## Lote V2-L7 — Cadastro, vínculo e telas de conta (RF-16, RNF-13; ADR-009 item 3, ADR-012) (2026-09-16)
+
+Todas as 9 tarefas (`T01`-`T09`) já estavam `Concluída` no `TASK.md` antes
+desta validação. Checagens abaixo feitas por leitura direta do código
+(`git diff`/arquivo real), nunca pela nota de implementação do Executor
+como base de aprovação — a nota foi usada só como mapa de onde olhar.
+
+### Suíte executada (independente, além das 3 confirmações do
+orquestrador — `tsc --noEmit`, `lint`, `vitest run` excluindo
+`*.integration.test.*`, já sem regressão)
+
+| Comando | Resultado |
+|---|---|
+| `npx vitest run` nos 8 arquivos de teste específicos do lote (`auth-rate-limit.test.ts`, `auth-authorize.test.ts`, `conta-rate-limit.test.ts`, `src/app/entrar`, `src/app/cadastro`, `src/components/conta`) | 60/60 passando, incluindo o teste de 10.8s que exercita de fato a branch de equalização de tempo (`bcrypt.compare` dummy) |
+| `test -f src/app/api/auth/signup/route.ts` | Arquivo ausente — remoção confirmada |
+| Grep por `api/auth/signup` no repo | Só 3 ocorrências, todas em comentário explicando a remoção — nenhum consumidor ativo |
+| Grep por `console.(log\|error\|warn\|info)` em `src/` | Só `gateway-ia/prompt-injection-guard.ts` e `gateway-ia/generation-log.ts` — nenhuma ocorrência em `auth.ts`/`auth-rate-limit.ts`/`conta.ts`, confirmando "e-mail nunca em log" |
+| Grep por `onVerDepois` no repo inteiro | Zero resultados — nenhum consumidor quebrado pela remoção da prop |
+
+### V2-L7-T01 — `criarConta`
+
+`src/lib/actions/conta.ts`/`src/lib/user-account.ts` lidos linha a linha:
+consentimento (`!== true`) checado numa guard clause isolada, ANTES de
+qualquer leitura/escrita no banco; `CreateUserAccountInput` não declara
+nenhum campo de timestamp — `privacyConsentAt`/`Version` só podem vir do
+`new Date()` do servidor, confirmado pelo teste de integração que injeta
+um `privacyConsentAt` via `@ts-expect-error` e confirma que é ignorado.
+E-mail duplicado tratado nos dois pontos (`findUnique` prévio + `catch` de
+`P2002`), convergindo para `EmailAlreadyInUseError("E-mail já
+cadastrado.")` em ambos — nunca vaza `error.message`/`code` do Prisma.
+Senha mínima 8 (`MIN_PASSWORD_LENGTH`). `POST /api/auth/signup` de fato
+removida. **Aprovado.**
+
+### V2-L7-T02 — `vincularSessaoAConta`
+
+`src/lib/session-flow/link-anonymous-session-to-user.ts` lido:
+`updateMany` com `where: { id, anonSessionId, userId: null }` é
+literalmente o pseudocódigo do ADR-009 item 3 — só a sessão indicada muda
+(nenhuma outra query de `updateMany` sem `id` no `where`). `count === 0`
+relido na mesma transação: `existing.userId === input.userId` é sucesso
+idempotente sem lançar; qualquer outro caso (`existing` nulo, `userId`
+diferente) lança `SessionNotFoundError` (404). Continuação atômica
+`destino_confirmado` → `hospedagem_pendente` roda dentro do MESMO
+`prisma.$transaction` via `applySessionFlowTransitionInTx(tx, ...)` — não
+há segunda transação nem chamada fora do `tx`. **Aprovado.**
+
+### V2-L7-T03 — `AuthForm`/`ConsentCheckbox`
+
+`autocomplete="email"` sempre presente; `autocomplete="new-password"` no
+modo `cadastro`, `"current-password"` no modo `entrar` — confirmado no
+componente. `ConsentCheckbox` só renderiza quando `mode === "cadastro"`
+(ausente em `entrar`) e inicia com `useState(false)` — nenhum caminho o
+inicializa `true`. Cada erro (`emailErrorId`/`senhaErrorId`/`consentimentoErrorId`/`formErrorId`)
+conectado via `aria-describedby` no campo correspondente, com `role="alert"`.
+**Aprovado.**
+
+### V2-L7-T04 — T-GATE (`src/app/cadastro/`)
+
+`page.tsx`: `assertSessionAccess(sessionId, tripSession, { exigeConta:
+false })` roda logo depois do único `prisma.tripSession.findUnique`
+(leitura, não escrita) e ANTES de qualquer outra lógica — `catch` de
+`SessionNotFoundError` vira `redirect("/")`. Estado terminal
+(`isTerminalSessionFlowState`) redireciona para `/encerramento` antes de
+`CadastroClient` ser montado. Nenhuma chamada de escrita (`criarConta`/
+`signIn`/`vincularSessaoAConta`) acontece no Server Component — só reads
+(`findUnique`, `getServerSession`); em `CadastroClient`, as 3 chamadas só
+disparam dentro de `onClick`/`onSubmit`, sem nenhum `useEffect` de
+montagem — confirmado por leitura completa do arquivo (nenhum `useEffect`
+presente no componente todo). "Agora não" chama
+`encerrarResolucaoDestino` (já existente, preserva `DestinationApproval`)
+sem passar por `criarConta`/`signIn`/`vincularSessaoAConta`. **Aprovado.**
+
+### V2-L7-T05 — T-LOGIN (`src/app/entrar/`)
+
+`RETORNO_ALLOWLIST` é um array de 5 strings exatas; `resolveRetorno` usa
+`.includes(retorno)` (igualdade estrita, nunca `startsWith`/regex de
+prefixo) — qualquer valor fora da lista cai em `RETORNO_PADRAO = "/"`.
+Teste `page.test.ts` cobre os vetores citados no enunciado
+(`//evil.com`, `javascript:`, `/meus-roteiros-evil.com`, URL absoluta,
+querystring anexada) — 12/12 passando, incluindo esses casos
+especificamente. **Aprovado.**
+
+### V2-L7-T06/T07 — telas tratam `conta_necessaria`
+
+Confirmado por leitura de código (não só grep) nas 4 telas: T05
+(`confirmacao-destino-client.tsx`, `onConfirmar` checa `"status" in
+result && result.status === "conta_necessaria"` antes de navegar para
+`/hospedagem`), Hospedagem (`hospedagem-sugestoes-screen.tsx`), Passeios
+(`passeios-sugestoes-screen.tsx`) e Roteiro (`roteiro-screen.tsx`, via
+`isContaNecessariaResult`) — todas navegam para
+`/cadastro?sessionId=...` no caminho `conta_necessaria`, nas 3 telas de
+T07 nos 3 pontos de chamada relatados (carregamento inicial, ajustar
+quando aplicável, aprovar).
+
+Os 2 bugs relatados por T07 confirmados corrigidos por leitura direta,
+não pela alegação da nota:
+- `handleStreamComplete` (hospedagem): agora checa `if (!Array.isArray(parsed))
+  { redirectToContaGate(); return; }` ANTES de `setSuggestions`/qualquer
+  `.map()` — o bug relatado (`.map()` sobre um objeto `{status,
+  sessionId}`) não pode mais ocorrer, porque `suggestions.map` só roda
+  depois do `screen` virar `"success"`, que só acontece no branch array.
+- `handleApprove` (hospedagem): agora checa `if ("status" in result &&
+  result.status === "conta_necessaria") { redirectToContaGate(); return;
+  }` ANTES de `setApproved(suggestion)` — o bug relatado (aprovação
+  ignorando `conta_necessaria` e marcando a opção como aprovada mesmo
+  assim) não pode mais ocorrer.
+
+**Aprovado.**
+
+### V2-L7-T08 — rate limit + timing-safe `authorize`
+
+Ver auditoria completa em `SECURITY-REVIEW.md` (Lote V2-L7) — do ponto de
+vista funcional, os 2 limites (5/10min por IP em `criarConta`, 10/10min
+por `(IP, hash-do-email)` em `authorize`) e o branch de `bcrypt.compare`
+dummy foram confirmados por leitura de código e pela execução real do
+teste de 10.8s que exercita o caminho de e-mail inexistente. **Aprovado.**
+
+### V2-L7-T09 — T-END copy V2.0
+
+`encerramento-screen.tsx` lido por completo: a palavra "salvo" só aparece
+dentro do branch `temConta ? "Está salvo em 'Meus roteiros'." :
+SEM_CONTA_AVISO` — o branch `SEM_CONTA_AVISO` não contém "salvo" em
+nenhum lugar (confirmado por leitura literal da constante). Com conta, CTA
+é `<Link href="/meus-roteiros">Ver meus roteiros</Link>`; sem conta,
+`<Link href="/">Planejar outra viagem</Link>` — nenhum link para
+`/meus-roteiros` no caminho sem conta. Grep por `onVerDepois` no projeto
+inteiro devolveu zero resultados — nenhum consumidor quebrado pela
+remoção da prop (única chamada de `EncerramentoScreen`, em
+`src/app/encerramento/page.tsx`, já usa `temConta`). **Aprovado.**
+
+### Achados
+
+Nenhuma reprovação crítica. Nenhuma reprovação simples nova — os 2 bugs
+de runtime relatados por T07 já foram corrigidos pelo próprio Executor
+dentro da tarefa (confirmado acima), não são achados pendentes desta
+validação.
+
+### Veredito (Lote V2-L7)
+
+**Aprovado, sem ressalvas.** As 9 tarefas cumprem seu critério de aceite
+literal, confirmado por leitura direta do código e por execução própria
+de testes direcionados (60/60) além das 3 confirmações do orquestrador
+(`tsc`/`lint`/`vitest run` completo, 674/674). Nenhum achado novo. Lote
+liberado para a auditoria de segurança dedicada (`SECURITY-REVIEW.md`).
+tarefa.
+
+## Lote V2-L8 — Meus roteiros (RF-17) (2026-09-16)
+
+As 5 tarefas (`T01`-`T05`) já estavam `Concluída` no `TASK.md` antes desta
+validação. Checagens abaixo feitas por leitura direta do código (nunca
+pela nota de implementação do Executor como base de aprovação — usada só
+como mapa de onde olhar) e por execução própria de teste.
+
+### Suíte executada (independente, além das 3 confirmações do
+orquestrador — `tsc --noEmit`, `lint`, `vitest run` excluindo
+`*.integration.test.*`, 79 arquivos/714 testes, sem regressão)
+
+| Comando | Resultado |
+|---|---|
+| `npx vitest run` nos 6 arquivos de teste (não-integração) específicos do lote (`meus-roteiros-client.test.tsx`, `meus-roteiros/page.test.tsx`, `meus-roteiros/[sessionId]/page.test.tsx`, `roteiro-salvo-screen.test.tsx`, `itinerary-day-block.test.tsx`, `encerramento-screen.test.tsx`) | 37/37 passando |
+| `npx vitest run` nos 2 arquivos de teste puro do lote (`obter-roteiro-leitura.test.ts`, `meus-roteiros-label.test.ts`) | passando (parte dos 714 já confirmados pelo orquestrador) |
+| `npx vitest run` nos 2 arquivos de integração real do lote (`retomar-sessao.integration.test.ts`, `meus-roteiros.integration.test.ts`) | **Não executável neste ambiente** — `PrismaClientInitializationError: Can't reach database server at localhost:55432`. Mesma limitação de ambiente já documentada e aceita em V2-L6/V2-L7 (sem Postgres local acessível); o único caso de `retomar-sessao.integration.test.ts` que não toca o banco (arity/tipo) passa. Ver "Observações" abaixo. |
+| Grep por `console.(log\|error\|warn\|info)` nos 9 arquivos novos/editados do lote | Zero ocorrências |
+
+### V2-L8-T01 — `listarMeusRoteiros`/`rotuloDaSessao`
+
+`src/lib/actions/meus-roteiros.ts` lido por completo: a assinatura de
+`listarMeusRoteiros()` não declara NENHUM parâmetro — não há caminho de
+URL, corpo de requisição ou prop de componente que possa influenciar o
+`userId` da query; `userId` vem exclusivamente de
+`resolveRequestIdentity()` (`getServerSession`). A query usa `where: {
+userId }` + `orderBy: { updatedAt: "desc" }`, exatamente o par
+`(userId, updatedAt)` do índice adicionado em `V2-L1-T01`
+(`prisma/schema.prisma`, `@@index([userId, updatedAt])`) — Postgres/Prisma
+usam esse índice automaticamente para essa composição where+orderBy, sem
+necessidade de hint explícito (não há teste de `EXPLAIN` dedicado, mas a
+composição da query é literalmente a do índice). `rotuloDaSessao`
+(`meus-roteiros-label.ts`) cobre os 3 casos de RF-17.3 por leitura direta:
+`concluida` → "Roteiro concluído"; `encerrada_parcial` → "Encerrada em
+{etapa}" com a prioridade passeios > hospedagem > destino; demais estados
+→ "Em andamento — na etapa {etapa}" pelo mapa `ETAPA_POR_FLOW_STATE`
+(9 estados cobertos, `entrada_selecionada` mapeado para "destino"). Função
+pura, sem `"use server"`, testada sem mock em
+`meus-roteiros-label.test.ts` (passando). **Aprovado.**
+
+### V2-L8-T02 — `retomarSessao`
+
+`src/lib/actions/retomar-sessao.ts` lido linha a linha, com atenção
+especial ao ponto sutil apontado: `rotaDaEtapa` é de fato PURA (só
+calcula a URL); a persistência real do `avancar` para os 3 estados
+`*_aprovad*` acontece via `applySessionFlowTransition({ sessionId,
+action: "avancar" })`, chamada ANTES de `rotaDaEtapa` receber o
+`flowState` — e só o `flowState` já avançado (`advanced.flowState`) é
+passado adiante. Isso está coberto por teste real de integração
+(`retomar-sessao.integration.test.ts`, lido por completo): cada um dos 3
+casos transitórios reconsulta `prisma.tripSession.findUniqueOrThrow`
+depois da chamada e afirma o `flowState` persistido mudou
+(`hospedagem_aprovada` → `passeios_pendente` no banco, não só na rota
+devolvida). Sessão de outra conta: `assertSessionAccess` lança
+`SessionNotFoundError` antes de qualquer `applySessionFlowTransition` —
+confirmado pelo teste "sessão de outra conta é 404, sem gravar nada", que
+relê o banco e confirma `flowState` inalterado. Server Action (`"use
+server"`) — nenhum `route.ts` GET associado a este módulo, então não há
+como expor o mesmo efeito colateral por um link/prefetch. Não pude
+re-executar o teste de integração (Postgres indisponível neste ambiente,
+ver "Observações"), mas a leitura do arquivo de teste confirma que ele
+exercita exatamente o critério de aceite mais sensível da tarefa (relê o
+banco, não confia só no valor de retorno). **Aprovado.**
+
+### V2-L8-T03 — `obterRoteiroLeitura`
+
+`src/lib/actions/obter-roteiro-leitura.ts` lido por completo, incluindo os
+imports (linhas 51-58): nenhum import de `@/lib/gateway-ia` — só
+`@/lib/prisma`, `@/lib/session-flow` (guard) e `import type` de
+`@/lib/stage-rules`/`./roteiro` (tipos, apagados na compilação, sem
+nenhum valor/função importado de lá). Confirmado também por
+`grep -rn "gateway-ia" src/lib/actions/obter-roteiro-leitura.ts` — zero
+ocorrências. Guard `assertSessionAccess(sessionId, session, { exigeConta:
+true })` roda antes de qualquer leitura de `ItineraryItem`; posse negada
+propaga `SessionNotFoundError` (404 lógico). O gap de schema conhecido
+(`ItineraryItem.activityId` nulo sem `ActivityApproval`) é tratado com o
+label `"Atividade do roteiro"`, documentado no cabeçalho do arquivo e
+sinalizado ao Coordenador para uma migration futura — decisão razoável
+dentro da margem do Executor, não uma reinterpretação do critério de
+aceite. **Aprovado.**
+
+### V2-L8-T04 — T-MEUS (`/meus-roteiros`)
+
+`page.tsx`: sem `authSession.user.id`, `redirect("/entrar?retorno=/meus-roteiros")`
+roda antes de qualquer chamada a `listarMeusRoteiros()`. `meus-roteiros-client.tsx`:
+lista vazia renderiza `EmptyState` com CTA "Planejar uma viagem" (RF-17.6,
+confirmado pelo teste "lista vazia mostra o EmptyState"). Fluxo de exclusão
+testado de ponta a ponta em `meus-roteiros-client.test.tsx`: o teste
+"'Excluir minha conta' exige confirmação no diálogo — não dispara no
+primeiro clique" confirma que o clique no botão da tela só abre o
+`AlertDialog` (`role="alertdialog"`), sem nenhuma chamada a `fetch`; só o
+teste seguinte, que interage com o botão de confirmação DENTRO do diálogo,
+dispara `DELETE /api/account`. `handleConfirmarExclusao` só faz `fetch("/api/account",
+{ method: "DELETE" })` — nenhuma lógica de exclusão duplicada no cliente —
+seguido de `signOut({ redirect: false })` e
+`router.push("/?conta-excluida=1")` em caso de sucesso; erro mantém o
+diálogo aberto com `errorMessage` (confirmado pelo teste de falha). Nota
+de decisão documentada e aceitável: a home (T00) ainda não lê o parâmetro
+`?conta-excluida=1` para exibir o aviso — fora do escopo de arquivos desta
+tarefa, já registrado como gap para a futura reformulação da home (V2
+direction). **Aprovado.**
+
+### `AlertDialog` (`src/components/ui/alert-dialog.tsx`) — atenção especial
+
+Componente novo, implementação própria (nenhum pacote Radix/shadcn
+instalado para isto), usado num fluxo destrutivo. Lido por completo, sem
+confiar na alegação do cabeçalho:
+- `role="alertdialog"` + `aria-modal="true"` + `aria-labelledby`/
+  `aria-describedby` apontando para IDs reais de título/descrição —
+  confirmado, ambos os `id`s existem nos elementos correspondentes.
+- Foco inicial: `cancelButtonRef.current?.focus()` dentro do `useEffect`
+  disparado quando `open` vira `true` — vai para "Cancelar" (ação menos
+  destrutiva), não para "Excluir conta".
+- Focus trap: `handleKeyDown` intercepta `Tab`/`Shift+Tab`, calcula
+  `focusable` via `querySelectorAll(FOCUSABLE_SELECTOR)` dentro do próprio
+  `dialogRef`, e força o ciclo entre primeiro/último elemento focável —
+  cobre os dois sentidos (`shiftKey` e não).
+- `Escape` chama `onCancel()` com `preventDefault()`.
+- Retorno de foco: `previouslyFocusedElementRef` captura
+  `document.activeElement` no momento da abertura e a função de cleanup do
+  `useEffect` (disparada ao fechar/desmontar) chama `.focus()` nele de
+  volta — cobre tanto "Cancelar" quanto "Escape" quanto fechamento por
+  sucesso da exclusão.
+- Proteção contra double-submit: o botão de confirmar recebe
+  `disabled={confirmPending}`, e `handleConfirmarExclusao` chama
+  `setExcluindoPending(true)` como primeira linha — uma segunda ativação
+  do MESMO clique (evento único) não pode ocorrer; a janela teórica de um
+  clique duplo extremamente rápido antes do re-render do React não foi
+  testada isoladamente, mas o pior caso é uma segunda chamada a `DELETE
+  /api/account` contra uma conta já excluída, que a rota trata como 404
+  (`UserNotFoundError`, sem side effect adicional) — não é uma falha de
+  segurança, só redundância inofensiva. Não bloqueia.
+- Nenhuma regressão de acessibilidade identificada. **Aprovado.**
+
+### V2-L8-T05 — T-MEUS-DET (`/meus-roteiros/[sessionId]`)
+
+`page.tsx`: `obterResumoEncerramento` (guard de posse já auditado em
+lotes anteriores) captura `SessionNotFoundError` e redireciona para
+`/meus-roteiros?erro=sessao-nao-encontrada` — cobre sessão inexistente E
+de outra conta (mesmo padrão ADR-008/009, sempre 404 lógico → redirect,
+nunca 403). `flowState === "concluida"` (via `resumo.roteiroAprovado`)
+chama `obterRoteiroLeitura` e passa `dias` para `RoteiroSalvoScreen`, que
+renderiza `ItineraryDayBlock` com `readOnly` — sem nenhum botão de
+aprovar/ajustar no componente (confirmado por leitura completa de
+`roteiro-salvo-screen.tsx`: nenhum `onClick` de ação de fluxo, só o link
+"← Meus roteiros"). `encerrada_parcial` mostra só o resumo + a frase
+"Esta viagem foi encerrada em {etapa}", sem a seção "Seu roteiro" (guard
+`isComplete ? ... : <p>...`). Teste `page.test.tsx` cobre os 3 casos
+(sessão de outra conta/inexistente, concluída, encerrada parcial), 3/3
+passando. **Aprovado.**
+
+### Extração de `EncerramentoResumoBlocks` e modo `readOnly`/`dayLabel` de `ItineraryDayBlock` — checagem de regressão
+
+`encerramento-screen.tsx`: `EncerramentoResumoBlocks` foi extraída com a
+MESMA marcação que já estava inline em `EncerramentoScreen` (comparado
+bloco a bloco: `ResumoBloco`/condicionais idênticas) — `EncerramentoScreen`
+continua chamando o novo componente exportado no mesmo lugar da árvore,
+sem mudança de props/comportamento. Teste `encerramento-screen.test.tsx`
+(10/10 passando, arquivo já existente, não removido nem esvaziado por
+esta tarefa) confirma que T-END continua se comportando como antes.
+`itinerary-day-block.tsx`: `readOnly = false` e `dayLabel` opcional são os
+defaults — o branch `if (readOnly)` é um retorno antecipado que só é
+alcançado quando a prop é passada `true` explicitamente; o branch
+original (acordeão, `aria-expanded`, `md:hidden`/`md:flex`) é idêntico ao
+que já existia antes desta tarefa, sem nenhuma linha alterada dentro dele.
+Teste `itinerary-day-block.test.tsx` (10/10 passando) cobre os dois modos.
+Nenhuma regressão identificada em T-END (L10-T04) nem em T08/`RoteiroScreen`
+(L10-T02) quando usados sem as novas props. **Confirmado, sem regressão.**
+
+### Observações (não bloqueiam)
+
+- Os 2 arquivos de teste de integração real do lote
+  (`retomar-sessao.integration.test.ts`, `meus-roteiros.integration.test.ts`)
+  não puderam ser executados de forma independente nesta validação por
+  falta de Postgres acessível em `localhost:55432` neste ambiente — a
+  mesma limitação já documentada pelo próprio Executor nas notas de
+  implementação de V2-L7-T02/V2-L8-T01/T02, e não específica desta
+  validação. A leitura completa de ambos os arquivos (ver V2-L8-T02 acima)
+  confirma que eles exercitam exatamente os critérios de aceite mais
+  sensíveis (persistência real, isolamento por `userId`) — não é uma
+  lacuna de cobertura, é uma lacuna de execução neste ambiente específico.
+  Recomendação ao chapéu DevOps: rodar
+  `npx vitest run --testPathPattern=integration` (ou equivalente) contra
+  um Postgres real (staging) antes/durante a preparação do deploy deste
+  lote, como checagem final antes de liberar RF-17 em produção — não é um
+  achado que reprova a tarefa nem exige tarefa em
+  `Refatoração Lote-V2-L8` (a suíte já existe e está correta; é uma
+  checagem operacional de pré-deploy, não um débito de código).
+
+### Achados
+
+Nenhuma reprovação crítica. Nenhuma reprovação simples.
+
+### Veredito (Lote V2-L8)
+
+**Aprovado, sem ressalvas.** As 5 tarefas cumprem seu critério de aceite
+literal, confirmado por leitura direta do código e por execução própria
+de todos os testes não-integração do lote (37/37, além dos já cobertos
+pelos 714 do orquestrador). O ponto mais sutil da tarefa (persistência
+real de `avancar` em `retomarSessao`) foi confirmado por leitura do código
+E do teste de integração dedicado (não executável neste ambiente, mas
+lido por completo). O `AlertDialog` novo, usado num fluxo destrutivo, foi
+auditado em detalhe e implementa corretamente o padrão WAI-ARIA
+`alertdialog`. Nenhuma regressão identificada em `EncerramentoScreen`/T-END
+nem em `RoteiroScreen`/T08 pelas extrações/novas props desta tarefa. Lote
+liberado para a auditoria de segurança dedicada (`SECURITY-REVIEW.md`).

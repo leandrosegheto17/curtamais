@@ -50,6 +50,7 @@ import {
   InvalidManualDestinoError,
 } from "@/lib/actions/destino-errors";
 import { SessionNotFoundError } from "@/lib/session-flow";
+import { resolverImagemDestino } from "@/lib/catalogo/resolver-imagem";
 
 const generateStructuredCompletionWithRetryMock = vi.fn();
 
@@ -196,6 +197,11 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
           priceRangeMax: 2000,
           withinBudget: true,
           exceedsBudget: false,
+          // V2-L2-T04: campo de apresentação — presente no payload que a UI
+          // devolve ao servidor, mas nunca deve chegar ao banco (ver
+          // asserções abaixo, que checam as colunas de `DestinationApproval`
+          // uma a uma e nunca incluem `imagem`).
+          imagem: resolverImagemDestino("Gramado"),
         },
       });
 
@@ -219,6 +225,12 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
       expect(destination.justification).toBe("Clima ameno no período.");
       expect(destination.priceRangeMin.toNumber()).toBe(1000);
       expect(destination.priceRangeMax.toNumber()).toBe(2000);
+      // V2-L2-T04 (critério de aceite): `imagem` nunca é persistido — o
+      // registro só tem as colunas do schema Prisma (`DestinationApproval`
+      // não tem coluna `imagem`), então a checagem acima campo a campo já
+      // comprova a ausência; reforçamos aqui não confiando em serialização
+      // implícita.
+      expect(destination).not.toHaveProperty("imagem");
     });
 
     it("rejeita payload adulterado (faixa de preço invertida) sem persistir nada", async () => {
@@ -234,6 +246,7 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
             priceRangeMax: 1000,
             withinBudget: true,
             exceedsBudget: false,
+            imagem: resolverImagemDestino("Gramado"),
           },
         }),
       ).rejects.toBeInstanceOf(InvalidDestinoSuggestionError);
@@ -261,6 +274,7 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
             priceRangeMax: 200,
             withinBudget: true,
             exceedsBudget: false,
+            imagem: resolverImagemDestino("   "),
           },
         }),
       ).rejects.toBeInstanceOf(InvalidDestinoSuggestionError);
@@ -279,6 +293,7 @@ describe("Server Actions de T04 — integração real com Postgres (L7-T03)", ()
             priceRangeMax: 200,
             withinBudget: true,
             exceedsBudget: false,
+            imagem: resolverImagemDestino("Outro"),
           },
         }),
       ).rejects.toBeInstanceOf(InvalidTransitionError);

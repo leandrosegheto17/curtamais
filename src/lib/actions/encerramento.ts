@@ -45,7 +45,7 @@ export type { EncerramentoPasseioResumo } from "@/components/encerramento/encerr
  */
 export async function obterResumoEncerramento(
   sessionId: string,
-): Promise<EncerramentoResumo> {
+): Promise<EncerramentoResumo & { temConta: boolean }> {
   const session = await prisma.tripSession.findUnique({
     where: { id: sessionId },
     select: { flowState: true, userId: true, anonSessionId: true },
@@ -89,5 +89,10 @@ export async function obterResumoEncerramento(
           }))
         : null,
     roteiroAprovado: session.flowState === "concluida",
+    // V2-L7-T09/RF-17/RNF-11 — a sessão só tem `userId` depois de T-GATE
+    // vincular uma conta (`vincularConta`/`session-flow/persistence.ts`).
+    // T-END usa isto para nunca afirmar "salvo" para quem permaneceu
+    // anônimo (ver `EncerramentoScreen`).
+    temConta: session.userId !== null,
   };
 }

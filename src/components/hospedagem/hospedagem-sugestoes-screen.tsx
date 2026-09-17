@@ -73,6 +73,7 @@ import {
   encerrarResolucaoHospedagem,
   gerarSugestoesHospedagem,
   type AccommodationSuggestionResult,
+  type ContaNecessariaResult,
 } from "@/lib/actions/hospedagem";
 import { cn } from "@/lib/utils";
 
@@ -177,13 +178,29 @@ export function HospedagemSugestoesScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, actionsOverride]);
 
+  // V2-L7-T07 (ADR-009 item 2/"Contrato com o cliente") — leva para T-GATE
+  // preservando `sessionId`, mesmo destino usado pela T05 (`V2-L7-T06`).
+  // Cobre tanto o acesso direto por URL quanto sessão anônima antiga
+  // (RF-16.9): `gerarSugestoesHospedagem` já roda no carregamento inicial da
+  // tela (`loadingFetchImpl`/`handleStreamComplete`), então nenhum guard
+  // adicional é necessário além deste.
+  function redirectToContaGate() {
+    router.push(`/cadastro?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
   function handleStreamComplete(fullText: string) {
-    let parsed: AccommodationSuggestionResult[] = [];
+    let parsed: AccommodationSuggestionResult[] | ContaNecessariaResult;
     try {
-      parsed = JSON.parse(fullText) as AccommodationSuggestionResult[];
+      parsed = JSON.parse(fullText) as
+        | AccommodationSuggestionResult[]
+        | ContaNecessariaResult;
     } catch {
       setLoadErrorMessage(GENERIC_ERROR_MESSAGE);
       setScreen("error");
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      redirectToContaGate();
       return;
     }
     setSuggestions(parsed);
@@ -208,7 +225,15 @@ export function HospedagemSugestoesScreen({
     setApproveError(null);
     setApprovePendingIndex(index);
     try {
-      await actions.aprovarHospedagem({ sessionId, suggestion });
+      const result = await actions.aprovarHospedagem({ sessionId, suggestion });
+      // V2-L7-T07: `aprovarHospedagem` também pode devolver
+      // `{ status: "conta_necessaria" }` (ADR-009 item 2) — mesmo tratamento
+      // do carregamento inicial/"Ajustar" (redireciona para T-GATE em vez de
+      // marcar a opção como aprovada).
+      if ("status" in result && result.status === "conta_necessaria") {
+        redirectToContaGate();
+        return;
+      }
       setApproved(suggestion);
     } catch {
       setApproveError(GENERIC_ACTION_ERROR_MESSAGE);
@@ -242,6 +267,13 @@ export function HospedagemSugestoesScreen({
         sessionId,
         feedbackValue,
       );
+      // V2-L7-T07: `gerarSugestoesHospedagem` pode devolver
+      // `{ status: "conta_necessaria" }` (ADR-009 item 2) em vez do array de
+      // opções — leva para T-GATE (mesmo tratamento do carregamento inicial).
+      if (!Array.isArray(regenerated)) {
+        redirectToContaGate();
+        return;
+      }
       setSuggestions(regenerated);
       closeAdjust();
     } catch (error) {

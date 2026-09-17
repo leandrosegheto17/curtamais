@@ -3,9 +3,12 @@
 // completa, ou "Parte da sua viagem está decidida" quando parcial — e o caso
 // parcial NUNCA é apresentado como erro (sem `role="alert"`, sem tokens
 // semânticos de erro), mesmo sendo um resultado válido do produto.
+//
+// V2-L7-T09/RF-17/RNF-11 — copy V2.0 condicionada a `temConta`: com conta,
+// afirma que o roteiro está salvo em "Meus roteiros" com CTA para lá; sem
+// conta, NUNCA afirma "salvo" — aviso honesto, sem CTA para "Meus roteiros".
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   EncerramentoScreen,
@@ -31,8 +34,14 @@ const partialResumo: EncerramentoResumo = {
 };
 
 describe("EncerramentoScreen", () => {
-  it("exibe 'Viagem decidida!' quando a sessão está completa (flowState=concluida)", () => {
-    render(<EncerramentoScreen flowState="concluida" resumo={fullResumo} />);
+  it("exibe 'Viagem decidida!' quando a sessão está completa (flowState=concluida, com conta)", () => {
+    render(
+      <EncerramentoScreen
+        flowState="concluida"
+        resumo={fullResumo}
+        temConta
+      />,
+    );
 
     expect(screen.getByText("Viagem decidida!")).toBeInTheDocument();
     expect(
@@ -40,11 +49,12 @@ describe("EncerramentoScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("exibe 'Parte da sua viagem está decidida' quando a sessão é parcial (flowState=encerrada_parcial)", () => {
+  it("exibe 'Parte da sua viagem está decidida' quando a sessão é parcial (flowState=encerrada_parcial, com conta)", () => {
     render(
       <EncerramentoScreen
         flowState="encerrada_parcial"
         resumo={partialResumo}
+        temConta
       />,
     );
 
@@ -59,6 +69,7 @@ describe("EncerramentoScreen", () => {
       <EncerramentoScreen
         flowState="encerrada_parcial"
         resumo={partialResumo}
+        temConta
       />,
     );
 
@@ -82,12 +93,13 @@ describe("EncerramentoScreen", () => {
 
   it("usa o mesmo tratamento visual (ícone de confirmação) para completo e parcial", () => {
     const { container: completeContainer } = render(
-      <EncerramentoScreen flowState="concluida" resumo={fullResumo} />,
+      <EncerramentoScreen flowState="concluida" resumo={fullResumo} temConta />,
     );
     const { container: partialContainer } = render(
       <EncerramentoScreen
         flowState="encerrada_parcial"
         resumo={partialResumo}
+        temConta
       />,
     );
 
@@ -104,6 +116,7 @@ describe("EncerramentoScreen", () => {
       <EncerramentoScreen
         flowState="encerrada_parcial"
         resumo={partialResumo}
+        temConta
       />,
     );
 
@@ -120,7 +133,9 @@ describe("EncerramentoScreen", () => {
   });
 
   it("lista destino + hospedagem + passeios + roteiro quando tudo foi aprovado", () => {
-    render(<EncerramentoScreen flowState="concluida" resumo={fullResumo} />);
+    render(
+      <EncerramentoScreen flowState="concluida" resumo={fullResumo} temConta />,
+    );
 
     expect(screen.getByRole("region", { name: "Destino" })).toBeInTheDocument();
     expect(
@@ -140,33 +155,61 @@ describe("EncerramentoScreen", () => {
   });
 
   it("gerencia foco no título ao montar (UX-SPEC §5)", () => {
-    render(<EncerramentoScreen flowState="concluida" resumo={fullResumo} />);
+    render(
+      <EncerramentoScreen flowState="concluida" resumo={fullResumo} temConta />,
+    );
 
     expect(screen.getByRole("heading", { level: 1, name: "Sua viagem" })).toBe(
       document.activeElement,
     );
   });
 
-  it("dispara onVerDepois ao clicar em 'Ver isso depois', sem exigir nenhuma ação para salvar", async () => {
-    const user = userEvent.setup();
-    const onVerDepois = vi.fn();
+  it("com conta: mostra 'Está salvo em Meus roteiros' e CTA que leva a /meus-roteiros", () => {
+    render(
+      <EncerramentoScreen flowState="concluida" resumo={fullResumo} temConta />,
+    );
+
+    expect(
+      screen.getByText("Está salvo em 'Meus roteiros'."),
+    ).toBeInTheDocument();
+    const cta = screen.getByRole("link", { name: "Ver meus roteiros" });
+    expect(cta).toHaveAttribute("href", "/meus-roteiros");
+  });
+
+  it("sem conta: aviso honesto, nunca a palavra 'salvo', sem CTA para 'Meus roteiros'", () => {
     render(
       <EncerramentoScreen
-        flowState="concluida"
-        resumo={fullResumo}
-        onVerDepois={onVerDepois}
+        flowState="encerrada_parcial"
+        resumo={partialResumo}
+        temConta={false}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Ver isso depois" }));
-    expect(onVerDepois).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(
+        "Sem uma conta, não consigo guardar esta viagem para depois. Se quiser, anote ou tire um print.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/salvo/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Ver meus roteiros" }),
+    ).not.toBeInTheDocument();
+
+    const cta = screen.getByRole("link", { name: "Planejar outra viagem" });
+    expect(cta).toHaveAttribute("href", "/");
   });
 
-  it("não quebra quando onVerDepois não é passado (nenhuma ação obrigatória do usuário, RF-09)", async () => {
-    const user = userEvent.setup();
-    render(<EncerramentoScreen flowState="concluida" resumo={fullResumo} />);
+  it("sem conta: rótulo de status menciona o destino escolhido, sem sugerir 'decidida'/'salva'", () => {
+    render(
+      <EncerramentoScreen
+        flowState="encerrada_parcial"
+        resumo={partialResumo}
+        temConta={false}
+      />,
+    );
 
-    await user.click(screen.getByRole("button", { name: "Ver isso depois" }));
-    // Não lança erro — é o suficiente para este caso.
+    expect(
+      screen.getByText("Seu destino está escolhido: Gramado."),
+    ).toBeInTheDocument();
   });
 });

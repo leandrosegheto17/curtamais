@@ -120,7 +120,8 @@ import { generateRoteiro } from "@/lib/stage-rules";
 import type { RoteiroDayResult, RoteiroItemResult } from "@/lib/stage-rules";
 import {
   applySessionFlowTransition,
-  assertSessionOwnership,
+  assertSessionAccess,
+  ContaNecessariaError,
   SessionNotFoundError,
   type ApproveItineraryItemInput,
 } from "@/lib/session-flow";
@@ -130,6 +131,20 @@ import {
   RoteiroContextoIncompletoError,
   RoteiroEtapaInvalidaError,
 } from "./roteiro-errors";
+
+/**
+ * Resultado discriminado comum a `gerarRoteiro`/`aprovarRoteiro`
+ * (V2-L6-T07, RF-16.7/ADR-009 item 2) quando a posse da sessão já foi
+ * confirmada (o solicitante É o dono anônimo gravado) mas a etapa de
+ * roteiro exige conta e a identidade da requisição não tem `userId`. Nunca
+ * é uma exceção que chega ao cliente — ver contrato de `ContaNecessariaError`
+ * em `@/lib/session-flow/authorization.ts`. A tela (T-GATE, `V2-L7-T07`)
+ * reage a este resultado navegando para `/cadastro?sessionId=...`.
+ */
+export type ContaNecessariaResult = {
+  status: "conta_necessaria";
+  sessionId: string;
+};
 
 /**
  * Mesmo raciocínio de teto de sanidade de `ACTIVITY_NAME_MAX_LENGTH`
@@ -149,10 +164,20 @@ export type { RoteiroDayResult, RoteiroItemResult };
  * roteiro no MVP (UX-SPEC.md T08): esta função é chamada uma vez, e o único
  * próximo passo é `aprovarRoteiro` abaixo. Nenhuma transição de estado
  * acontece aqui, a sessão permanece em `roteiro_pendente`.
+ *
+ * V2-L6-T07/RF-16.7/ADR-009 item 2 — roteiro é uma etapa pós-destino
+ * (`ESTADOS_POS_DESTINO`, `@/lib/session-flow/account-gate.ts`), então exige
+ * conta verificada no servidor. O guard (`assertSessionAccess` com
+ * `exigeConta: true`) é chamado logo após a checagem de existência/posse,
+ * ANTES de qualquer leitura de `DestinationApproval`/`AccommodationApproval`/
+ * `ActivityApproval` e antes de `generateRoteiro` (Gateway de IA) — recusa
+ * sem custo de chamada de IA. `ContaNecessariaError` é capturada aqui (nunca
+ * deixada vazar como exceção não tratada de uma Server Action) e convertida
+ * no resultado discriminado `ContaNecessariaResult`.
  */
 export async function gerarRoteiro(
   sessionId: string,
-): Promise<RoteiroDayResult[]> {
+): Promise<RoteiroDayResult[] | ContaNecessariaResult> {
   const session = await prisma.tripSession.findUnique({
     where: { id: sessionId },
     select: {
@@ -168,9 +193,18 @@ export async function gerarRoteiro(
     throw new SessionNotFoundError(sessionId);
   }
 
-  // L11-T02/ADR-008 — leitura direta de `TripSession` fora do módulo
-  // `session-flow`: guard central chamado explicitamente aqui.
-  await assertSessionOwnership(sessionId, session);
+  // V2-L6-T07/ADR-009 item 2 — leitura direta de `TripSession` fora do
+  // módulo `session-flow`: guard central chamado explicitamente aqui, ANTES
+  // de qualquer chamada ao Gateway de IA (substitui `assertSessionOwnership`,
+  // ver ADR-009 "Onde o guard com exigeConta é chamado").
+  try {
+    await assertSessionAccess(sessionId, session, { exigeConta: true });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId };
+    }
+    throw error;
+  }
 
   if (session.flowState !== "roteiro_pendente") {
     throw new RoteiroEtapaInvalidaError(session.flowState);
@@ -397,11 +431,46 @@ function flattenAndValidateDias(
  * `persistence.ts`) — nenhuma escrita adicional necessária aqui. Nunca
  * confia cegamente no payload recebido do cliente — cada item é revalidado
  * antes de persistir (Diretriz de Implementação 9).
+ *
+ * V2-L6-T07/RF-16.7/ADR-009 item 2 — desde `V2-L6-T04`,
+ * `applySessionFlowTransition` (`@/lib/session-flow/persistence.ts`, passo
+ * 3b) já computa `exigeConta` internamente para toda ação/etapa,
+ * uniformemente (`transicaoExigeConta`, recalculado a partir da transição já
+ * confirmada válida) — não depende mais de cada Server Action de tela passar
+ * `exigeConta` explicitamente. Mesmo assim, esta função, como ponto de
+ * entrada diretamente chamável (RF-16.7: "mesmo que alguém chame a Server
+ * Action diretamente"), busca a `TripSession` e chama
+ * `assertSessionAccess(sessionId, record, { exigeConta: true })`
+ * explicitamente ANTES de validar/persistir qualquer item — mesmo padrão de
+ * `gerarRoteiro` acima. Esse guard aqui é defesa em profundidade (falha
+ * cedo, antes de qualquer trabalho de validação/revalidação de item), não a
+ * única checagem: `applySessionFlowTransition` reconfirmaria a posse de
+ * qualquer forma no passo 3b. Não revalida a etapa aqui (isso continua sendo
+ * responsabilidade de `applySessionFlowTransition`/`transitionSessionFlow`,
+ * que lança `InvalidTransitionError` para pular etapa).
  */
 export async function aprovarRoteiro(input: {
   sessionId: string;
   dias: RoteiroDayResult[];
-}): Promise<AprovarRoteiroResult> {
+}): Promise<AprovarRoteiroResult | ContaNecessariaResult> {
+  const session = await prisma.tripSession.findUnique({
+    where: { id: input.sessionId },
+    select: { userId: true, anonSessionId: true },
+  });
+
+  if (!session) {
+    throw new SessionNotFoundError(input.sessionId);
+  }
+
+  try {
+    await assertSessionAccess(input.sessionId, session, { exigeConta: true });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId: input.sessionId };
+    }
+    throw error;
+  }
+
   const items = flattenAndValidateDias(input.dias);
 
   await applySessionFlowTransition({

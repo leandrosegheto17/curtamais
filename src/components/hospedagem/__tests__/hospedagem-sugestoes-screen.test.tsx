@@ -266,6 +266,68 @@ describe("HospedagemSugestoesScreen — estado Sucesso", () => {
   });
 });
 
+describe("HospedagemSugestoesScreen — conta_necessaria (V2-L7-T07/RF-16.9)", () => {
+  it("carregamento inicial: acesso direto por URL/sessão anônima antiga navega para T-GATE preservando sessionId", async () => {
+    renderScreen({
+      gerarSugestoesHospedagem: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+  });
+
+  it("'Ajustar' recebendo conta_necessaria navega para T-GATE", async () => {
+    const user = userEvent.setup();
+    const gerarSugestoesHospedagem = vi
+      .fn()
+      .mockResolvedValueOnce([suggestion()])
+      .mockResolvedValueOnce({
+        status: "conta_necessaria",
+        sessionId: "session-1",
+      });
+    renderScreen({ gerarSugestoesHospedagem });
+
+    await screen.findByText("Pousada Vista Mar");
+    await user.click(screen.getAllByRole("button", { name: "Ajustar" })[0]);
+    await user.type(
+      screen.getByLabelText("O que você gostaria de ajustar nesta opção?"),
+      "algo",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Regenerar com este feedback" }),
+    );
+
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+  });
+
+  it("aprovar recebendo conta_necessaria navega para T-GATE em vez de marcar a opção como aprovada", async () => {
+    const user = userEvent.setup();
+    const actions = renderScreen({
+      aprovarHospedagem: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await screen.findByText("Pousada Vista Mar");
+    await user.click(screen.getAllByRole("button", { name: "Aprovar" })[0]);
+
+    await waitFor(() =>
+      expect(actions.aprovarHospedagem).toHaveBeenCalled(),
+    );
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Continuar para passeios" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("HospedagemSugestoesScreen — estado Erro", () => {
   it("mostra ErrorRetryState após falha da Server Action e permite tentar novamente", async () => {
     const gerarSugestoesHospedagem = vi

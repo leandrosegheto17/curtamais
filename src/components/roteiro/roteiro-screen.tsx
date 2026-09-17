@@ -64,6 +64,8 @@ import { ItineraryDayBlock } from "@/components/design-system/itinerary-day-bloc
 import {
   aprovarRoteiro,
   gerarRoteiro,
+  type AprovarRoteiroResult,
+  type ContaNecessariaResult,
   type RoteiroDayResult,
 } from "@/lib/actions/roteiro";
 import { cn } from "@/lib/utils";
@@ -74,6 +76,19 @@ const GENERIC_ACTION_ERROR_MESSAGE =
   "Não conseguimos concluir agora. Tente novamente.";
 
 type ScreenState = "loading" | "error" | "success";
+
+/**
+ * V2-L7-T07 — type guard explícito em vez de `"status" in result` (a checagem
+ * inline não estreitava o tipo de forma confiável aqui, já que
+ * `AprovarRoteiroResult` não declara `status` nenhuma). Mesma checagem
+ * semântica, só reescrita para o `tsc --noEmit` estreitar corretamente o tipo
+ * de `result` depois do `if`.
+ */
+function isContaNecessariaResult(
+  result: AprovarRoteiroResult | ContaNecessariaResult,
+): result is ContaNecessariaResult {
+  return (result as ContaNecessariaResult).status === "conta_necessaria";
+}
 
 export interface RoteiroScreenProps {
   /** Id da `TripSession` corrente — vem do servidor (querystring resolvida pela rota), nunca decidido no client. */
@@ -115,9 +130,7 @@ export function RoteiroScreen({
   );
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
-  const [approved, setApproved] = useState<Awaited<
-    ReturnType<typeof aprovarRoteiro>
-  > | null>(null);
+  const [approved, setApproved] = useState<AprovarRoteiroResult | null>(null);
   const [approvePending, setApprovePending] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
@@ -144,13 +157,26 @@ export function RoteiroScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, actionsOverride]);
 
+  // V2-L7-T07 (ADR-009 item 2/"Contrato com o cliente") — leva para T-GATE
+  // preservando `sessionId`, mesmo destino usado pelas demais telas
+  // (T05/T06/T07). Cobre tanto o acesso direto por URL quanto sessão anônima
+  // antiga (RF-16.9): `gerarRoteiro` já roda no carregamento inicial da
+  // tela, então nenhum guard adicional é necessário além deste.
+  function redirectToContaGate() {
+    router.push(`/cadastro?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
   function handleStreamComplete(fullText: string) {
-    let parsed: RoteiroDayResult[] = [];
+    let parsed: RoteiroDayResult[] | ContaNecessariaResult;
     try {
-      parsed = JSON.parse(fullText) as RoteiroDayResult[];
+      parsed = JSON.parse(fullText) as RoteiroDayResult[] | ContaNecessariaResult;
     } catch {
       setLoadErrorMessage(GENERIC_ERROR_MESSAGE);
       setScreen("error");
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      redirectToContaGate();
       return;
     }
     setDays(parsed);
@@ -179,6 +205,13 @@ export function RoteiroScreen({
     setApprovePending(true);
     try {
       const result = await actions.aprovarRoteiro({ sessionId, dias: days });
+      // V2-L7-T07: `aprovarRoteiro` também pode devolver
+      // `{ status: "conta_necessaria" }` (ADR-009 item 2) — mesmo tratamento
+      // do carregamento inicial (redireciona para T-GATE).
+      if (isContaNecessariaResult(result)) {
+        redirectToContaGate();
+        return;
+      }
       setApproved(result);
     } catch {
       setApproveError(GENERIC_ACTION_ERROR_MESSAGE);

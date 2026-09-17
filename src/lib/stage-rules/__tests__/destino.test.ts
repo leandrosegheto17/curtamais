@@ -13,6 +13,8 @@
 // o teste continue exercitando o prompt/schema de verdade, não um dublê.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { generateDestinationSuggestions } from "@/lib/stage-rules";
+import { destinoSugestoesSchema } from "@/lib/gateway-ia";
+import { resolverImagemDestino } from "@/lib/catalogo/resolver-imagem";
 
 const generateStructuredCompletionWithRetryMock = vi.fn();
 
@@ -78,6 +80,69 @@ describe("generateDestinationSuggestions (L7-T01, RF-04.1/RF-10)", () => {
       expect(typeof suggestion.priceRangeMin).toBe("number");
       expect(typeof suggestion.priceRangeMax).toBe("number");
     }
+  });
+
+  it("resolve imagem para cada sugestão via resolverImagemDestino, depois da resposta do Gateway (V2-L2-T04/RF-15/ADR-010)", async () => {
+    mockDestinos([
+      {
+        nome: "Foz do Iguaçu",
+        justificativa: "Clima ameno no período e boa relação custo-benefício.",
+        faixaPrecoMin: 1500,
+        faixaPrecoMax: 2500,
+      },
+      {
+        nome: "Nome Totalmente Fora Do Catalogo Xyz",
+        justificativa: "Sazonalidade favorável para o período informado.",
+        faixaPrecoMin: 1800,
+        faixaPrecoMax: 2800,
+      },
+    ]);
+
+    const result = await generateDestinationSuggestions({
+      sessionId: "session-1",
+      referenceDate: "2026-09-10",
+      dateRangeStart: "2026-10-10",
+      dateRangeEnd: "2026-10-13",
+    });
+
+    expect(result).toHaveLength(2);
+    for (const suggestion of result) {
+      expect(suggestion.imagem).toEqual(resolverImagemDestino(suggestion.name));
+    }
+    // Nome fora do catálogo cai no fallback determinístico (nunca em
+    // correspondência aproximada, RN-10) — confirma que a resolução
+    // realmente rodou, não apenas um placeholder fixo.
+    const foraDoCatalogo = result.find(
+      (r) => r.name === "Nome Totalmente Fora Do Catalogo Xyz",
+    );
+    expect(foraDoCatalogo?.imagem.tipo).toBe("fallback");
+  });
+
+  it("NÃO altera o prompt/schema Zod do Gateway de IA para acomodar imagem (V2-L2-T04, ADR-003)", async () => {
+    mockDestinos([
+      { nome: "A", justificativa: "J", faixaPrecoMin: 100, faixaPrecoMax: 200 },
+      { nome: "B", justificativa: "J", faixaPrecoMin: 100, faixaPrecoMax: 200 },
+    ]);
+
+    await generateDestinationSuggestions({
+      sessionId: "session-1",
+      referenceDate: "2026-09-10",
+      dateRangeStart: "2026-10-10",
+      dateRangeEnd: "2026-10-13",
+    });
+
+    // `destinoSugestoesSchema` (schema real, não mockado) segue com apenas
+    // os 4 campos originais dentro do item do array — nenhum "imagem"/
+    // "imagemUrl" foi adicionado ao contrato de resposta do LLM.
+    const itemSchema = destinoSugestoesSchema.shape.destinos.element;
+    expect(Object.keys(itemSchema.shape).sort()).toEqual(
+      ["faixaPrecoMax", "faixaPrecoMin", "justificativa", "nome"].sort(),
+    );
+
+    const callArgs = generateStructuredCompletionWithRetryMock.mock.calls[0][0];
+    expect(callArgs.schema).toBe(destinoSugestoesSchema);
+    const promptText = JSON.stringify(callArgs.messages);
+    expect(promptText.toLowerCase()).not.toContain("imagem");
   });
 
   it("chama o Gateway de IA com retry (L3-T04) para a etapa destino, com sessionId/stage corretos", async () => {

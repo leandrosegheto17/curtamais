@@ -19,6 +19,13 @@ vi.mock("@/lib/actions/confirmacao-destino", () => ({
   }),
 }));
 
+const findUniqueMock = vi.fn().mockResolvedValue({ userId: "user-1" });
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    tripSession: { findUnique: (...args: unknown[]) => findUniqueMock(...args) },
+  },
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -90,5 +97,71 @@ describe("ConfirmacaoDestinoPage (rota T05, L7-T04, RF-11)", () => {
     );
 
     expect(screen.getByText("Foz do Iguaçu")).toBeInTheDocument();
+  });
+
+  it("V2-L7-T06 (RF-16.6): sessão com conta (`userId` gravado) não mostra o aviso de e-mail", async () => {
+    findUniqueMock.mockResolvedValueOnce({ userId: "user-1" });
+    const ConfirmacaoDestinoPage = (
+      await import("@/app/destino/confirmacao/page")
+    ).default;
+
+    render(
+      await ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({
+          sessionId: "session-1",
+          destino: "Foz do Iguaçu",
+        }),
+      }),
+    );
+
+    expect(
+      screen.queryByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("V2-L7-T06 (RF-16.7, ADR-009): sessão ainda anônima (`userId` nulo) mostra o aviso de e-mail antes do clique", async () => {
+    findUniqueMock.mockResolvedValueOnce({ userId: null });
+    const ConfirmacaoDestinoPage = (
+      await import("@/app/destino/confirmacao/page")
+    ).default;
+
+    render(
+      await ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({
+          sessionId: "session-1",
+          destino: "Foz do Iguaçu",
+        }),
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("V2-L7-T06: `tripSession` inexistente (sessionId inválido) usa o default seguro 'com conta' (sem aviso)", async () => {
+    findUniqueMock.mockResolvedValueOnce(null);
+    const ConfirmacaoDestinoPage = (
+      await import("@/app/destino/confirmacao/page")
+    ).default;
+
+    render(
+      await ConfirmacaoDestinoPage({
+        searchParams: Promise.resolve({
+          sessionId: "session-invalida",
+          destino: "Foz do Iguaçu",
+        }),
+      }),
+    );
+
+    expect(
+      screen.queryByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).not.toBeInTheDocument();
   });
 });

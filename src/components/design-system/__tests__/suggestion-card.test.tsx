@@ -6,8 +6,48 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SuggestionCard } from "@/components/design-system/suggestion-card";
 import { Button } from "@/components/ui/button";
+import type { ImagemResolvida } from "@/lib/catalogo/resolver-imagem";
+import type { DestinoCatalogo } from "@/lib/catalogo/destinos";
 
 afterEach(() => cleanup());
+
+// V2-L2-T05 — fixtures de `ImagemResolvida` (curada/fallback) para os testes
+// de `media`, sem depender do catálogo real (nenhum destino do catálogo tem
+// foto curada ainda, ver V2-L2-T01).
+const destinoFixture: DestinoCatalogo = {
+  slug: "gramado",
+  nome: "Gramado",
+  uf: "RS",
+  rotuloRegiao: "Serra Gaúcha",
+  variantes: [],
+  vitrine: 3,
+  imagem: {
+    arquivo: "/destinos/gramado-v1.jpg",
+    largura: 1600,
+    altura: 1200,
+    autor: "Jane Doe",
+    autorUrl: "https://unsplash.com/@janedoe",
+    fonte: "unsplash",
+    fonteUrl: "https://unsplash.com/photos/abc123",
+    licenca: "Unsplash License",
+    curadaEm: "2026-09-16",
+  },
+};
+
+const imagemCurada: ImagemResolvida = {
+  tipo: "curada",
+  destino: destinoFixture,
+  imagem: destinoFixture.imagem!,
+};
+
+const imagemFallback: ImagemResolvida = {
+  tipo: "fallback",
+  nomeOriginal: "Gramado",
+  corInicio: "#1E3A8A",
+  corFim: "#172554",
+  anguloGraus: 45,
+  inicial: "G",
+};
 
 describe("SuggestionCard", () => {
   it("T04 (destino): título serifado, descrição, PriceRangeBadge e ação única 'Aprovar este destino'", () => {
@@ -151,5 +191,84 @@ describe("SuggestionCard", () => {
     render(<SuggestionCard title="Sem ações ainda" />);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.getByText("Sem ações ainda")).toBeInTheDocument();
+  });
+
+  // V2-L2-T05 — `media`/`eyebrow` (RF-15, UX-SPEC.md §8.2 T04).
+  describe("com `media` (T04)", () => {
+    it("imagem curada: renderiza a foto, o selo 'imagem ilustrativa' e o crédito de autor/fonte (RF-15.5)", () => {
+      render(
+        <SuggestionCard
+          title="Gramado"
+          eyebrow="Combina com o seu período porque…"
+          media={{
+            imagem: imagemCurada,
+            alt: "Imagem ilustrativa de Gramado",
+            showIllustrativeTag: true,
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("img", { name: "Imagem ilustrativa de Gramado" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Imagem ilustrativa")).toBeInTheDocument();
+      expect(
+        screen.getByText("Combina com o seu período porque…"),
+      ).toBeInTheDocument();
+
+      const autorLink = screen.getByRole("link", { name: "Jane Doe" });
+      expect(autorLink).toHaveAttribute(
+        "href",
+        "https://unsplash.com/@janedoe",
+      );
+      const fonteLink = screen.getByRole("link", { name: "Unsplash" });
+      expect(fonteLink).toHaveAttribute(
+        "href",
+        "https://unsplash.com/photos/abc123",
+      );
+    });
+
+    it("fallback: não exibe crédito nem selo 'imagem ilustrativa' — 'porque não é foto' (UX-SPEC §8.2)", () => {
+      render(
+        <SuggestionCard
+          title="Gramado"
+          media={{
+            imagem: imagemFallback,
+            alt: "Imagem ilustrativa de Gramado",
+            showIllustrativeTag: true,
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByTestId("destination-fallback-art"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Imagem ilustrativa")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("nunca usa 'foto do local' no alt (WCAG/RF-15.6)", () => {
+      render(
+        <SuggestionCard
+          title="Gramado"
+          media={{ imagem: imagemCurada, alt: "Imagem ilustrativa de Gramado" }}
+        />,
+      );
+
+      const img = screen.getByRole("img", {
+        name: "Imagem ilustrativa de Gramado",
+      });
+      expect(img.getAttribute("alt")).not.toMatch(/foto do local/i);
+    });
+
+    it("sem `media` (T06/T07): não renderiza `DestinationImage`/crédito, layout inalterado", () => {
+      render(<SuggestionCard title="Pousada Vista Verde" />);
+      expect(
+        screen.queryByTestId("destination-image-frame"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("destination-fallback-art"),
+      ).not.toBeInTheDocument();
+    });
   });
 });

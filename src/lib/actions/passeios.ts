@@ -60,19 +60,41 @@
 // paralela — a remoção client-side em si não é responsabilidade desta Server
 // Action, só a revalidação do que sobra).
 //
-// Autorização de dono de sessão: `applySessionFlowTransition` já aplica o
-// guard internamente (L11-T02, `@/lib/session-flow/authorization.ts`) —
-// cobre `aprovarSelecaoPasseios`/`encerrarResolucaoPasseios` abaixo, ambas
-// delegadas. `gerarSugestoesPasseios` lê `TripSession` diretamente (fora do
-// módulo `session-flow`), então chama `assertSessionOwnership` explicitamente
-// logo após a checagem de existência.
+// V2-L6-T06 (ADR-009 item 2, RF-16.7) — Verificação de conta no servidor:
+// `gerarSugestoesPasseios`/`aprovarSelecaoPasseios` chamam
+// `assertSessionAccess(sessionId, session, { exigeConta: true })`
+// explicitamente (a primeira lê `TripSession` diretamente, fora do módulo
+// `session-flow`; a segunda passou a buscar o registro de posse por conta
+// própria, ANTES de qualquer persistência, já que
+// `applySessionFlowTransition` internamente continua chamando
+// `assertSessionOwnership`/`exigeConta: false` — checagem de POSSE, não de
+// CONTA — ver `@/lib/session-flow/authorization.ts`). Em ambas, uma sessão
+// anônima ainda não vinculada a uma conta lança `ContaNecessariaError`,
+// capturada aqui e convertida num resultado discriminado
+// (`{ status: "conta_necessaria", sessionId }`) — nunca deixada vazar como
+// exceção não tratada (contrato documentado em `ContaNecessariaError`,
+// `authorization.ts`). Em `gerarSugestoesPasseios` essa checagem acontece
+// ANTES de qualquer leitura de `DestinationApproval`/`AccommodationApproval`
+// e, portanto, antes de `generatePasseiosSuggestions` (Gateway de IA) ser
+// chamado — critério de aceite desta tarefa. Casos de sucesso (`status:
+// "ok"`) mantêm exatamente o mesmo payload que as funções já devolviam antes
+// desta tarefa, só envelopado no discriminante.
+//
+// Consumidores destes dois novos formatos de retorno discriminado
+// (`PasseiosSugestoesScreen`/`app/passeios/page.tsx`) ainda não foram
+// adaptados — fora de escopo desta tarefa (BE), é o escopo de V2-L7-T07
+// (FE, já dependente de V2-L6-T05/T06/T07 no TASK.md). Até lá, o
+// type-check desses dois arquivos fica quebrado nesta branch/lote — esperado
+// pela sequência de tarefas documentada, sinalizado aqui para quem revisar o
+// `npx tsc --noEmit` deste lote.
 
 import { prisma } from "@/lib/prisma";
 import { generatePasseiosSuggestions } from "@/lib/stage-rules";
 import type { PasseiosSuggestionResult } from "@/lib/stage-rules";
 import {
   applySessionFlowTransition,
-  assertSessionOwnership,
+  assertSessionAccess,
+  ContaNecessariaError,
   SessionNotFoundError,
 } from "@/lib/session-flow";
 import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
@@ -102,6 +124,17 @@ const MAX_SANE_PRICE_BRL = 1_000_000;
 
 export type { PasseiosSuggestionResult };
 
+/** Resultado discriminado comum aos dois pontos de entrada de T07 que exigem
+ * conta (V2-L6-T06, ADR-009 item 2) — ver nota no cabeçalho do arquivo. */
+export type PasseiosContaNecessariaResult = {
+  status: "conta_necessaria";
+  sessionId: string;
+};
+
+export type GerarSugestoesPasseiosResult =
+  | { status: "ok"; passeios: PasseiosSuggestionResult[] }
+  | PasseiosContaNecessariaResult;
+
 /**
  * RF-07.1/RF-07.2/RF-10 — gera a lista de passeios/atividades para a sessão
  * (delegado a `generatePasseiosSuggestions`, L9-T01). Usada tanto para o
@@ -109,10 +142,14 @@ export type { PasseiosSuggestionResult };
  * decisão das etapas anteriores) — a mesma função, chamada de novo pela UI;
  * nenhuma transição de estado acontece aqui, a sessão permanece em
  * `passeios_pendente`.
+ *
+ * V2-L6-T06 (RF-16.7) — devolve `{ status: "conta_necessaria", sessionId }`
+ * sem chamar `generatePasseiosSuggestions`/Gateway de IA quando a sessão
+ * ainda é anônima (posse confirmada, mas sem conta vinculada).
  */
 export async function gerarSugestoesPasseios(
   sessionId: string,
-): Promise<PasseiosSuggestionResult[]> {
+): Promise<GerarSugestoesPasseiosResult> {
   const session = await prisma.tripSession.findUnique({
     where: { id: sessionId },
     select: {
@@ -130,9 +167,19 @@ export async function gerarSugestoesPasseios(
     throw new SessionNotFoundError(sessionId);
   }
 
-  // L11-T02/ADR-008 — leitura direta de `TripSession` fora do módulo
-  // `session-flow`: guard central chamado explicitamente aqui.
-  await assertSessionOwnership(sessionId, session);
+  // V2-L6-T06/ADR-009 item 2 — leitura direta de `TripSession` fora do
+  // módulo `session-flow`: guard central chamado explicitamente aqui, ANTES
+  // de qualquer chamada ao Gateway de IA. `exigeConta: true` substitui o
+  // antigo `assertSessionOwnership` (que continua existindo só como alias de
+  // `exigeConta: false`, `@/lib/session-flow/authorization.ts`).
+  try {
+    await assertSessionAccess(sessionId, session, { exigeConta: true });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId };
+    }
+    throw error;
+  }
 
   if (session.flowState !== "passeios_pendente") {
     throw new PasseiosEtapaInvalidaError(session.flowState);
@@ -168,7 +215,7 @@ export async function gerarSugestoesPasseios(
 
   const referenceDate = new Date().toISOString().slice(0, 10);
 
-  return generatePasseiosSuggestions({
+  const passeios = await generatePasseiosSuggestions({
     sessionId,
     referenceDate,
     dateRangeStart: session.dateRangeStart.toISOString().slice(0, 10),
@@ -184,18 +231,25 @@ export async function gerarSugestoesPasseios(
       ? { name: accommodation.name, type: accommodation.type }
       : null,
   });
+
+  return { status: "ok", passeios };
 }
 
 /** Mesmo shape de `AprovarSelecaoPasseiosResult` esperado por
- * `PasseiosScreenActions` (`passeios-sugestoes-screen.tsx`, L9-T02). */
-export type AprovarPasseiosResult = {
-  /** RF-07.3 — aprovar passeios sempre avança para roteiro (RF-08). */
-  proximaEtapa: "roteiro";
-  sessionId: string;
-  flowState: "roteiro_pendente";
-  /** Nomes já sanitizados dos itens persistidos, na mesma ordem enviada. */
-  passeios: string[];
-};
+ * `PasseiosScreenActions` (`passeios-sugestoes-screen.tsx`, L9-T02), agora
+ * envelopado em `status: "ok"` (V2-L6-T06) — ver nota no cabeçalho do
+ * arquivo. */
+export type AprovarPasseiosResult =
+  | {
+      status: "ok";
+      /** RF-07.3 — aprovar passeios sempre avança para roteiro (RF-08). */
+      proximaEtapa: "roteiro";
+      sessionId: string;
+      flowState: "roteiro_pendente";
+      /** Nomes já sanitizados dos itens persistidos, na mesma ordem enviada. */
+      passeios: string[];
+    }
+  | PasseiosContaNecessariaResult;
 export type { AprovarPasseiosResult as AprovarSelecaoPasseiosResult };
 
 /** Retorno de `assertValidActivityPayload` — os dois campos de texto já
@@ -295,11 +349,39 @@ function assertValidActivityPayload(
  * Lança `EmptyPasseiosSelectionError` se `selecionados` vier vazio (todos os
  * itens removidos/desmarcados) — guarda server-side equivalente ao botão
  * "Aprovar seleção" ficar indisponível na UI (UX-SPEC.md T07).
+ *
+ * V2-L6-T06 (RF-16.7) — busca o registro de posse (`userId`/`anonSessionId`)
+ * e chama `assertSessionAccess(sessionId, session, { exigeConta: true })`
+ * explicitamente, ANTES de revalidar/persistir qualquer item: devolve
+ * `{ status: "conta_necessaria", sessionId }` sem tocar
+ * `applySessionFlowTransition` quando a sessão ainda é anônima.
+ * `applySessionFlowTransition` continua chamando `assertSessionOwnership`
+ * (`exigeConta: false`) internamente — checagem de POSSE, redundante mas
+ * inofensiva aqui, já que a posse já foi confirmada por este guard explícito
+ * (ver nota no cabeçalho do arquivo).
  */
 export async function aprovarSelecaoPasseios(input: {
   sessionId: string;
   selecionados: PasseiosSuggestionResult[];
 }): Promise<AprovarPasseiosResult> {
+  const session = await prisma.tripSession.findUnique({
+    where: { id: input.sessionId },
+    select: { userId: true, anonSessionId: true },
+  });
+
+  if (!session) {
+    throw new SessionNotFoundError(input.sessionId);
+  }
+
+  try {
+    await assertSessionAccess(input.sessionId, session, { exigeConta: true });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId: input.sessionId };
+    }
+    throw error;
+  }
+
   if (input.selecionados.length === 0) {
     throw new EmptyPasseiosSelectionError();
   }
@@ -331,6 +413,7 @@ export async function aprovarSelecaoPasseios(input: {
   });
 
   return {
+    status: "ok",
     proximaEtapa: "roteiro",
     sessionId: input.sessionId,
     flowState: "roteiro_pendente",

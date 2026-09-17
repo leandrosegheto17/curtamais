@@ -15,7 +15,7 @@
 // - Regra de orçamento (RF-10, L4-T03) — ortogonal, não tratada aqui.
 //
 // L11-T02 (ADR-008 item 4) — Autorização cross-cutting de dono de sessão:
-// `assertSessionOwnership` (`./authorization.ts`) é chamada logo após a
+// `assertSessionAccess` (`./authorization.ts`) é chamada logo após a
 // checagem de existência da sessão, ANTES de qualquer decisão de transição —
 // nenhuma ação (mesmo uma transição estruturalmente válida) é sequer
 // avaliada para uma sessão que não pertence ao solicitante da requisição
@@ -23,20 +23,44 @@
 // inexistente" (nunca um erro 403 dedicado) — ver `./authorization.ts` para
 // o raciocínio completo.
 //
+// V2-L6-T04 (ADR-009 item 1/2) — verificação de conta centralizada AQUI, não
+// em cada Server Action de tela: depois que a transição já foi confirmada
+// estruturalmente válida (passo 3 abaixo), recalcula-se
+// `transicaoExigeConta(currentState, action)` (`./account-gate.ts`) e, se
+// `true`, refaz-se o guard já com `exigeConta: true` — essa segunda chamada
+// reconfirma a posse (idempotente, mesmo resultado da primeira) e lança
+// `ContaNecessariaError` quando a sessão ainda é anônima (ver tabela de 5
+// casos em `./authorization.ts`). A PRIMEIRA chamada ao guard (passo 2)
+// continua com `exigeConta: false` de propósito: computar `exigeConta` de
+// verdade exige chamar `transitionSessionFlow` internamente
+// (`transicaoExigeConta`), o que só é seguro DEPOIS que a posse já foi
+// confirmada — senão um solicitante ilegítimo poderia distinguir
+// "transição estruturalmente inválida" (`InvalidTransitionError`) de "sessão
+// não é sua" (`SessionNotFoundError`) antes de provar posse. Cada Server
+// Action de tela (`V2-L6-T04..T08`) só precisa capturar `ContaNecessariaError`
+// e converter num resultado discriminado (`{ status: "conta_necessaria",
+// sessionId }`) — nenhuma delas passa `exigeConta` para
+// `applySessionFlowTransition` diretamente, o cálculo já acontece aqui para
+// toda ação/etapa, uniformemente.
+//
 // Ordem de validação, sempre ANTES de qualquer escrita (critério de aceite
 // "transição inválida não persiste nada"):
 //   1. `TripSession` existe? (senão `SessionNotFoundError`)
 //   2. Dono da sessão bate com o dono esperado da requisição corrente?
-//      (senão `SessionNotFoundError` — L11-T02, ver acima)
+//      (senão `SessionNotFoundError` — L11-T02, ver acima; `exigeConta: false`
+//      nesta primeira checagem, ver nota V2-L6-T04 acima)
 //   3. `transitionSessionFlow(currentState, action)` decide o próximo estado
 //      ou lança `InvalidTransitionError` (pular etapa, ação inválida no
 //      estado atual, ação a partir de estado terminal).
+//   3b. (V2-L6-T04) A transição confirmada válida exige conta
+//      (`transicaoExigeConta`)? Se sim, refaz o guard com `exigeConta: true`
+//      — lança `ContaNecessariaError` se a sessão ainda é anônima.
 //   4. Se `action === "aprovar"`: o `childData.stage` informado corresponde à
 //      etapa da `TripSession.flowState` atual? Senão `InvalidChildDataError`
 //      (dados ausentes ou de etapa errada).
-//   Só depois desses quatro passos o `tx.tripSession.update` + (quando
-//   aplicável) `tx.<entidadeFilha>.create(...)` acontecem, dentro da MESMA
-//   transação Prisma — qualquer erro lançado antes do fim do callback do
+//   Só depois desses passos o `tx.tripSession.update` + (quando aplicável)
+//   `tx.<entidadeFilha>.create(...)` acontecem, dentro da MESMA transação
+//   Prisma — qualquer erro lançado antes do fim do callback do
 //   `$transaction` garante rollback automático, então nada fica
 //   parcialmente gravado mesmo se alguma checagem viesse depois de alguma
 //   escrita (não vem, mas a transação é a rede de segurança adicional).
@@ -66,9 +90,13 @@ import {
   type SessionFlowState,
 } from "./state-machine";
 import { InvalidChildDataError, SessionNotFoundError } from "./errors";
-import { assertSessionOwnership } from "./authorization";
+import { assertSessionAccess } from "./authorization";
+import { transicaoExigeConta } from "./account-gate";
 
-type PrismaTransactionClient = Omit<
+// Exportado (V2-L7-T02) para que `./link-anonymous-session-to-user.ts` possa
+// tipar o `tx` que abre e repassa a `applySessionFlowTransitionInTx` sem
+// duplicar esta definição.
+export type PrismaTransactionClient = Omit<
   PrismaClient,
   "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
 >;
@@ -185,83 +213,116 @@ export type SessionFlowTransitionResult = {
 export async function applySessionFlowTransition(
   input: SessionFlowTransitionInput,
 ): Promise<SessionFlowTransitionResult> {
-  return prisma.$transaction(async (tx) => {
-    const session = await tx.tripSession.findUnique({
-      where: { id: input.sessionId },
-      select: {
-        flowState: true,
-        status: true,
-        userId: true,
-        anonSessionId: true,
-      },
-    });
-    if (!session) {
-      throw new SessionNotFoundError(input.sessionId);
-    }
+  return prisma.$transaction((tx) =>
+    applySessionFlowTransitionInTx(tx, input),
+  );
+}
 
-    // Passo 2 (L11-T02/ADR-008) — dono da sessão bate com o dono esperado da
-    // requisição corrente? Lança `SessionNotFoundError` (nunca 403) antes de
-    // qualquer decisão de transição/escrita.
-    await assertSessionOwnership(input.sessionId, session);
-
-    const currentState = session.flowState as SessionFlowState;
-
-    // Passo 3 — decisão pura (L4-T01). Lança `InvalidTransitionError` antes
-    // de qualquer escrita para pular etapa/ação inválida/estado terminal.
-    const nextState = transitionSessionFlow(currentState, input.action);
-
-    // Passo 4 — payload da entidade filha, só para `aprovar`.
-    if (input.action === "aprovar") {
-      const expectedStage = APPROVAL_STAGE_BY_PENDING_STATE[currentState];
-      if (!expectedStage || input.childData?.stage !== expectedStage) {
-        throw new InvalidChildDataError(
-          currentState,
-          expectedStage ?? "(nenhuma)",
-          input.childData?.stage,
-        );
-      }
-    }
-
-    // L7-T05 (retomada) — `revisar`: apaga a entidade filha da PRÓPRIA etapa
-    // sendo revisada ANTES de gravar o novo `flowState`, na mesma transação.
-    if (input.action === "revisar") {
-      const stageToDelete = REVISAR_STAGE_BY_APPROVED_STATE[currentState];
-      if (stageToDelete) {
-        await deleteRevisarChildData(tx, input.sessionId, stageToDelete);
-      }
-    }
-
-    // Sincronização de `status` só nos dois terminais (Adendo 1 do ADR-006);
-    // fora deles, `status` permanece como já estava (default `in_progress`,
-    // sem escrita adicional — `abandoned` não é escrito por este módulo).
-    const syncedStatus =
-      nextState === "concluida"
-        ? ("completed" as const)
-        : nextState === "encerrada_parcial"
-          ? ("partial" as const)
-          : undefined;
-
-    await tx.tripSession.update({
-      where: { id: input.sessionId },
-      data: {
-        flowState: nextState,
-        ...(syncedStatus ? { status: syncedStatus } : {}),
-      },
-    });
-
-    // RN-03: `encerrar`/`iniciar`/`ajustar`/`avancar` NUNCA chegam aqui —
-    // apenas `aprovar` cria a entidade filha. Nenhuma entidade filha já
-    // aprovada é tocada por nenhuma outra ação.
-    if (input.action === "aprovar") {
-      await persistApprovedChildData(tx, input.sessionId, input.childData);
-    }
-
-    return {
-      sessionId: input.sessionId,
-      flowState: nextState,
-      status: syncedStatus ?? session.status,
-    };
+/**
+ * V2-L7-T02 (ADR-009 item 3, "`applySessionFlowTransition` ganha uma
+ * variante que recebe o `tx` de fora") — mesma lógica de
+ * `applySessionFlowTransition` acima, mas SEM abrir a própria transação:
+ * recebe um `tx` já aberto pelo chamador, para poder compor a continuação de
+ * transição (`avancar` de `destino_confirmado` → `hospedagem_pendente`) na
+ * MESMA transação Prisma que já fez o `updateMany` condicional do vínculo de
+ * conta (`linkAnonymousSessionToUser`, `./link-anonymous-session-to-user.ts`)
+ * — atomicidade exigida pelo critério de aceite de V2-L7-T02. Único outro
+ * consumidor além de `applySessionFlowTransition` (que abre a própria
+ * transação e delega para cá, acima) é `linkAnonymousSessionToUser`.
+ */
+export async function applySessionFlowTransitionInTx(
+  tx: PrismaTransactionClient,
+  input: SessionFlowTransitionInput,
+): Promise<SessionFlowTransitionResult> {
+  const session = await tx.tripSession.findUnique({
+    where: { id: input.sessionId },
+    select: {
+      flowState: true,
+      status: true,
+      userId: true,
+      anonSessionId: true,
+    },
   });
+  if (!session) {
+    throw new SessionNotFoundError(input.sessionId);
+  }
+
+  // Passo 2 (L11-T02/ADR-008) — dono da sessão bate com o dono esperado da
+  // requisição corrente? Lança `SessionNotFoundError` (nunca 403) antes de
+  // qualquer decisão de transição/escrita. `exigeConta: false` de
+  // propósito nesta primeira checagem — ver nota V2-L6-T04 no cabeçalho do
+  // arquivo sobre por que a checagem real de conta só acontece no passo 3b,
+  // depois que a transição já foi confirmada estruturalmente válida.
+  await assertSessionAccess(input.sessionId, session, { exigeConta: false });
+
+  const currentState = session.flowState as SessionFlowState;
+
+  // Passo 3 — decisão pura (L4-T01). Lança `InvalidTransitionError` antes
+  // de qualquer escrita para pular etapa/ação inválida/estado terminal.
+  const nextState = transitionSessionFlow(currentState, input.action);
+
+  // Passo 3b (V2-L6-T04, ADR-009 item 1/2) — a transição já confirmada
+  // válida exige conta verificada? `transicaoExigeConta` é segura de
+  // chamar aqui (recalcula o mesmo `nextState` internamente, sem lançar,
+  // já que a validade da transição acabou de ser confirmada acima). Só
+  // refaz o guard (com `exigeConta: true`) quando a resposta é `true` —
+  // reconfirma a posse (idempotente) e lança `ContaNecessariaError` quando
+  // a sessão ainda é anônima.
+  if (transicaoExigeConta(currentState, input.action)) {
+    await assertSessionAccess(input.sessionId, session, { exigeConta: true });
+  }
+
+  // Passo 4 — payload da entidade filha, só para `aprovar`.
+  if (input.action === "aprovar") {
+    const expectedStage = APPROVAL_STAGE_BY_PENDING_STATE[currentState];
+    if (!expectedStage || input.childData?.stage !== expectedStage) {
+      throw new InvalidChildDataError(
+        currentState,
+        expectedStage ?? "(nenhuma)",
+        input.childData?.stage,
+      );
+    }
+  }
+
+  // L7-T05 (retomada) — `revisar`: apaga a entidade filha da PRÓPRIA etapa
+  // sendo revisada ANTES de gravar o novo `flowState`, na mesma transação.
+  if (input.action === "revisar") {
+    const stageToDelete = REVISAR_STAGE_BY_APPROVED_STATE[currentState];
+    if (stageToDelete) {
+      await deleteRevisarChildData(tx, input.sessionId, stageToDelete);
+    }
+  }
+
+  // Sincronização de `status` só nos dois terminais (Adendo 1 do ADR-006);
+  // fora deles, `status` permanece como já estava (default `in_progress`,
+  // sem escrita adicional — `abandoned` não é escrito por este módulo).
+  const syncedStatus =
+    nextState === "concluida"
+      ? ("completed" as const)
+      : nextState === "encerrada_parcial"
+        ? ("partial" as const)
+        : undefined;
+
+  await tx.tripSession.update({
+    where: { id: input.sessionId },
+    data: {
+      flowState: nextState,
+      ...(syncedStatus ? { status: syncedStatus } : {}),
+    },
+  });
+
+  // RN-03: `encerrar`/`iniciar`/`ajustar`/`avancar` NUNCA chegam aqui —
+  // apenas `aprovar` cria a entidade filha. Nenhuma entidade filha já
+  // aprovada é tocada por nenhuma outra ação.
+  if (input.action === "aprovar") {
+    await persistApprovedChildData(tx, input.sessionId, input.childData);
+  }
+
+  return {
+    sessionId: input.sessionId,
+    flowState: nextState,
+    status: syncedStatus ?? session.status,
+  };
 }
 
 async function persistApprovedChildData(

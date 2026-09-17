@@ -23,12 +23,22 @@ export {
   SessionNotFoundError,
   InvalidChildDataError,
 } from "./errors";
-export { applySessionFlowTransition } from "./persistence";
+export {
+  applySessionFlowTransition,
+  applySessionFlowTransitionInTx,
+} from "./persistence";
+export type { PrismaTransactionClient } from "./persistence";
 export {
   assertSessionOwnership,
+  assertSessionAccess,
   isSameSessionOwner,
+  resolveSessionAccess,
+  ContaNecessariaError,
 } from "./authorization";
-export type { TripSessionOwnerRecord } from "./authorization";
+export type {
+  TripSessionOwnerRecord,
+  SessionAccessDecision,
+} from "./authorization";
 export type {
   SessionFlowTransitionInput,
   SessionFlowTransitionResult,
@@ -41,6 +51,7 @@ export type {
   ApproveItineraryItemInput,
 } from "./persistence";
 export { applyBudgetFilter } from "./budget-filter";
+export { transicaoExigeConta } from "./account-gate";
 export type {
   PriceRangedSuggestion,
   BudgetInput,
@@ -52,3 +63,9 @@ export type {
   CreateSessionWithDateRangeResult,
   SessionOwner,
 } from "./create-session-with-range";
+export { rotaDaEtapa } from "./rota-da-etapa";
+export { linkAnonymousSessionToUser } from "./link-anonymous-session-to-user";
+export type {
+  LinkAnonymousSessionToUserInput,
+  LinkAnonymousSessionToUserResult,
+} from "./link-anonymous-session-to-user";

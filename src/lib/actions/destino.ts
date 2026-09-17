@@ -214,6 +214,13 @@ export async function aprovarDestinoSugerido(input: {
   const name = input.suggestion.name.trim();
   const justification = input.suggestion.justification.trim();
 
+  // V2-L2-T04 (RF-15/ADR-010) — `input.suggestion.imagem` é
+  // `ImagemResolvida`, deliberadamente OMITIDO abaixo: `childData` é montado
+  // campo a campo (nunca `...input.suggestion`) precisamente para garantir
+  // que nenhum campo de apresentação vaze para `DestinationApproval`. Não
+  // depende do Prisma ignorar campo desconhecido — o objeto passado a
+  // `applySessionFlowTransition` simplesmente não tem `imagem`. Ver teste
+  // "não persiste o campo imagem" em `destino.test.ts`.
   await applySessionFlowTransition({
     sessionId: input.sessionId,
     action: "aprovar",

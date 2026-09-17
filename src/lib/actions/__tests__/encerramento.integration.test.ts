@@ -153,6 +153,9 @@ describe("obterResumoEncerramento — integração real com Postgres (L12-T04)",
     expect(resumo.hospedagem).toBeNull();
     expect(resumo.passeios).toBeNull();
     expect(resumo.roteiroAprovado).toBe(false);
+    // V2-L7-T09/RNF-11 — sessão anônima (sem vínculo de conta) nunca deve
+    // ser reportada como "com conta" para a tela T-END.
+    expect(resumo.temConta).toBe(false);
   });
 
   it("resumo completo: destino + hospedagem + passeios + roteiro aprovado", async () => {
@@ -171,6 +174,33 @@ describe("obterResumoEncerramento — integração real com Postgres (L12-T04)",
       { name: "Mirante gratuito", free: true },
     ]);
     expect(resumo.roteiroAprovado).toBe(true);
+    // Este fixture não vincula conta (`vincularConta`) à sessão — mesmo
+    // roteiro completo, `temConta` reflete só `TripSession.userId`.
+    expect(resumo.temConta).toBe(false);
+  });
+
+  it("resumo com conta vinculada: temConta=true", async () => {
+    const session = await createSessionWithDestinoAprovado();
+    sessionIds.push(session.id);
+
+    const user = await prisma.user.create({
+      data: {
+        email: `t09-${session.id}@example.com`,
+        passwordHash: "hash",
+        privacyConsentAt: new Date(),
+        privacyConsentVersion: "v1",
+      },
+    });
+    await prisma.tripSession.update({
+      where: { id: session.id },
+      data: { userId: user.id },
+    });
+
+    const resumo = await obterResumoEncerramento(session.id);
+
+    expect(resumo.temConta).toBe(true);
+
+    await prisma.user.delete({ where: { id: user.id } });
   });
 
   it("identidade que não é dona da sessão recebe SessionNotFoundError (404, nunca 403)", async () => {

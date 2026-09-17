@@ -31,13 +31,16 @@ vi.mock("@/components/encerramento/encerramento-screen", () => ({
   EncerramentoScreen: ({
     flowState,
     resumo,
+    temConta,
   }: {
     flowState: string;
     resumo: { destino?: { name: string } | null };
+    temConta: boolean;
   }) => (
     <div data-testid="encerramento-screen">
       <span data-testid="flow-state">{flowState}</span>
       <span data-testid="resumo-destino">{resumo.destino?.name ?? ""}</span>
+      <span data-testid="tem-conta">{String(temConta)}</span>
     </div>
   ),
 }));
@@ -47,6 +50,7 @@ const RESUMO_MOCK = {
   hospedagem: null,
   passeios: null,
   roteiroAprovado: false,
+  temConta: true,
 };
 
 afterEach(() => {
@@ -72,6 +76,27 @@ describe("EncerramentoPage (rota T-END, L12-T05)", () => {
     expect(obterResumoEncerramentoMock).toHaveBeenCalledWith("session-1");
     expect(screen.getByTestId("flow-state")).toHaveTextContent("concluida");
     expect(screen.getByTestId("resumo-destino")).toHaveTextContent("Gramado");
+    expect(screen.getByTestId("tem-conta")).toHaveTextContent("true");
+  });
+
+  it("V2-L7-T09/RNF-11: propaga temConta=false (sessão sem conta) para EncerramentoScreen", async () => {
+    obterResumoEncerramentoMock.mockResolvedValueOnce({
+      ...RESUMO_MOCK,
+      temConta: false,
+    });
+    const EncerramentoPage = (await import("@/app/encerramento/page"))
+      .default;
+
+    render(
+      await EncerramentoPage({
+        searchParams: Promise.resolve({
+          sessionId: "session-1",
+          flowState: "encerrada_parcial",
+        }),
+      }),
+    );
+
+    expect(screen.getByTestId("tem-conta")).toHaveTextContent("false");
   });
 
   it("renderiza EncerramentoScreen com o resumo para flowState=encerrada_parcial", async () => {

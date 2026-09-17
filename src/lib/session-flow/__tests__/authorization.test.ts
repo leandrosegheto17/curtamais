@@ -11,11 +11,25 @@
 //   dedicado, nunca vazando se a sessão existe;
 // - registro sem nenhum dono gravado (edge case defensivo, ex.: dado legado
 //   pré-L11-T02a) é sempre negado, mesmo com um dono esperado válido.
-import { afterEach, describe, expect, it, vi } from "vitest";
+//
+// V2-L6-T03 — acrescenta, no mesmo arquivo, os testes de
+// `assertSessionAccess`/`resolveSessionAccess` (ADR-009 item 2, tabela de 5
+// casos) e confirma que `assertSessionOwnership` (agora um alias de
+// `assertSessionAccess(..., { exigeConta: false })`) continua se comportando
+// EXATAMENTE como antes para os ~10 chamadores existentes — nenhum teste
+// pré-existente acima muda de expectativa. `@/lib/prisma` passa a ser
+// mockado aqui porque `assertSessionOwnership`/`assertSessionAccess` agora
+// resolvem a identidade via `resolveRequestIdentity` (V2-L6-T02), que
+// confirma a existência do `User` com `prisma.user.findUnique` antes de
+// devolver um `userId` (ADR-009, Consequências, último parágrafo) — sem este
+// mock, qualquer teste com sessão NextAuth autenticada bateria no Prisma
+// real.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getServerSessionMock = vi.fn();
 const cookieGetMock = vi.fn();
 const cookieSetMock = vi.fn();
+const userFindUniqueMock = vi.fn();
 
 vi.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => getServerSessionMock(...args),
@@ -27,9 +41,32 @@ vi.mock("next/headers", () => ({
     set: (...args: unknown[]) => cookieSetMock(...args),
   }),
 }));
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: {
+      findUnique: (...args: unknown[]) => userFindUniqueMock(...args),
+    },
+  },
+}));
 
 import { SessionNotFoundError } from "../errors";
-import { assertSessionOwnership, isSameSessionOwner } from "../authorization";
+import {
+  assertSessionOwnership,
+  assertSessionAccess,
+  isSameSessionOwner,
+  resolveSessionAccess,
+  ContaNecessariaError,
+} from "../authorization";
+
+// Por padrão, todo usuário autenticado mockado "existe" no banco — só os
+// testes específicos de "conta excluída mas JWT ainda válido" (fora do
+// escopo desta tarefa, já cobertos em `resolve-request-identity.test.ts`)
+// precisariam sobrescrever isso para `null`.
+beforeEach(() => {
+  userFindUniqueMock.mockImplementation(({ where }: { where: { id: string } }) =>
+    Promise.resolve({ id: where.id }),
+  );
+});
 
 // `resolveSessionOwner` valida o formato UUID do cookie anônimo
 // (`resolveAnonymousSessionId`, `@/lib/anonymous-session`) — valores fora
@@ -188,5 +225,223 @@ describe("assertSessionOwnership (guard central, resolve + compara + lança)", (
     await expect(
       assertSessionOwnership("session-inexistente", null),
     ).rejects.toBeInstanceOf(SessionNotFoundError);
+  });
+});
+
+// V2-L6-T03 — `resolveSessionAccess` (comparação pura, ADR-009 item 2)
+describe("resolveSessionAccess (comparação pura, ADR-009 item 2, tabela de 5 casos)", () => {
+  const U = "user-dono";
+  const OUTRO_U = "user-intruso";
+  const A = "anon-dono";
+  const OUTRO_A = "anon-intruso";
+
+  it("linha 1 — userId = U, identidade userId = U: granted, com e sem exigeConta", () => {
+    const record = { userId: U, anonSessionId: null };
+    expect(resolveSessionAccess(record, { userId: U, anonSessionId: null }, false)).toBe(
+      "granted",
+    );
+    expect(resolveSessionAccess(record, { userId: U, anonSessionId: null }, true)).toBe(
+      "granted",
+    );
+    // "identidade userId = U" cobre também quem ainda carrega o cookie
+    // anônimo de antes do vínculo — irrelevante para esta linha.
+    expect(
+      resolveSessionAccess(record, { userId: U, anonSessionId: A }, true),
+    ).toBe("granted");
+  });
+
+  it("linha 2 — userId = U, identidade é qualquer outra (inclusive o mesmo cookie de antes do vínculo): 404 (denied), com e sem exigeConta", () => {
+    const record = { userId: U, anonSessionId: null };
+    // outra conta autenticada
+    expect(
+      resolveSessionAccess(record, { userId: OUTRO_U, anonSessionId: null }, false),
+    ).toBe("denied");
+    expect(
+      resolveSessionAccess(record, { userId: OUTRO_U, anonSessionId: null }, true),
+    ).toBe("denied");
+    // anônimo (sem conta) tentando acessar sessão já vinculada
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: A }, false),
+    ).toBe("denied");
+    // "o mesmo cookie de antes do vínculo": anon_session_id do registro já
+    // foi zerado no vínculo (ADR-009 item 3), então nenhum cookie o
+    // reencontra mais — mesmo o cookie histórico de quem virou dono.
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: "cookie-historico" }, false),
+    ).toBe("denied");
+  });
+
+  it("linha 3 — anonSessionId = A, cookie A (com ou sem conta autenticada): granted se exigeConta=false, conta_necessaria se exigeConta=true", () => {
+    const record = { userId: null, anonSessionId: A };
+    // sem conta autenticada
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: A }, false),
+    ).toBe("granted");
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: A }, true),
+    ).toBe("conta_necessaria");
+    // COM conta autenticada, mas ainda não vinculou esta sessão (mesmo
+    // cookie) — mesmo resultado: posse é pelo cookie, não pela conta.
+    expect(
+      resolveSessionAccess(record, { userId: U, anonSessionId: A }, false),
+    ).toBe("granted");
+    expect(
+      resolveSessionAccess(record, { userId: U, anonSessionId: A }, true),
+    ).toBe("conta_necessaria");
+  });
+
+  it("linha 4 — anonSessionId = A, cookie diferente de A: 404 (denied), com e sem exigeConta", () => {
+    const record = { userId: null, anonSessionId: A };
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: OUTRO_A }, false),
+    ).toBe("denied");
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: OUTRO_A }, true),
+    ).toBe("denied");
+    // sem cookie nenhum
+    expect(
+      resolveSessionAccess(record, { userId: null, anonSessionId: null }, true),
+    ).toBe("denied");
+  });
+
+  it("linha 5 — nenhum dos dois gravado (inclusive record nulo/indefinido): 404 (denied), com e sem exigeConta, qualquer identidade", () => {
+    const record = { userId: null, anonSessionId: null };
+    expect(
+      resolveSessionAccess(record, { userId: U, anonSessionId: A }, false),
+    ).toBe("denied");
+    expect(
+      resolveSessionAccess(record, { userId: U, anonSessionId: A }, true),
+    ).toBe("denied");
+    expect(resolveSessionAccess(null, { userId: U, anonSessionId: A }, true)).toBe(
+      "denied",
+    );
+    expect(
+      resolveSessionAccess(undefined, { userId: null, anonSessionId: A }, false),
+    ).toBe("denied");
+  });
+
+  it("ordem: posse negada com exigeConta=true continua denied, NUNCA conta_necessaria", () => {
+    // Linha 4 com exigeConta: true — cookie não confere, então a checagem
+    // de conta nem chega a ser avaliada.
+    expect(
+      resolveSessionAccess(
+        { userId: null, anonSessionId: "anon-dono" },
+        { userId: null, anonSessionId: "anon-intruso" },
+        true,
+      ),
+    ).toBe("denied");
+    // Linha 2 com exigeConta: true — dono é outra conta.
+    expect(
+      resolveSessionAccess(
+        { userId: "user-dono", anonSessionId: null },
+        { userId: "user-intruso", anonSessionId: null },
+        true,
+      ),
+    ).toBe("denied");
+  });
+});
+
+// V2-L6-T03 — `assertSessionAccess` (guard central com I/O mockado)
+describe("assertSessionAccess (guard central, resolve identidade + compara + lança)", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("dono anônimo (cookie confere), exigeConta: false: autoriza sem lançar", async () => {
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_DONO });
+
+    await expect(
+      assertSessionAccess(
+        "session-1",
+        { userId: null, anonSessionId: ANON_DONO },
+        { exigeConta: false },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("dono anônimo (cookie confere), exigeConta: true: lança ContaNecessariaError (não SessionNotFoundError)", async () => {
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_DONO });
+
+    const error = await assertSessionAccess(
+      "session-1",
+      { userId: null, anonSessionId: ANON_DONO },
+      { exigeConta: true },
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ContaNecessariaError);
+    expect((error as ContaNecessariaError).sessionId).toBe("session-1");
+  });
+
+  it("dono anônimo AUTENTICADO (conta logada, mas ainda com o cookie da sessão anônima): continua acessando a própria sessão anônima pelo cookie — compatibilidade pós-login", async () => {
+    getServerSessionMock.mockResolvedValue({ user: { id: "user-recem-logado" } });
+    cookieGetMock.mockReturnValue({ value: ANON_DONO });
+
+    await expect(
+      assertSessionAccess(
+        "session-1",
+        { userId: null, anonSessionId: ANON_DONO },
+        { exigeConta: false },
+      ),
+    ).resolves.toBeUndefined();
+
+    // Mas a mesma sessão, numa transição que exige conta, ainda pede o
+    // vínculo explícito (V2-L7-T02) — a autenticação sozinha não basta.
+    await expect(
+      assertSessionAccess(
+        "session-1",
+        { userId: null, anonSessionId: ANON_DONO },
+        { exigeConta: true },
+      ),
+    ).rejects.toBeInstanceOf(ContaNecessariaError);
+  });
+
+  it("ordem — posse negada com exigeConta: true ainda lança SessionNotFoundError (404), nunca ContaNecessariaError", async () => {
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_INTRUSO });
+
+    const error = await assertSessionAccess(
+      "session-1",
+      { userId: null, anonSessionId: ANON_DONO },
+      { exigeConta: true },
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(SessionNotFoundError);
+    expect(error).not.toBeInstanceOf(ContaNecessariaError);
+  });
+
+  it("negação de posse (userId de outra conta) nunca vira 403 nem ContaNecessariaError, mesmo com exigeConta: true", async () => {
+    getServerSessionMock.mockResolvedValue({ user: { id: "user-intruso" } });
+
+    const error = await assertSessionAccess(
+      "session-1",
+      { userId: "user-dono", anonSessionId: null },
+      { exigeConta: true },
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(SessionNotFoundError);
+    expect((error as Error).name).toBe("SessionNotFoundError");
+  });
+});
+
+// V2-L6-T03 — o alias precisa se comportar de forma IDÊNTICA ao
+// `assertSessionOwnership` original: mesmo shape de chamada, mesma reação,
+// nunca lança `ContaNecessariaError` (fixo em `exigeConta: false`).
+describe("assertSessionOwnership como alias de assertSessionAccess(..., { exigeConta: false })", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("nunca lança ContaNecessariaError, mesmo quando a mesma sessão exigiria conta via assertSessionAccess", async () => {
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: ANON_DONO });
+
+    await expect(
+      assertSessionOwnership("session-1", {
+        userId: null,
+        anonSessionId: ANON_DONO,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

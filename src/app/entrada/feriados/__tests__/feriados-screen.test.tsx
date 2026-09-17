@@ -149,6 +149,112 @@ describe("FeriadosScreen (T02, L6-T04)", () => {
     ).toHaveFocus();
   });
 
+  describe("pré-seleção via ?feriado= (V2-L5-T02, UX-SPEC §8, RF-18.3)", () => {
+    const feriados: FeriadoProlongado[] = [
+      buildFeriado({
+        name: "Tiradentes",
+        date: new Date(Date.UTC(2026, 3, 21)),
+        label: "Ter 21/04, sem emenda (1 dia)",
+      }),
+      buildFeriado({
+        name: "Corpus Christi",
+        date: new Date(Date.UTC(2026, 5, 12)),
+        label: "Qui 12/06 → estende até Dom 15/06, 4 dias",
+      }),
+    ];
+
+    it("com data válida e correspondente, pré-seleciona o item e anuncia via aria-live", () => {
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="2026-06-12" />,
+      );
+
+      const preselected = screen.getByRole("radio", {
+        name: /Corpus Christi/,
+      });
+      expect(preselected).toBeChecked();
+      expect(
+        screen.getByRole("radio", { name: /Tiradentes/ }),
+      ).not.toBeChecked();
+
+      expect(
+        screen.getByText(
+          "Feriado selecionado: Corpus Christi, Qui 12/06 → estende até Dom 15/06, 4 dias.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("rola até o item pré-selecionado", () => {
+      const scrollIntoViewMock = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoViewMock;
+
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="2026-06-12" />,
+      );
+
+      expect(scrollIntoViewMock).toHaveBeenCalled();
+    });
+
+    it("com data ausente, nenhum item vem selecionado e não há erro visível", () => {
+      render(<FeriadosScreen feriados={feriados} />);
+
+      expect(
+        screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked),
+      ).toBe(true);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("com data em formato inválido, nenhum item vem selecionado e não há erro visível", () => {
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="12/06/2026" />,
+      );
+
+      expect(
+        screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked),
+      ).toBe(true);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("com data válida mas sem feriado correspondente na lista, nenhum item vem selecionado e não há erro visível", () => {
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="2026-12-25" />,
+      );
+
+      expect(
+        screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked),
+      ).toBe(true);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("avanço continua exigindo clique explícito no botão Continuar (INT-10) mesmo com pré-seleção", () => {
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="2026-06-12" />,
+      );
+
+      expect(pushMock).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("button", { name: "Continuar" }),
+      ).toBeEnabled();
+    });
+
+    it("usuário pode trocar a pré-seleção clicando em outro feriado", async () => {
+      const user = userEvent.setup();
+      render(
+        <FeriadosScreen feriados={feriados} initialFeriadoDate="2026-06-12" />,
+      );
+
+      const preselected = screen.getByRole("radio", {
+        name: /Corpus Christi/,
+      });
+      const other = screen.getByRole("radio", { name: /Tiradentes/ });
+      expect(preselected).toBeChecked();
+
+      await user.click(other);
+
+      expect(other).toBeChecked();
+      expect(preselected).not.toBeChecked();
+    });
+  });
+
   describe("botão Continuar (RL6-T03, Bloqueio 006)", () => {
     const feriados: FeriadoProlongado[] = [
       buildFeriado({

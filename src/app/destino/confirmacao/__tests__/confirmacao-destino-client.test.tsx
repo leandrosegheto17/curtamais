@@ -85,6 +85,91 @@ describe("ConfirmacaoDestinoClient (T05, L7-T04, RF-11)", () => {
     expect(trocarDestinoMock).not.toHaveBeenCalled();
   });
 
+  it("V2-L7-T06 (RF-16.7, ADR-009): sem conta, confirmarDestino devolve `conta_necessaria` e a tela navega para T-GATE (/cadastro) preservando sessionId, sem tentar /hospedagem", async () => {
+    confirmarDestinoMock.mockResolvedValue({
+      status: "conta_necessaria",
+      sessionId: "session-1",
+    });
+    const user = userEvent.setup();
+
+    const { ConfirmacaoDestinoClient } = await import(
+      "@/app/destino/confirmacao/confirmacao-destino-client"
+    );
+
+    render(
+      <ConfirmacaoDestinoClient
+        sessionId="session-1"
+        destino="Foz do Iguaçu"
+        currentState="destino_confirmado"
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar e continuar" }),
+    );
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1");
+    });
+    expect(pushMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/hospedagem"),
+    );
+  });
+
+  it("V2-L7-T06 (RF-16.6): com conta, confirmarDestino resolve normalmente e a tela segue direto para /hospedagem (comportamento inalterado)", async () => {
+    confirmarDestinoMock.mockResolvedValue({
+      proximaEtapa: "hospedagem",
+      sessionId: "session-1",
+      flowState: "hospedagem_pendente",
+    });
+    const user = userEvent.setup();
+
+    const { ConfirmacaoDestinoClient } = await import(
+      "@/app/destino/confirmacao/confirmacao-destino-client"
+    );
+
+    render(
+      <ConfirmacaoDestinoClient
+        sessionId="session-1"
+        destino="Foz do Iguaçu"
+        currentState="destino_confirmado"
+        temConta={true}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar e continuar" }),
+    );
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith(
+        "/hospedagem?sessionId=session-1&flowState=hospedagem_pendente",
+      );
+    });
+  });
+
+  it("V2-L7-T06: `temConta={false}` mostra o aviso de e-mail antes do clique em 'Confirmar e continuar'", async () => {
+    const { ConfirmacaoDestinoClient } = await import(
+      "@/app/destino/confirmacao/confirmacao-destino-client"
+    );
+
+    render(
+      <ConfirmacaoDestinoClient
+        sessionId="session-1"
+        destino="Foz do Iguaçu"
+        currentState="destino_confirmado"
+        temConta={false}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).toBeInTheDocument();
+    expect(confirmarDestinoMock).not.toHaveBeenCalled();
+  });
+
   it("falha em confirmarDestino não navega para /hospedagem (RL7-T01)", async () => {
     confirmarDestinoMock.mockRejectedValue(new Error("falhou"));
     const user = userEvent.setup();

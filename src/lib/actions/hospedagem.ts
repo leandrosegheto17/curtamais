@@ -61,17 +61,37 @@
 //
 // Autorização de dono de sessão: `applySessionFlowTransition` já aplica o
 // guard internamente (L11-T02, `@/lib/session-flow/authorization.ts`) —
-// cobre `aprovarHospedagem`/`encerrarResolucaoHospedagem` abaixo, ambas
-// delegadas. `gerarSugestoesHospedagem` lê `TripSession` diretamente (fora do
-// módulo `session-flow`), então chama `assertSessionOwnership` explicitamente
-// logo após a checagem de existência.
+// cobre `encerrarResolucaoHospedagem` abaixo, delegada sem checagem própria
+// adicional (a ação `encerrar` nunca exige conta, ADR-009 item 1/RN-12).
+// `gerarSugestoesHospedagem` lê `TripSession` diretamente (fora do módulo
+// `session-flow`), então chama `assertSessionAccess` explicitamente logo
+// após a checagem de existência.
+//
+// V2-L6-T05 (ADR-009 item 2, "Onde o guard com exigeConta é chamado") —
+// `gerarSugestoesHospedagem`/`aprovarHospedagem` passam a chamar
+// `assertSessionAccess(sessionId, record, { exigeConta: true })` (nunca mais
+// `assertSessionOwnership`, que é `exigeConta: false` fixo): toda a etapa de
+// hospedagem é pós-destino (RF-16.7), então exige conta para QUALQUER
+// solicitante ainda anônimo. Em `gerarSugestoesHospedagem` a checagem
+// acontece ANTES de qualquer leitura de `DestinationApproval`/montagem de
+// `StageContext`/chamada a `generateAccommodationSuggestions` (que é quem
+// chama o Gateway de IA) — a recusa nunca tem custo de IA. Em
+// `aprovarHospedagem` a checagem acontece antes de qualquer chamada a
+// `applySessionFlowTransition` (mesmo padrão, "antes de montar/enviar
+// qualquer coisa"), via um `findUnique` próprio (`aprovarHospedagem` não lia
+// `TripSession` diretamente antes desta tarefa). `ContaNecessariaError` é
+// capturada nos dois casos e convertida no resultado discriminado
+// `{ status: "conta_necessaria"; sessionId }` (ADR-009 item 2, "Contrato com
+// o cliente") — nunca deixada vazar como exceção de Server Action. As telas
+// que tratam esse resultado são escopo de `V2-L7-T07` (fora desta tarefa).
 
 import { prisma } from "@/lib/prisma";
 import { generateAccommodationSuggestions } from "@/lib/stage-rules";
 import type { AccommodationSuggestionResult } from "@/lib/stage-rules";
 import {
   applySessionFlowTransition,
-  assertSessionOwnership,
+  assertSessionAccess,
+  ContaNecessariaError,
   SessionNotFoundError,
 } from "@/lib/session-flow";
 import { sanitizeFreeTextForPrompt } from "@/lib/gateway-ia/prompt-injection-guard";
@@ -118,6 +138,19 @@ const MAX_SANE_PRICE_BRL = 1_000_000;
 export type { AccommodationSuggestionResult };
 
 /**
+ * V2-L6-T05 (ADR-009 item 2) — resultado discriminado devolvido por
+ * `gerarSugestoesHospedagem`/`aprovarHospedagem` quando a posse da sessão já
+ * foi confirmada (o solicitante é o dono anônimo) mas a etapa exige conta e o
+ * solicitante ainda não tem uma. Nunca lançado como exceção — ver
+ * `ContaNecessariaError` (`@/lib/session-flow`) e o "Contrato com o cliente"
+ * do ADR-009.
+ */
+export type ContaNecessariaResult = {
+  status: "conta_necessaria";
+  sessionId: string;
+};
+
+/**
  * RF-06.1/RF-06.2/RF-10 — gera exatamente 3 opções de hospedagem para a
  * sessão (delegado a `generateAccommodationSuggestions`, L8-T01). Usada tanto
  * para o carregamento inicial de T06 quanto para "Ajustar" (RF-05.3) — a
@@ -132,11 +165,16 @@ export type { AccommodationSuggestionResult };
  * mesmo padrão já usado por `informarDestinoManualmente` (`destino.ts`).
  * `undefined`/vazio após sanitização: nenhum feedback é repassado (mesmo
  * comportamento de antes desta tarefa).
+ *
+ * V2-L6-T05 — devolve `{ status: "conta_necessaria"; sessionId }` (sem
+ * chamar o Gateway de IA) quando o solicitante é o dono anônimo confirmado
+ * mas ainda não tem conta (RF-16.7). A checagem acontece ANTES de qualquer
+ * leitura de `DestinationApproval`/montagem de prompt.
  */
 export async function gerarSugestoesHospedagem(
   sessionId: string,
   feedback?: string,
-): Promise<AccommodationSuggestionResult[]> {
+): Promise<AccommodationSuggestionResult[] | ContaNecessariaResult> {
   const session = await prisma.tripSession.findUnique({
     where: { id: sessionId },
     select: {
@@ -154,9 +192,18 @@ export async function gerarSugestoesHospedagem(
     throw new SessionNotFoundError(sessionId);
   }
 
-  // L11-T02/ADR-008 — leitura direta de `TripSession` fora do módulo
-  // `session-flow`: guard central chamado explicitamente aqui.
-  await assertSessionOwnership(sessionId, session);
+  // V2-L6-T05/ADR-009 item 2 — leitura direta de `TripSession` fora do
+  // módulo `session-flow`: guard central chamado explicitamente aqui, ANTES
+  // de qualquer outra validação/chamada ao Gateway de IA. `exigeConta: true`
+  // porque hospedagem é pós-destino (RF-16.7).
+  try {
+    await assertSessionAccess(sessionId, session, { exigeConta: true });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId };
+    }
+    throw error;
+  }
 
   if (session.flowState !== "hospedagem_pendente") {
     throw new HospedagemEtapaInvalidaError(session.flowState);
@@ -202,13 +249,15 @@ export async function gerarSugestoesHospedagem(
   });
 }
 
-export type AprovarHospedagemResult = {
-  /** RF-06.3 — aprovar hospedagem sempre avança para passeios (RF-07). */
-  proximaEtapa: "passeios";
-  sessionId: string;
-  flowState: "passeios_pendente";
-  hospedagem: string;
-};
+export type AprovarHospedagemResult =
+  | {
+      /** RF-06.3 — aprovar hospedagem sempre avança para passeios (RF-07). */
+      proximaEtapa: "passeios";
+      sessionId: string;
+      flowState: "passeios_pendente";
+      hospedagem: string;
+    }
+  | ContaNecessariaResult;
 
 /** Retorno de `assertValidAccommodationPayload` — os três campos de texto já
  * sanitizados (RL8-T02) e prontos para persistir/retornar; nunca os valores
@@ -306,11 +355,40 @@ function assertValidAccommodationPayload(
  * não há uma Server Action de "confirmar" separada para hospedagem (diferente
  * de destino/T05). Nunca confia cegamente no payload recebido do cliente —
  * revalidado antes de persistir (Diretriz de Implementação 9).
+ *
+ * V2-L6-T05 — mesmo padrão de `gerarSugestoesHospedagem` acima: guard de
+ * conta chamado primeiro (antes de revalidar o payload ou de qualquer
+ * `applySessionFlowTransition`), devolvendo `{ status: "conta_necessaria";
+ * sessionId }` sem persistir nada quando a posse é do dono anônimo
+ * confirmado mas a conta ainda falta. `applySessionFlowTransition` faz sua
+ * própria checagem de posse internamente (`exigeConta: false`, alias de
+ * `assertSessionOwnership`), redundante mas inofensiva aqui — a posse já foi
+ * confirmada por este `assertSessionAccess` explícito.
  */
 export async function aprovarHospedagem(input: {
   sessionId: string;
   suggestion: AccommodationSuggestionResult;
 }): Promise<AprovarHospedagemResult> {
+  const session = await prisma.tripSession.findUnique({
+    where: { id: input.sessionId },
+    select: { userId: true, anonSessionId: true },
+  });
+
+  if (!session) {
+    throw new SessionNotFoundError(input.sessionId);
+  }
+
+  try {
+    await assertSessionAccess(input.sessionId, session, {
+      exigeConta: true,
+    });
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return { status: "conta_necessaria", sessionId: input.sessionId };
+    }
+    throw error;
+  }
+
   const { name, type, distinctiveFeature } = assertValidAccommodationPayload(
     input.suggestion,
   );

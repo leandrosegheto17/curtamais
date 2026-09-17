@@ -18,6 +18,21 @@
 // mockados (mesmo padrão de `data-livre.integration.test.ts`, L11-T02a),
 // simulando por padrão o mesmo solicitante anônimo (`ANON_ID`) dono de toda
 // sessão criada por `createSessionAtDestinoConfirmado`.
+//
+// V2-L6-T04 (ADR-009 item 1/2, RF-16.7) — `confirmarDestino` (ação
+// `avancar`, `destino_confirmado` → `hospedagem_pendente`) agora exige conta
+// verificada (o estado de chegada `hospedagem_pendente` é "pós-destino",
+// `transicaoExigeConta` sempre `true` para essa transição). Por isso:
+// - `createSessionAtDestinoConfirmado` passou a aceitar um `owner` explícito
+//   (mesmo padrão de `mockOwner`/mesma convenção de
+//   `create-session-with-range.integration.test.ts`, L6-T03/L6-T05): sessão
+//   "com conta" (`userId`, sem `anonSessionId`) para o teste de sucesso de
+//   `confirmarDestino`, e sessão anônima (`anonSessionId`, sem `userId`)
+//   para o teste novo "sem conta" abaixo.
+// - `trocarDestino` (ação `revisar`, `destino_confirmado` → `destino_pendente`)
+//   nunca exige conta (nem o estado de origem nem o de destino são
+//   "pós-destino") — seus testes continuam usando sessão anônima, sem
+//   alteração de comportamento.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { applySessionFlowTransition } from "@/lib/session-flow";
@@ -53,12 +68,40 @@ beforeEach(() => {
   cookieGetMock.mockReturnValue({ value: ANON_ID });
 });
 
-async function createSessionAtDestinoConfirmado() {
+/** Mesma convenção de `account-deletion.integration.test.ts` (L11-T01). */
+async function createUser() {
+  return prisma.user.create({
+    data: { email: `executor-v2l6t04-${Date.now()}-${Math.random()}@example.com` },
+  });
+}
+
+type SessionOwnerInput =
+  | { type: "user"; userId: string }
+  | { type: "anonymous"; anonSessionId: string };
+
+/**
+ * Alinha o mock de identidade (`resolveRequestIdentity`) com o `owner` que o
+ * teste vai usar para criar a `TripSession` — mesma convenção de `mockOwner`
+ * em `create-session-with-range.integration.test.ts` (L6-T03/L6-T05).
+ */
+function mockOwner(owner: SessionOwnerInput) {
+  if (owner.type === "user") {
+    getServerSessionMock.mockResolvedValue({ user: { id: owner.userId } });
+  } else {
+    getServerSessionMock.mockResolvedValue(null);
+    cookieGetMock.mockReturnValue({ value: owner.anonSessionId });
+  }
+}
+
+async function createSessionAtDestinoConfirmado(owner: SessionOwnerInput) {
+  mockOwner(owner);
   const session = await prisma.tripSession.create({
     data: {
       entryPath: "data_livre",
       dateRangeEnd: new Date("2026-12-20"),
-      anonSessionId: ANON_ID,
+      ...(owner.type === "user"
+        ? { userId: owner.userId }
+        : { anonSessionId: owner.anonSessionId }),
     },
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
@@ -85,12 +128,21 @@ describe("confirmarDestino — integração real com Postgres (L7-T05)", () => {
     await prisma.$disconnect();
   });
 
-  it("confirmar avança de destino_confirmado para hospedagem_pendente (RF-11, critério de aceite)", async () => {
-    const session = await createSessionAtDestinoConfirmado();
+  it("com conta: confirmar avança de destino_confirmado para hospedagem_pendente (RF-11, critério de aceite)", async () => {
+    const user = await createUser();
+    const session = await createSessionAtDestinoConfirmado({
+      type: "user",
+      userId: user.id,
+    });
     sessionIds.push(session.id);
 
     const result = await confirmarDestino({ sessionId: session.id });
 
+    if (!("proximaEtapa" in result)) {
+      throw new Error(
+        `Esperava avançar para hospedagem, recebeu resultado discriminado: ${JSON.stringify(result)}`,
+      );
+    }
     expect(result.proximaEtapa).toBe("hospedagem");
     expect(result.flowState).toBe("hospedagem_pendente");
     expect(result.sessionId).toBe(session.id);
@@ -102,6 +154,35 @@ describe("confirmarDestino — integração real com Postgres (L7-T05)", () => {
     expect(stored.status).toBe("in_progress");
 
     // RN-03/DestinationApproval já aprovado permanece intocado por "avancar".
+    const destination = await prisma.destinationApproval.findUniqueOrThrow({
+      where: { sessionId: session.id },
+    });
+    expect(destination.name).toBe("Foz do Iguaçu");
+  });
+
+  it("sem conta: confirmar devolve conta_necessaria e mantém a sessão em destino_confirmado (RF-16.7, ADR-009, critério de aceite V2-L6-T04)", async () => {
+    const session = await createSessionAtDestinoConfirmado({
+      type: "anonymous",
+      anonSessionId: ANON_ID,
+    });
+    sessionIds.push(session.id);
+
+    const result = await confirmarDestino({ sessionId: session.id });
+
+    expect(result).toEqual({
+      status: "conta_necessaria",
+      sessionId: session.id,
+    });
+
+    // Sessão permanece em destino_confirmado — nenhuma escrita de transição
+    // aconteceu (rollback da transação Prisma ao lançar ContaNecessariaError).
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("destino_confirmado");
+    expect(stored.status).toBe("in_progress");
+
+    // A DestinationApproval já gravada anteriormente não é desfeita.
     const destination = await prisma.destinationApproval.findUniqueOrThrow({
       where: { sessionId: session.id },
     });
@@ -141,7 +222,10 @@ describe("trocarDestino — integração real com Postgres (L7-T05, retomada)", 
   });
 
   it("trocar volta de destino_confirmado para destino_pendente e apaga a DestinationApproval (RF-11, critério de aceite)", async () => {
-    const session = await createSessionAtDestinoConfirmado();
+    const session = await createSessionAtDestinoConfirmado({
+      type: "anonymous",
+      anonSessionId: ANON_ID,
+    });
     sessionIds.push(session.id);
 
     const result = await trocarDestino({ sessionId: session.id });

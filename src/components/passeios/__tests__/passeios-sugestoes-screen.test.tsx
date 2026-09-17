@@ -43,14 +43,21 @@ const item = (
 });
 
 function renderScreen(overrides: Partial<PasseiosScreenActions> = {}) {
-  const gerarSugestoesPasseios = vi
-    .fn()
-    .mockResolvedValue([
+  // V2-L6-T06 (fix-loop): `gerarSugestoesPasseios`/`aprovarSelecaoPasseios`
+  // reais devolvem um resultado discriminado (`status: "ok" |
+  // "conta_necessaria"`, ADR-009 item 2) — os dublês abaixo simulam o
+  // caminho "com conta" (`status: "ok"`), que é o único coberto por este
+  // arquivo (o branch `conta_necessaria` é escopo de `V2-L7-T07`).
+  const gerarSugestoesPasseios = vi.fn().mockResolvedValue({
+    status: "ok" as const,
+    passeios: [
       item({ name: "Trilha da Cachoeira" }),
       item({ name: "Museu Municipal", priceMin: 0, priceMax: 0, isFree: true }),
       item({ name: "Passeio de Barco", priceMin: 120, priceMax: 150 }),
-    ]);
+    ],
+  });
   const aprovarSelecaoPasseios = vi.fn().mockResolvedValue({
+    status: "ok" as const,
     proximaEtapa: "roteiro" as const,
     sessionId: "session-1",
     flowState: "roteiro_pendente" as const,
@@ -106,9 +113,10 @@ describe("PasseiosSugestoesScreen — estado Sucesso", () => {
 
   it("exibe BudgetInsufficientBanner quando algum item excede o orçamento (RF-10.2/RN-04)", async () => {
     renderScreen({
-      gerarSugestoesPasseios: vi
-        .fn()
-        .mockResolvedValue([item({ exceedsBudget: true })]),
+      gerarSugestoesPasseios: vi.fn().mockResolvedValue({
+        status: "ok" as const,
+        passeios: [item({ exceedsBudget: true })],
+      }),
     });
 
     await screen.findByText("Trilha da Cachoeira");
@@ -160,7 +168,9 @@ describe("PasseiosSugestoesScreen — estado Sucesso", () => {
   it("critério de aceite: 'Aprovar seleção' desabilita com mensagem explicativa quando todos os itens são removidos, mas 'encerrar aqui' continua disponível", async () => {
     const user = userEvent.setup();
     renderScreen({
-      gerarSugestoesPasseios: vi.fn().mockResolvedValue([item()]),
+      gerarSugestoesPasseios: vi
+        .fn()
+        .mockResolvedValue({ status: "ok" as const, passeios: [item()] }),
     });
 
     await screen.findByText("Trilha da Cachoeira");
@@ -185,7 +195,9 @@ describe("PasseiosSugestoesScreen — estado Sucesso", () => {
   it("critério de aceite: desmarcar todos os checkboxes também desabilita 'Aprovar seleção' com a mesma mensagem", async () => {
     const user = userEvent.setup();
     renderScreen({
-      gerarSugestoesPasseios: vi.fn().mockResolvedValue([item()]),
+      gerarSugestoesPasseios: vi
+        .fn()
+        .mockResolvedValue({ status: "ok" as const, passeios: [item()] }),
     });
 
     await screen.findByText("Trilha da Cachoeira");
@@ -270,12 +282,48 @@ describe("PasseiosSugestoesScreen — estado Sucesso", () => {
   });
 });
 
+describe("PasseiosSugestoesScreen — conta_necessaria (V2-L7-T07/RF-16.9)", () => {
+  it("carregamento inicial: acesso direto por URL/sessão anônima antiga navega para T-GATE preservando sessionId", async () => {
+    renderScreen({
+      gerarSugestoesPasseios: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+  });
+
+  it("aprovar seleção recebendo conta_necessaria navega para T-GATE em vez de mostrar o rodapé de continuar/encerrar", async () => {
+    const user = userEvent.setup();
+    const actions = renderScreen({
+      aprovarSelecaoPasseios: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await screen.findByText("Trilha da Cachoeira");
+    await user.click(screen.getByRole("button", { name: "Aprovar seleção" }));
+
+    await waitFor(() =>
+      expect(actions.aprovarSelecaoPasseios).toHaveBeenCalled(),
+    );
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Continuar para roteiro" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("PasseiosSugestoesScreen — estado Erro", () => {
   it("mostra ErrorRetryState após falha da Server Action e permite tentar novamente", async () => {
     const gerarSugestoesPasseios = vi
       .fn()
       .mockRejectedValueOnce(new Error("falha simulada"))
-      .mockResolvedValueOnce([item()]);
+      .mockResolvedValueOnce({ status: "ok" as const, passeios: [item()] });
 
     const user = userEvent.setup();
     renderScreen({ gerarSugestoesPasseios });

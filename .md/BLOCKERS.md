@@ -795,6 +795,62 @@ qualquer nova tentativa de promoção a staging.
   a remoção). Pendência remanescente: confirmação real via deploy
   bem-sucedido (sugestão (a)), condicionada à resolução do Bloqueio 008.
 
+## Bloqueio 010 — 2026-09-16
+
+- Reportado por: executor (chapéu BE, tarefa V2-L3-T01)
+- Escalado para: usuário/dono do produto (não o coordenador — não é decisão
+  técnica de arquitetura/contrato, é revisão de conteúdo editorial, mesma
+  natureza já prevista em `.md/TASK.md` Seção 5, linha sobre V2-L3-T01, e
+  Seção 6, "Decisão de fronteira: roteiro de exemplo tem uma etapa humana
+  dentro da tarefa")
+- Artefato/trecho afetado: `src/content/roteiro-exemplo.ts` (gerado por
+  `scripts/exportar-roteiro-exemplo.ts`) vs. `.md/adr/
+  011-home-vitrine-estatica-e-conteudo-congelado.md` (item 4: "o conteúdo é
+  revisado por uma pessoa... e congelado por commit") e `.md/TASK.md`
+  (V2-L3-T01, critério de aceite: "conteúdo revisado pelo dono antes do
+  commit")
+- Descrição: a peça técnica de `V2-L3-T01` está pronta e testada — script
+  (`scripts/exportar-roteiro-exemplo.ts`) capaz de ler uma `TripSession`
+  real concluída via Prisma e gerar `src/content/roteiro-exemplo.ts`
+  tipado com `Omit<RoteiroDayResult, "date"> & { dayLabel: string }`/
+  `RoteiroItemResult` (reaproveitados de `src/lib/stage-rules/roteiro.ts`,
+  não duplicados), com dias rotulados "Dia N — {dia da semana}" sem data de
+  calendário. Mas o conteúdo atualmente em `src/content/roteiro-exemplo.ts`
+  foi gerado em **modo fixture**: `npx prisma db pull --print` contra a
+  `DATABASE_URL` local deste ambiente falha com `P1001 — Can't reach
+  database server at localhost:55432` (confirmado antes de escrever o
+  script) e não há `OPENAI_API_KEY` disponível para rodar o fluxo real
+  ponta a ponta aqui — logo o conteúdo (Gramado, 3 dias, nomes de hospedagem/
+  passeios, faixas de preço) foi escrito à mão por este Executor,
+  estruturalmente representativo de uma saída real do fluxo, mas nunca
+  produzido por uma execução real do Gateway de IA nem revisado por uma
+  pessoa, como o critério de aceite e o ADR-011 exigem antes do commit
+  definitivo.
+- Impacto se não resolvido: `V2-L3-T02` (rota `/roteiro-exemplo`) e
+  `V2-L4-T05` (prévia do Dia 1 na home) dependem diretamente de
+  `V2-L3-T01` e usam o mesmo arquivo — iniciá-las contra o conteúdo em modo
+  fixture, sem revisão, arriscaria publicar preço fora de faixa real,
+  afirmação factual duvidosa sobre um estabelecimento específico, ou tom de
+  voz fora do glossário (UX-SPEC.md §8.8) em algo versionado e "congelado"
+  por design (ADR-011: "não existe caminho de geração em produção" — trocar
+  depois exige rodar o script de novo e um novo commit, não é hot-fix
+  trivial).
+- Sugestão (opcional, do executor): duas opções, não decididas aqui — (a) o
+  dono revisa e ajusta diretamente `src/content/roteiro-exemplo.ts` (nomes/
+  preços/tom de voz) e confirma que pode ser tratado como definitivo; ou (b)
+  alguém com acesso a `OPENAI_API_KEY`/Postgres real roda o fluxo real de
+  ponta a ponta (T01→T08) para Gramado, 3 dias, depois
+  `npm run export:roteiro-exemplo -- --session-id <uuid>` para substituir o
+  fixture por conteúdo de fato gerado pelo fluxo, e só então o dono revisa
+  esse conteúdo. Em ambos os casos, o passo final continua sendo humano: um
+  commit do dono confirmando a revisão, que é quando `V2-L3-T01` pode virar
+  `Concluída`.
+- Severidade: não bloqueia nenhum outro lote em paralelo (`V2-L2`, `V2-L5`,
+  `V2-L6`, `V2-L7`, `V2-L8` seguem sem dependência deste conteúdo) — bloqueia
+  só `V2-L3-T02` e `V2-L4-T05`, que não devem iniciar implementação antes
+  desta revisão.
+- Status: Aberto
+
 ## Nota de escopo — o que a L4-T01 implementou apesar do bloqueio
 
 Para não parar o lote inteiro sem necessidade, a L4-T01 foi implementada
@@ -806,3 +862,169 @@ nenhuma decisão sobre o Bloqueio 001, porque não toca o schema. O Bloqueio
 que é quem precisa da decisão do Coordenador antes de começar — ver nota de
 implementação L4-T01 em `.md/TASK.md` para o detalhamento completo do que foi
 entregue.
+
+## Bloqueio 011 — 2026-09-16
+
+- Reportado por: executor (chapéu BE, tarefa V2-L6-T07)
+- Escalado para: orquestrador/usuário (incidente de infraestrutura de
+  execução paralela, não decisão técnica de arquitetura/contrato — nenhum
+  `coordenador` resolve isto, é o próprio mecanismo de disparar várias
+  instâncias do Executor em paralelo na MESMA árvore de trabalho que
+  precisa de ajuste)
+- Artefato/trecho afetado: árvore de trabalho git inteira, em especial
+  `src/lib/session-flow/authorization.ts`, `src/lib/session-flow/index.ts` e
+  `.md/TASK.md` — arquivos COMPARTILHADOS entre instâncias paralelas do
+  Executor (guard central usado por `V2-L6-T04..T08`, e o próprio arquivo de
+  status que toda instância edita ao concluir).
+- Descrição: no meio da execução de `V2-L6-T07` (este agente), a leitura
+  inicial de `src/lib/session-flow/authorization.ts` mostrou a implementação
+  completa de `V2-L6-T03` (`assertSessionAccess`, `ContaNecessariaError`,
+  `resolveSessionAccess`, já marcada `Concluída` no `TASK.md` com nota de
+  implementação e 26 testes passando). Minutos depois, no meio desta mesma
+  tarefa, `npx tsc --noEmit` passou a reportar `Module "@/lib/session-flow"
+  has no exported member 'assertSessionAccess'`/`'ContaNecessariaError'` — a
+  releitura direta do arquivo confirmou que ele **voltou à versão anterior a
+  V2-L6-T03** (só `assertSessionOwnership`/`isSameSessionOwner`, sem o guard
+  novo), e `git status`/`git stash list` confirmaram a causa: existe um
+  `stash@{0}: WIP on main: 2e9d569 ...` criado por outro processo durante a
+  execução paralela deste lote, que moveu para a stash TODO o trabalho não
+  commitado da árvore no momento em que rodou — inclusive, aparentemente, as
+  mudanças de `V2-L6-T03` em `authorization.ts`/`index.ts`. Ao mesmo tempo,
+  instâncias paralelas de `V2-L6-T04` (`confirmacao-destino.ts`) e `V2-L6-T06`
+  (`passeios.ts`) seguiam gravando no disco depois desse stash (timestamps de
+  `git status`/`stat` mostram edição ativa em `passeios.ts`/`hospedagem.ts` no
+  mesmo minuto em que rodei `tsc`), then `src/lib/session-flow/persistence.ts`
+  também aparece modificado (fora do escopo de qualquer tarefa individual
+  T04-T08 na tabela do `TASK.md`) — sinal de que pelo menos uma instância
+  paralela decidiu, por conta própria, migrar `applySessionFlowTransition`
+  para aceitar `exigeConta` internamente (lido literalmente do ADR-009, "As
+  leituras... `applySessionFlowTransition` usa `exigeConta =
+  transicaoExigeConta(...)`"), tocando um arquivo compartilhado que nenhuma
+  tarefa da Seção 3 atribui explicitamente a si.
+- Impacto se não resolvido: qualquer instância de `V2-L6-T04..T08` que rode
+  `tsc`/`vitest` agora vê erros de compilação por causa de um arquivo que
+  não é seu (dependência `V2-L6-T03`, já `Concluída`, sumiu do disco); um
+  `git stash pop` feito sem coordenação por qualquer uma das instâncias em
+  paralelo, enquanto as outras ainda escrevem nos mesmos arquivos, arrisca
+  um merge silenciosamente errado (sem conflito reportado, mas com uma das
+  duas versões concorrentes sobrescrita) — pior que um conflito de merge
+  visível, porque não pára ninguém para revisar.
+- Sugestão (opcional, do executor): nenhuma instância de Executor deveria
+  rodar `git stash`/`git checkout -- <arquivo>`/`git reset` durante uma
+  rodada paralela do mesmo lote — se alguma automação externa ao papel do
+  Executor fez isso (ex.: um passo do orquestrador entre rodadas), ela
+  precisa esperar todas as instâncias da rodada corrente terminarem e
+  devolverem controle antes de tocar a árvore de trabalho. Recomendo ao
+  orquestrador: (a) confirmar com as instâncias de `V2-L6-T03/T04/T05/T06`
+  se seu trabalho está intacto no disco ou só na stash; (b) só então um único
+  processo (não um Executor em paralelo) roda `git stash show -p` para
+  inspecionar o conteúdo antes de decidir `pop`/`drop`; (c) considerar, para
+  rodadas futuras com Executor em paralelo (arquitetura de 4 agentes,
+  parágrafo de abertura do papel Executor), isolar cada instância num
+  worktree/clone próprio em vez de compartilhar a mesma árvore de trabalho,
+  já que arquivos como `session-flow/authorization.ts`,
+  `session-flow/persistence.ts` e `.md/TASK.md` são tocados por múltiplas
+  tarefas do mesmo lote por natureza (guard central + arquivo de status).
+- Estado desta tarefa (V2-L6-T07) no momento do bloqueio: código de
+  `src/lib/actions/roteiro.ts` e testes (`roteiro.integration.test.ts`
+  ajustado, `roteiro.test.ts` novo) **já implementados e salvos em disco**
+  (não perdidos — confirmado via `git status`/`git diff`), seguindo à risca
+  o critério de aceite (guard `assertSessionAccess`/`exigeConta: true`
+  chamado ANTES de qualquer leitura de contexto/Gateway de IA em
+  `gerarRoteiro`, e antes de `applySessionFlowTransition` em
+  `aprovarRoteiro`; `ContaNecessariaError` capturada e convertida em
+  `{status: "conta_necessaria", sessionId}`; nunca vaza como exceção). Só
+  não foi possível confirmar `npx tsc --noEmit`/`npx vitest run` limpos
+  porque a dependência (`assertSessionAccess`/`ContaNecessariaError` em
+  `@/lib/session-flow`) está temporariamente ausente do disco por este
+  incidente — não por um defeito da implementação desta tarefa.
+- Atualização (2026-09-16, mesmo dia, Executor/BE V2-L6-T07): a dependência
+  (`src/lib/session-flow/authorization.ts`/`index.ts`) reapareceu no disco
+  com a implementação completa de `V2-L6-T03` (recuperada por fora desta
+  instância — não sei se por `git stash pop` de outro processo ou por a
+  instância original de `V2-L6-T03` ter regravado o arquivo; não investiguei
+  além de confirmar o conteúdo atual). `V2-L6-T07` reconfirmou
+  `tsc`/`eslint`/`vitest` limpos e voltou a `Concluída` no `TASK.md` — o
+  efeito CONCRETO deste bloqueio sobre `V2-L6-T07` está resolvido. Mantenho
+  `Status: Aberto` porque a causa raiz (um `git stash` de origem não
+  identificada rodando durante uma rodada paralela de Executor, sobre uma
+  árvore de trabalho compartilhada) não foi endereçada — recomendo ao
+  orquestrador confirmar com as demais instâncias desta rodada (`V2-L6-T04`,
+  `T05`, `T06`) que seu próprio trabalho não foi afetado antes de considerar
+  o incidente encerrado, e avaliar a recomendação de isolamento de árvore de
+  trabalho (worktree/clone por instância) para rodadas futuras com Executor
+  em paralelo.
+- Status: Aberto (efeito sobre V2-L6-T07 resolvido; causa raiz/impacto sobre
+  outras instâncias da mesma rodada ainda não confirmado)
+- Atualização (2026-09-16, Executor/BE V2-L6-T05): confirmando a causa raiz —
+  fui eu (instância `V2-L6-T05`) quem rodou `git stash` (sem pathspec, árvore
+  inteira) no meio desta tarefa, ao investigar um erro de `tsc` que na hora
+  pareceu vir de código meu; o `git stash pop` seguinte falhou com "local
+  changes to `src/lib/session-flow/persistence.ts` would be overwritten by
+  merge" porque outra instância já tinha escrito nesse arquivo depois do meu
+  stash, e o pop abortou por inteiro sem aplicar nada (nenhum merge
+  silencioso aconteceu — o próprio Git recusou). Recuperei restaurando, um
+  arquivo por vez, via `git checkout stash@{0} -- <arquivo>` (nunca `pop`
+  nem `apply` da stash inteira), pulando deliberadamente todo arquivo que já
+  estava com edição em andamento no disco no momento da recuperação
+  (`src/lib/session-flow/persistence.ts`, `src/lib/actions/roteiro.ts`,
+  `src/lib/actions/passeios.ts`, `src/lib/actions/confirmacao-destino.ts`,
+  `src/app/api/gateway-ia/[etapa]/route.ts` + teste — território de
+  `V2-L6-T04/T06/T07/T08`) para não sobrescrever trabalho concorrente mais
+  novo com a versão mais antiga capturada na stash. `src/lib/actions/
+  hospedagem.ts` (meu próprio arquivo) e `.md/TASK.md`/`.md/BLOCKERS.md`
+  (arquivos compartilhados de status) foram restaurados da stash sem
+  conflito aparente — `git status` depois da recuperação não mostra nenhum
+  arquivo perdido além dos que eu soube que precisavam ficar com a versão em
+  disco (não a da stash). A stash (`stash@{0}`) permanece intacta (não
+  apaguei/dropei) como rede de segurança para o orquestrador inspecionar,
+  caso alguma outra instância identifique uma perda que eu não tenha visto.
+  Meu próprio trabalho (`hospedagem.ts`, teste de integração,
+  `hospedagem-sugestoes-screen.tsx`) está confirmado intacto no disco:
+  `tsc`/`eslint`/`vitest` (os que não dependem de Postgres) rodaram limpos
+  depois da recuperação. Concordo com a recomendação de isolar cada instância
+  de Executor num worktree/clone próprio em rodadas paralelas futuras — devia
+  ter percebido, antes de rodar `git stash`, que a árvore de trabalho é
+  compartilhada entre instâncias concorrentes, e não deveria ter rodado um
+  comando git de escopo "árvore inteira" numa tarefa isolada. Peço ao
+  orquestrador confirmar com `V2-L6-T04`/`T06`/`T08` (e qualquer outra tarefa
+  em andamento na mesma rodada) que nada foi perdido antes de encerrar este
+  bloqueio.
+- Fechamento (2026-09-16, Validador, checagem estrutural do lote V2-L6):
+  causa raiz identificada e confirmada por 4 fontes independentes agora —
+  (1) a própria instância `V2-L6-T05` que rodou o `git stash`, com relato
+  detalhado de como recuperou arquivo por arquivo via `git checkout
+  stash@{0} -- <arquivo>` (nunca `pop`/`apply` da stash inteira), pulando
+  deliberadamente todo arquivo com edição concorrente em andamento; (2) a
+  instância `V2-L6-T07`, que confirmou a reaparição do conteúdo completo de
+  `V2-L6-T03` no disco e revalidou `tsc`/`eslint`/`vitest` limpos; (3) o
+  orquestrador, que verificou pós-incidente `git stash list` (stash intacta,
+  não descartada), `git status` (todos os arquivos esperados presentes) e a
+  Seção 3 do `TASK.md` (9 linhas `V2-L6-T01..T09` `Concluída`, sem
+  duplicação/corrupção); (4) esta validação (Validador, chapéu
+  QA+DevSecOps), que leu o código final de `authorization.ts`/
+  `persistence.ts`/`account-gate.ts`/`resolve-request-identity.ts`/
+  `confirmacao-destino.ts`/`hospedagem.ts`/`passeios.ts`/`roteiro.ts` e
+  confirmou, por leitura direta (não pela nota do Executor), que a
+  implementação bate com o ADR-009 item 2 célula a célula, e rodou
+  `tsc --noEmit`/`npm run lint`/`vitest run` de forma independente, sem
+  erro novo. A stash (`stash@{0}`) permanece intacta no repositório como
+  registro histórico — não foi dropada por esta validação, decisão
+  deliberada de não mexer na árvore de trabalho durante uma checagem
+  read-only.
+  - Decisão: fechar formalmente este bloqueio como **incidente de
+    processo/tooling resolvido**, não como achado técnico de código —
+    nenhuma perda de dados confirmada por 4 fontes independentes, nenhum
+    arquivo do lote V2-L6 ficou com conteúdo divergente do esperado. A
+    causa raiz (comando `git stash` de escopo "árvore inteira" rodado por
+    uma instância de Executor durante execução paralela sobre árvore de
+    trabalho compartilhada) e a recomendação de mitigação (isolar cada
+    instância de Executor em worktree/clone próprio em rodadas futuras com
+    paralelismo real) ficam registradas aqui como lição aprendida para o
+    orquestrador aplicar na próxima rodada com paralelismo — não é uma
+    decisão que o Validador tenha autoridade/necessidade de redesenhar
+    agora (não há redesenho de dependência/decomposição envolvido, só
+    prática operacional de execução), por isso fecha sem escalar ao
+    `coordenador`.
+- Status: **Fechado** (2026-09-16, Validador — checagem estrutural do lote
+  V2-L6, ver `.md/TASK.md` bloco `#### V2-L6`).

@@ -99,6 +99,15 @@ model User {
   image         String?
   passwordHash  String?   @map("password_hash")
 
+  // ADR-012 (RNF-13): consentimento LGPD no cadastro. Nullable porque contas
+  // de teste já existentes não têm consentimento (o produto nunca foi ao
+  // ar); preenchimento é obrigatório na aplicação para toda conta nova
+  // (`criarConta`, `src/lib/actions/conta.ts`). `privacyConsentAt` também
+  // serve de data de cadastro na leitura manual da métrica "cadastros
+  // pós-destino" (`PRD.md`, Métricas do V2), já que `User` não tem `createdAt`.
+  privacyConsentAt      DateTime? @map("privacy_consent_at")
+  privacyConsentVersion String?   @map("privacy_consent_version")
+
   accounts Account[]
   sessions Session[]
 
@@ -167,6 +176,13 @@ model TripSession {
   // tempo de compilação pelo tipo discriminado `SessionOwner`.
   anonSessionId String? @map("anon_session_id")
 
+  // ADR-009: quando a sessão anônima virou da conta (vínculo pós-destino).
+  // Nullable — sessões criadas já com conta, ou ainda não vinculadas, não
+  // têm esta data. Permite ler à mão as métricas "cadastro pós-destino" e
+  // "conclusão pós-cadastro" (`PRD.md`, Métricas do V2) sem instrumentação
+  // nova.
+  linkedAt DateTime? @map("linked_at")
+
   entryPath TripEntryPath @map("entry_path")
 
   // Nullable até RF-04 resolver o destino (SDD.md Seção 5, literal).
@@ -191,6 +207,9 @@ model TripSession {
   itineraryItems         ItineraryItem[]
   llmGenerationLogs      LlmGenerationLog[]
 
+  // "Meus roteiros" (V2-L8-T01): busca por userId ordenada por updatedAt
+  // desc (SDD.md §8.5).
+  @@index([userId, updatedAt])
   @@map("trip_sessions")
 }
 

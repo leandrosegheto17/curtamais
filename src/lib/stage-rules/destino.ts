@@ -35,6 +35,14 @@ import {
 import type { StageContext } from "@/lib/gateway-ia";
 import { applyBudgetFilter } from "@/lib/session-flow";
 import type { BudgetInput, PriceRangedSuggestion } from "@/lib/session-flow";
+// V2-L2-T04 (RF-15/RN-10/ADR-010) — resolução de imagem por destino é
+// estritamente PÓS-processamento da resposta do Gateway de IA: nunca entra no
+// prompt (`buildDestinoPrompt`) nem no schema Zod (`destinoSugestoesSchema`)
+// acima, ambos inalterados por esta tarefa. `resolverImagemDestino` é pura
+// (sem Prisma/gateway-ia/Next.js, ver cabeçalho de `resolver-imagem.ts`), daí
+// poder ser chamada aqui sem acoplar esta regra a mais nada.
+import { resolverImagemDestino } from "@/lib/catalogo/resolver-imagem";
+import type { ImagemResolvida } from "@/lib/catalogo/resolver-imagem";
 
 /**
  * Contexto necessário para gerar sugestões de destino (RF-04.1) — subconjunto
@@ -73,6 +81,15 @@ export type DestinationSuggestionResult = {
   withinBudget: boolean;
   /** `true` apenas na sugestão mais barata quando NENHUMA sugestão cabe no orçamento (RF-10.2) — ver `applyBudgetFilter`. */
   exceedsBudget: boolean;
+  /**
+   * V2-L2-T04 (RF-15/RN-10/ADR-010) — imagem de apresentação resolvida via
+   * `resolverImagemDestino(name)` DEPOIS da resposta do LLM já validada pelo
+   * schema Zod acima. Campo só de apresentação: nunca persistido em
+   * `DestinationApproval` (ver `aprovarDestinoSugerido`,
+   * `src/lib/actions/destino.ts`, que monta `childData` campo a campo e não
+   * inclui `imagem`).
+   */
+  imagem: ImagemResolvida;
 };
 
 /**
@@ -129,5 +146,7 @@ export async function generateDestinationSuggestions(
     priceRangeMax: suggestion.precoMax,
     withinBudget,
     exceedsBudget,
+    // V2-L2-T04: pós-processamento, fora do prompt/schema Zod acima.
+    imagem: resolverImagemDestino(suggestion.nome),
   }));
 }

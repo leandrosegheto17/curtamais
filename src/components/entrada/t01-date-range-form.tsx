@@ -29,6 +29,22 @@
 // data inicial.". Erro conectado ao campo via `aria-describedby` (UX-SPEC
 // Seção 5: "mensagem de erro conectada via aria-describedby") e comunicado
 // também por ícone + texto (nunca só cor, UX-SPEC Seção 5).
+//
+// V2-L5-T01 (RF-13, UX-SPEC.md §8.2 T01) — `destinoInicial` é o valor
+// resolvido a partir de `?destino={slug}` pela Server Component pai
+// (`src/app/entrada/data-livre/page.tsx`, que resolve o slug contra
+// `CATALOGO_DESTINOS`) e só chega até aqui já como "{Nome}, {UF}" pronto
+// para exibição — este componente não conhece o catálogo nem slugs, só
+// recebe uma string pronta e a usa como valor inicial (editável) do campo
+// "Destino". A linha de contexto ("Ótima escolha. Agora me diga quando você
+// pode ir.") só aparece quando a tela chegou com `destinoInicial` E o campo
+// ainda não foi esvaziado pelo usuário — soma-se quando ele apaga o destino
+// (UX-SPEC.md §8.2: "se o usuário apagar o destino, a linha de contexto
+// some"). `arrivedWithDestinoInicial` é derivado da prop na primeira
+// renderização e nunca muda depois (a prop não varia depois do mount, pois
+// vem de um Server Component que só renderiza uma vez por navegação), por
+// isso não precisa de `useEffect`/sincronização — só a leitura direta da
+// prop já é estável o bastante.
 "use client";
 
 import { useId, useState, type FormEvent } from "react";
@@ -63,6 +79,13 @@ export interface T01DateRangeFormProps {
    */
   isPending?: boolean;
   className?: string;
+  /**
+   * V2-L5-T01 (RF-13) — valor inicial do campo "Destino", já resolvido como
+   * "{Nome}, {UF}" pela rota pai a partir de `?destino={slug}`. Continua
+   * editável pelo usuário. `undefined`/ausente = comportamento idêntico ao
+   * MVP (campo vazio, sem linha de contexto).
+   */
+  destinoInicial?: string;
 }
 
 /**
@@ -74,13 +97,18 @@ export function T01DateRangeForm({
   onValid,
   isPending = false,
   className,
+  destinoInicial,
 }: T01DateRangeFormProps) {
   const [dataInicial, setDataInicial] = useState("");
   const [dataFinal, setDataFinal] = useState("");
-  const [destino, setDestino] = useState("");
+  const [destino, setDestino] = useState(destinoInicial ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const dataFinalErrorId = useId();
+  // Derivado da prop na primeira renderização — nunca reavaliado depois
+  // (ver comentário V2-L5-T01 acima da interface de props).
+  const [arrivedWithDestinoInicial] = useState(Boolean(destinoInicial));
+  const showContextLine = arrivedWithDestinoInicial && destino.trim().length > 0;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,14 +124,20 @@ export function T01DateRangeForm({
   }
 
   return (
-    <form
-      noValidate
-      onSubmit={handleSubmit}
-      className={cn(
-        "flex w-full max-w-md flex-col gap-4 md:mx-auto",
-        className,
-      )}
-    >
+    <>
+      {showContextLine ? (
+        <p className="w-full max-w-md text-sm text-foreground-muted md:mx-auto">
+          Ótima escolha. Agora me diga quando você pode ir.
+        </p>
+      ) : null}
+      <form
+        noValidate
+        onSubmit={handleSubmit}
+        className={cn(
+          "flex w-full max-w-md flex-col gap-4 md:mx-auto",
+          className,
+        )}
+      >
       <div className="flex flex-col gap-1.5">
         <label htmlFor="data-inicial" className="text-sm font-medium text-foreground">
           Data inicial
@@ -172,6 +206,7 @@ export function T01DateRangeForm({
       >
         {isPending ? "Enviando..." : "Continuar"}
       </Button>
-    </form>
+      </form>
+    </>
   );
 }

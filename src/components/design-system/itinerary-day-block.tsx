@@ -49,9 +49,31 @@ export interface ItineraryDayBlockProps {
   morning: ItineraryDayBlockItem[];
   afternoon: ItineraryDayBlockItem[];
   evening: ItineraryDayBlockItem[];
-  /** Estado do acordeão em mobile (UX-SPEC §6) — ignorado (sempre expandido) em telas >= md via CSS. */
-  expanded: boolean;
-  onToggle: () => void;
+  /**
+   * Estado do acordeão em mobile (UX-SPEC §6) — ignorado (sempre expandido)
+   * em telas >= md via CSS. Opcional/ignorado quando `readOnly` (V2-L8-T05):
+   * em modo leitura não há acordeão, o conteúdo fica sempre visível.
+   */
+  expanded?: boolean;
+  /** Opcional quando `readOnly` (V2-L8-T05) — não há cabeçalho clicável em modo leitura. */
+  onToggle?: () => void;
+  /**
+   * V2-L8-T05 (UX-SPEC.md §8.3, "A `ItineraryDayBlock`: prop `readOnly`") —
+   * modo de leitura usado por T-MEUS-DET (roteiro salvo, RF-17.5): sem ações,
+   * sem acordeão/cabeçalho clicável, todos os dias sempre visíveis. Default
+   * `false` preserva o comportamento original de T08 (`RoteiroScreen`) sem
+   * nenhuma mudança quando a prop não é passada.
+   */
+  readOnly?: boolean;
+  /**
+   * V2-L8-T05 (UX-SPEC.md §8.3, "prop `dayLabel` (substitui a data formatada;
+   * usada em T-EX)") — quando presente, substitui o rótulo de data calculado
+   * a partir de `date`. Não usado por T-MEUS-DET (que sempre mostra as datas
+   * reais, UX-SPEC.md §8.2 T-MEUS-DET), mas já suportado aqui porque a
+   * UX-SPEC.md já documenta o contrato completo desta prop para uma tela
+   * futura (T-EX).
+   */
+  dayLabel?: string;
   className?: string;
 }
 
@@ -138,13 +160,49 @@ export function ItineraryDayBlock({
   morning,
   afternoon,
   evening,
-  expanded,
+  expanded = false,
   onToggle,
+  readOnly = false,
+  dayLabel,
   className,
 }: ItineraryDayBlockProps) {
-  const dayLabel = formatDayLabel(date) ?? date;
+  const label = dayLabel ?? formatDayLabel(date) ?? date;
   const contentId = `itinerary-day-${date}-content`;
   const headingId = `itinerary-day-${date}-heading`;
+
+  const periods = (
+    <>
+      <ItineraryPeriodSection label={PERIOD_LABELS.morning} items={morning} />
+      <ItineraryPeriodSection label={PERIOD_LABELS.afternoon} items={afternoon} />
+      <ItineraryPeriodSection label={PERIOD_LABELS.evening} items={evening} />
+    </>
+  );
+
+  // V2-L8-T05 — modo leitura (T-MEUS-DET, RF-17.5): sem acordeão, sem botão,
+  // sempre expandido. Comportamento original (abaixo) inalterado quando
+  // `readOnly` é `false`/omitido.
+  if (readOnly) {
+    return (
+      <section
+        aria-labelledby={headingId}
+        className={cn(
+          "flex flex-col gap-4 rounded-lg border border-border bg-surface p-4",
+          className,
+        )}
+      >
+        <h2
+          id={headingId}
+          className="m-0 font-serif text-lg text-foreground"
+        >
+          {label}
+        </h2>
+
+        <div id={contentId} className="flex flex-col gap-4">
+          {periods}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -162,7 +220,7 @@ export function ItineraryDayBlock({
           aria-controls={contentId}
           className="flex min-h-11 w-full items-center justify-between gap-2 font-serif text-lg text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:cursor-default"
         >
-          <span>{dayLabel}</span>
+          <span>{label}</span>
           <span aria-hidden="true" className="text-foreground-muted md:hidden">
             {expanded ? "−" : "+"}
           </span>
@@ -181,9 +239,7 @@ export function ItineraryDayBlock({
           expanded ? "flex" : "hidden",
         )}
       >
-        <ItineraryPeriodSection label={PERIOD_LABELS.morning} items={morning} />
-        <ItineraryPeriodSection label={PERIOD_LABELS.afternoon} items={afternoon} />
-        <ItineraryPeriodSection label={PERIOD_LABELS.evening} items={evening} />
+        {periods}
       </div>
     </section>
   );

@@ -22,6 +22,19 @@
 // são mockados (mesmo padrão de `data-livre.integration.test.ts`,
 // L11-T02a), simulando por padrão o mesmo solicitante anônimo (`ANON_ID`)
 // dono de toda sessão criada por `createSessionAtPasseiosPendente`.
+//
+// V2-L6-T06 (ADR-009 item 2, RF-16.7) — `gerarSugestoesPasseios`/
+// `aprovarSelecaoPasseios` agora exigem `exigeConta: true`. Como o guard só
+// concede acesso sem exigir conta quando a `TripSession` ainda pertence a um
+// `anonSessionId` (tabela de 5 casos do ADR-009 item 2), toda sessão
+// "com sucesso" criada por `createSessionAtPasseiosPendente` abaixo passou a
+// ser VINCULADA a um `User` (`userId`, não mais só `anonSessionId`) e o mock
+// de `next-auth` passou a devolver essa mesma conta autenticada por padrão —
+// mesma convenção de `prisma.user.create` já usada em
+// `account-deletion.integration.test.ts`. Os testes de "sem conta" (novos,
+// nas duas `describe` abaixo) sobrescrevem esse padrão para simular a sessão
+// anônima original, provando que `generateStructuredCompletionWithRetryMock`
+// nunca é chamado nesse caso (critério de aceite desta tarefa).
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { applySessionFlowTransition } from "@/lib/session-flow";
@@ -113,9 +126,49 @@ function mockPasseios() {
   });
 }
 
-async function createSessionAtPasseiosPendente() {
+/** IDs de `User` criados por `linkAccountIdentity` abaixo — limpos no
+ * `afterAll` de módulo, no fim do arquivo (V2-L6-T06). */
+const createdUserIds: string[] = [];
+
+/**
+ * V2-L6-T06 — cria um `User` real e configura `getServerSessionMock` para
+ * devolver essa conta como identidade autenticada da requisição corrente
+ * (mesma convenção de `prisma.user.create` já usada em
+ * `account-deletion.integration.test.ts`). Devolve o `userId` para uso em
+ * `TripSession.userId` (sessão JÁ vinculada a conta — não é o vínculo feito
+ * por `vincularSessaoAConta`, V2-L7-T02, é só o fixture de teste simulando
+ * uma sessão que já está vinculada).
+ */
+async function linkAccountIdentity(): Promise<string> {
+  const user = await prisma.user.create({
+    data: {
+      email: `executor-v2l6t06-${Date.now()}-${Math.random()}@example.com`,
+    },
+  });
+  createdUserIds.push(user.id);
+  getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
+  return user.id;
+}
+
+/**
+ * V2-L6-T06 — por padrão (`comConta: true`) a sessão criada já pertence a
+ * uma conta (`userId`), simulando o caminho "com conta" já exigido por
+ * `gerarSugestoesPasseios`/`aprovarSelecaoPasseios` (`exigeConta: true`).
+ * `comConta: false` preserva o comportamento original desta fixture (sessão
+ * anônima, dona = cookie `ANON_ID`) — usado pelos testes que provam a
+ * recusa sem conta (critério de aceite desta tarefa).
+ */
+async function createSessionAtPasseiosPendente(
+  options: { comConta?: boolean } = {},
+) {
+  const comConta = options.comConta ?? true;
+  const userId = comConta ? await linkAccountIdentity() : null;
   const session = await prisma.tripSession.create({
-    data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), anonSessionId: ANON_ID },
+    data: {
+      entryPath: "data_livre",
+      dateRangeEnd: new Date("2026-12-20"),
+      ...(comConta ? { userId } : { anonSessionId: ANON_ID }),
+    },
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
   await applySessionFlowTransition({
@@ -145,6 +198,22 @@ async function createSessionAtPasseiosPendente() {
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "avancar" });
   return session;
+}
+
+/**
+ * V2-L6-T06 — estreita um resultado discriminado (`GerarSugestoesPasseiosResult`/
+ * `AprovarPasseiosResult`) para o branch `status: "ok"`, falhando o teste com
+ * uma mensagem clara se vier `conta_necessaria` inesperadamente (em vez de um
+ * `TypeError` opaco de acessar um campo inexistente).
+ */
+function assertOk<T extends { status: string }>(
+  result: T,
+): asserts result is Extract<T, { status: "ok" }> {
+  if (result.status !== "ok") {
+    throw new Error(
+      `Esperado status "ok", recebido "${result.status}" — ${JSON.stringify(result)}.`,
+    );
+  }
 }
 
 const ITENS_SELECIONADOS: PasseiosSuggestionResult[] = [
@@ -187,9 +256,10 @@ describe("gerarSugestoesPasseios — integração real com Postgres (L9-T03)", (
 
     const result = await gerarSugestoesPasseios(session.id);
 
-    expect(result).toHaveLength(4);
-    expect(result[0].name).toBe("Trilha das Cataratas");
-    expect(result.some((item) => item.isFree)).toBe(true);
+    assertOk(result);
+    expect(result.passeios).toHaveLength(4);
+    expect(result.passeios[0].name).toBe("Trilha das Cataratas");
+    expect(result.passeios.some((item) => item.isFree)).toBe(true);
 
     const call = generateStructuredCompletionWithRetryMock.mock.calls[0][0];
     expect(call.stage).toBe("passeios");
@@ -197,8 +267,9 @@ describe("gerarSugestoesPasseios — integração real com Postgres (L9-T03)", (
   });
 
   it("rejeita gerar sugestões fora de passeios_pendente (sem pular etapa)", async () => {
+    const userId = await linkAccountIdentity();
     const session = await prisma.tripSession.create({
-      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), anonSessionId: ANON_ID },
+      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), userId },
     });
     sessionIds.push(session.id);
     // Sessão ainda em entrada_selecionada — nunca chegou a passeios_pendente.
@@ -207,6 +278,23 @@ describe("gerarSugestoesPasseios — integração real com Postgres (L9-T03)", (
       PasseiosEtapaInvalidaError,
     );
     expect(generateStructuredCompletionWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it("recusa gerar sugestões sem conta vinculada, sem chamar o Gateway de IA (RF-16.7, critério de aceite)", async () => {
+    const session = await createSessionAtPasseiosPendente({ comConta: false });
+    sessionIds.push(session.id);
+
+    const result = await gerarSugestoesPasseios(session.id);
+
+    expect(result).toEqual({ status: "conta_necessaria", sessionId: session.id });
+    expect(generateStructuredCompletionWithRetryMock).not.toHaveBeenCalled();
+
+    // Recusada por falta de conta, não por adiantar a state machine — o
+    // `flowState` permanece intocado.
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("passeios_pendente");
   });
 });
 
@@ -227,6 +315,7 @@ describe("aprovarSelecaoPasseios — integração real com Postgres (L9-T03)", (
       selecionados: ITENS_SELECIONADOS,
     });
 
+    assertOk(result);
     expect(result.proximaEtapa).toBe("roteiro");
     expect(result.flowState).toBe("roteiro_pendente");
     expect(result.passeios).toEqual(["Trilha das Cataratas", "Mirante Público"]);
@@ -283,8 +372,9 @@ describe("aprovarSelecaoPasseios — integração real com Postgres (L9-T03)", (
   });
 
   it("rejeita aprovar a partir de um estado que não é passeios_pendente (sem pular etapa)", async () => {
+    const userId = await linkAccountIdentity();
     const session = await prisma.tripSession.create({
-      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), anonSessionId: ANON_ID },
+      data: { entryPath: "data_livre", dateRangeEnd: new Date("2026-12-20"), userId },
     });
     sessionIds.push(session.id);
     // Sessão ainda em entrada_selecionada — nunca chegou a passeios_pendente.
@@ -348,6 +438,7 @@ describe("aprovarSelecaoPasseios — integração real com Postgres (L9-T03)", (
       ],
     });
 
+    assertOk(result);
     expect(result.passeios[0]).not.toMatch(/system|instru[cç][oõ]es/i);
     expect(result.passeios[0]).toBe("Trilha das Cataratas");
 
@@ -360,6 +451,28 @@ describe("aprovarSelecaoPasseios — integração real com Postgres (L9-T03)", (
       /\[\s*\/?\s*inst\s*\]|novo\s+assistente/i,
     );
     expect(activity.durationApprox).toContain("3 horas");
+  });
+
+  it("recusa aprovar sem conta vinculada, sem persistir nada (RF-16.7, critério de aceite)", async () => {
+    const session = await createSessionAtPasseiosPendente({ comConta: false });
+    sessionIds.push(session.id);
+
+    const result = await aprovarSelecaoPasseios({
+      sessionId: session.id,
+      selecionados: ITENS_SELECIONADOS,
+    });
+
+    expect(result).toEqual({ status: "conta_necessaria", sessionId: session.id });
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("passeios_pendente");
+
+    const activities = await prisma.activityApproval.findMany({
+      where: { sessionId: session.id },
+    });
+    expect(activities).toHaveLength(0);
   });
 });
 
@@ -427,4 +540,15 @@ describe("encerrarResolucaoPasseios — integração real com Postgres (L9-T03)"
       encerrarResolucaoPasseios(session.id),
     ).rejects.toBeInstanceOf(InvalidTransitionError);
   });
+});
+
+// V2-L6-T06 — limpeza dos `User` criados por `linkAccountIdentity` em
+// qualquer uma das três `describe` acima (não há FK/cascade declarada entre
+// `TripSession.userId` e `User`, ver `prisma/schema.prisma`, então a ordem
+// de limpeza não importa; roda depois de todos os `describe`/`afterAll`
+// acima, mesma garantia de ordenação de hooks top-level do Vitest).
+afterAll(async () => {
+  if (createdUserIds.length > 0) {
+    await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+  }
 });

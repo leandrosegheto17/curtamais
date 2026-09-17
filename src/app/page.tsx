@@ -1,46 +1,69 @@
-// L6-T01 — T00 UI: Seleção de caminho de entrada (UX-SPEC.md Seção 2 "T00" /
-// Seção 6, RF-01/RF-02/RF-03).
+// V2-L4-T01 — Home vitrine estática (RF-12, RF-18; ADR-011; UX-SPEC.md §8.2
+// T-HOME).
 //
-// Três blocos de igual destaque, um por caminho de entrada (Data livre /
-// Feriados prolongados / Quiz guiado), "separados por borda fina (não cartão
-// com sombra — Concierge Noturno)... Nenhum caminho é pré-selecionado ou
-// visualmente priorizado sobre os outros — os três são igualmente Must-have"
-// (UX-SPEC.md Seção 2). Navegação de rota normal do Next.js (`next/link`),
-// não uma transição de state machine (Diretriz de Implementação 3 do
-// TASK.md) — por isso nenhuma Server Action nesta tarefa.
+// Server Component estático (ADR-011 "Decisão" item 1): `revalidate = 3600`,
+// nenhuma leitura de `cookies()`/`headers()`/`getServerSession` aqui. O
+// cookie anônimo continua sendo emitido pelo `middleware.ts`, fora desta
+// página, então o cache não é afetado.
 //
-// Dados dos 3 caminhos (rotas/textos/ícones) vivem em
-// `src/components/entrada/entry-paths.ts`, não neste arquivo — um
-// `page.tsx` do App Router só pode expor os exports reconhecidos pelo
-// Next.js, ver comentário naquele módulo.
+// RL-V2-L4-T01 (integração final, `.md/TASK.md` "Refatoração Lote-V2-L4"):
+// compõe aqui, na ordem exata do UX-SPEC.md §8.2 T-HOME, as 9 seções que as
+// tarefas V2-L4-T02 a T09 implementaram standalone (Bloqueio 011 evitou
+// edição concorrente deste arquivo por instâncias paralelas do Executor).
+// `ExamplePreviewSection` (V2-L4-T05) fica de fora — segue `Bloqueada` pelo
+// Bloqueio 010 (revisão editorial de `src/content/roteiro-exemplo.ts`
+// pendente) — e entra nesta mesma integração quando destravar.
+// `ImageCreditsSection` (de `ShowcaseSection`, V2-L4-T04) é passada como o
+// slot `imageCredits` de `SiteFooter` (V2-L4-T07): um único rodapé de
+// créditos para as imagens curadas da vitrine.
+//
+// Cabeçalho (UX-SPEC.md §8.2 T-HOME: "logotipo 'CurtaMais' (link para /) à
+// esquerda e AccountNav à direita"): montado diretamente aqui, só para esta
+// página — `AccountNav` (V2-L4-T09) documenta explicitamente que é esta
+// tarefa que o consome pela primeira vez. Levar esse cabeçalho para
+// `RootLayout` (todas as páginas do produto, não só a home) não é um
+// critério de aceite desta tarefa nem de nenhuma outra do TASK.md ainda —
+// fica fora de escopo aqui para não alterar o layout de telas do MVP sem uma
+// tarefa/ADR que decida isso.
+//
+// Fica em fluxo normal (fundo `background` sólido), acima do hero — não
+// sobreposto/`absolute` sobre a foto: a verificação de contraste AA de
+// `overlay-scrim-hero` (RNF-09) cobre só a faixa inferior onde o texto do
+// hero fica (opacidade do scrim >= 0,60); o topo da imagem, onde um
+// cabeçalho sobreposto ficaria, não tem essa garantia para qualquer foto.
 import Link from "next/link";
 
-import { ENTRY_PATH_CLASSNAME, ENTRY_PATHS } from "@/components/entrada/entry-paths";
+import { HeroSection } from "@/components/home/hero-section";
+import { AccountNav } from "@/components/home/account-nav";
+import { EntryPathsSection } from "@/components/home/entry-paths-section";
+import { HowItWorksSteps } from "@/components/home/how-it-works-steps";
+import { ShowcaseSection, ImageCreditsSection } from "@/components/home/showcase-section";
+import { UpcomingHolidaysSection } from "@/components/home/upcoming-holidays-section";
+import { FaqSection } from "@/components/home/faq-section";
+import { SiteFooter } from "@/components/home/site-footer";
+import { MobileStickyCta } from "@/components/home/mobile-sticky-cta";
 
-export default function Home() {
+export const revalidate = 3600;
+
+export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-8 p-8">
-      <div className="flex max-w-2xl flex-col items-center gap-2 text-center">
-        <h1 className="font-serif text-3xl text-foreground">
-          Para onde vamos?
-        </h1>
-        <p className="text-foreground-muted">
-          Escolha como você quer começar a planejar sua próxima viagem.
-        </p>
-      </div>
-      <div className="grid w-full max-w-4xl grid-cols-1 gap-4 md:grid-cols-3">
-        {ENTRY_PATHS.map(({ href, icon: Icon, title, description }) => (
-          <Link key={href} href={href} className={ENTRY_PATH_CLASSNAME}>
-            <Icon className="h-8 w-8 text-accent" aria-hidden="true" />
-            <span className="font-serif text-lg text-foreground">
-              {title}
-            </span>
-            <span className="text-sm text-foreground-muted">
-              {description}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </main>
+    <>
+      <header className="relative z-20 flex items-center justify-between border-b border-border bg-background px-6 py-4 md:px-8">
+        <Link href="/" className="font-serif text-lg text-foreground">
+          CurtaMais
+        </Link>
+        <AccountNav />
+      </header>
+      <main>
+        <HeroSection />
+        <EntryPathsSection />
+        <HowItWorksSteps />
+        <ShowcaseSection />
+        <UpcomingHolidaysSection />
+        <FaqSection />
+        <SiteFooter imageCredits={<ImageCreditsSection />} />
+      </main>
+      <MobileStickyCta />
+    </>
   );
 }

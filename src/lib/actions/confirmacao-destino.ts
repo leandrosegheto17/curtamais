@@ -25,27 +25,64 @@
 // já aplica o guard central internamente, antes de decidir qualquer
 // transição — nenhuma chamada adicional necessária aqui. Regra de orçamento
 // (RF-10, ortogonal) segue fora de escopo.
+//
+// V2-L6-T04 (RF-16.7, ADR-009 item 1/2) — `confirmarDestino` avança
+// `destino_confirmado` → `hospedagem_pendente` (ação `avancar`), transição
+// que ENTRA num estado "pós-destino" (`hospedagem_pendente`) e por isso
+// sempre exige conta verificada (`transicaoExigeConta("destino_confirmado",
+// "avancar")` é sempre `true` — ver `src/lib/session-flow/account-gate.ts`).
+// O cálculo de `exigeConta` e o guard em si já acontecem DENTRO de
+// `applySessionFlowTransition` (`src/lib/session-flow/persistence.ts`,
+// passo 3b) — esta função só precisa capturar `ContaNecessariaError` e
+// converter num resultado discriminado (`{ status: "conta_necessaria",
+// sessionId }`) em vez de deixá-la vazar como exceção não tratada (ADR-009
+// item 2, "Contrato com o cliente": em produção o Next.js apaga
+// classe/mensagem de erro de Server Actions). Sem conta, nenhuma escrita
+// acontece — `applySessionFlowTransition` lança `ContaNecessariaError` de
+// dentro da transação Prisma, que faz rollback automático, então a sessão
+// permanece em `destino_confirmado` e a `DestinationApproval` já gravada
+// anteriormente (por `aprovarDestinoSugerido`/`informarDestinoManualmente`,
+// `@/lib/actions/destino.ts`) não é tocada.
+//
+// `trocarDestino` (ação `revisar`, `destino_confirmado` → `destino_pendente`)
+// NÃO precisa desse tratamento: nem o estado de origem nem o de destino são
+// "pós-destino" (`transicaoExigeConta` retorna `false`), então
+// `ContaNecessariaError` nunca é lançada nesse caminho — comportamento
+// inalterado.
 
-import { applySessionFlowTransition } from "@/lib/session-flow";
+import {
+  applySessionFlowTransition,
+  ContaNecessariaError,
+} from "@/lib/session-flow";
 import { InvalidConfirmacaoDestinoInputError } from "./confirmacao-destino-errors";
 
 export interface ConfirmarDestinoInput {
   sessionId: string;
 }
 
-export interface ConfirmarDestinoResult {
-  /** RF-11 — confirmar sempre avança para a etapa de hospedagem (RF-06). */
-  proximaEtapa: "hospedagem";
-  sessionId: string;
-  flowState: "hospedagem_pendente";
-}
+export type ConfirmarDestinoResult =
+  | {
+      /** RF-11 — confirmar sempre avança para a etapa de hospedagem (RF-06). */
+      proximaEtapa: "hospedagem";
+      sessionId: string;
+      flowState: "hospedagem_pendente";
+    }
+  | {
+      /** V2-L6-T04/RF-16.7 — sessão anônima, conta necessária para continuar
+       * além de `destino_confirmado` (ADR-009). Sessão permanece em
+       * `destino_confirmado`; `DestinationApproval` já gravada não é
+       * desfeita. */
+      status: "conta_necessaria";
+      sessionId: string;
+    };
 
 /**
  * Server Action de T05 (Confirmação de destino) — ação "Confirmar e
  * continuar". Revalida no servidor (nunca confia em navegação client-side) e
  * delega a transição de estado para `applySessionFlowTransition`
  * (`@/lib/session-flow`), a única fronteira autorizada a escrever em
- * `TripSession` (Diretriz de Implementação 3).
+ * `TripSession` (Diretriz de Implementação 3). Sem conta (RF-16.7), devolve
+ * um resultado discriminado em vez de lançar — ver nota V2-L6-T04 acima.
  */
 export async function confirmarDestino(
   input: ConfirmarDestinoInput,
@@ -56,16 +93,26 @@ export async function confirmarDestino(
     );
   }
 
-  const result = await applySessionFlowTransition({
-    sessionId: input.sessionId,
-    action: "avancar",
-  });
+  try {
+    const result = await applySessionFlowTransition({
+      sessionId: input.sessionId,
+      action: "avancar",
+    });
 
-  return {
-    proximaEtapa: "hospedagem",
-    sessionId: result.sessionId,
-    flowState: "hospedagem_pendente",
-  };
+    return {
+      proximaEtapa: "hospedagem",
+      sessionId: result.sessionId,
+      flowState: "hospedagem_pendente",
+    };
+  } catch (error) {
+    if (error instanceof ContaNecessariaError) {
+      return {
+        status: "conta_necessaria",
+        sessionId: input.sessionId,
+      };
+    }
+    throw error;
+  }
 }
 
 export interface TrocarDestinoInput {

@@ -126,6 +126,49 @@ describe("T01DateRangeForm (RF-01.4)", () => {
     expect(pendingButton).toHaveAttribute("aria-busy", "true");
   });
 
+  it("V2-L5-T01 (RF-13): destinoInicial pré-preenche o campo Destino (editável) e mostra a linha de contexto", async () => {
+    const user = userEvent.setup();
+    const onValid = vi.fn();
+
+    render(
+      <T01DateRangeForm onValid={onValid} destinoInicial="Gramado, RS" />,
+    );
+
+    const campoDestino = screen.getByLabelText(/Destino/) as HTMLInputElement;
+    expect(campoDestino).toHaveValue("Gramado, RS");
+    expect(
+      screen.getByText("Ótima escolha. Agora me diga quando você pode ir."),
+    ).toBeInTheDocument();
+
+    await user.clear(campoDestino);
+    await user.type(campoDestino, "Foz do Iguaçu");
+    expect(campoDestino).toHaveValue("Foz do Iguaçu");
+  });
+
+  it("V2-L5-T01 (RF-13): sem destinoInicial, não mostra a linha de contexto (comportamento MVP)", () => {
+    render(<T01DateRangeForm />);
+
+    expect(
+      screen.queryByText("Ótima escolha. Agora me diga quando você pode ir."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("V2-L5-T01 (RF-13): apagar o destino pré-preenchido esconde a linha de contexto", async () => {
+    const user = userEvent.setup();
+
+    render(<T01DateRangeForm destinoInicial="Gramado, RS" />);
+
+    expect(
+      screen.getByText("Ótima escolha. Agora me diga quando você pode ir."),
+    ).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/Destino/));
+
+    expect(
+      screen.queryByText("Ótima escolha. Agora me diga quando você pode ir."),
+    ).not.toBeInTheDocument();
+  });
+
   it("navegação por teclado: Tab alcança os 3 campos e o botão, em ordem lógica", async () => {
     const user = userEvent.setup();
 

@@ -45,7 +45,7 @@ describe("FeriadosPage (rota T02, L6-T04)", () => {
     vi.mocked(getFeriadosProlongados).mockResolvedValue([feriadoFixture]);
 
     const FeriadosPage = (await import("@/app/entrada/feriados/page")).default;
-    const element = await FeriadosPage();
+    const element = await FeriadosPage({ searchParams: Promise.resolve({}) });
     render(element);
 
     expect(getFeriadosProlongados).toHaveBeenCalledTimes(1);
@@ -60,11 +60,50 @@ describe("FeriadosPage (rota T02, L6-T04)", () => {
     vi.mocked(getFeriadosProlongados).mockResolvedValue([feriadoFixture]);
 
     const FeriadosPage = (await import("@/app/entrada/feriados/page")).default;
-    const element = await FeriadosPage();
+    const element = await FeriadosPage({ searchParams: Promise.resolve({}) });
     render(element);
 
     const destinoInput = screen.getByLabelText(/Destino \(opcional\)/i);
     expect(destinoInput).toBeInTheDocument();
     expect(destinoInput).not.toBeRequired();
+  });
+
+  describe("?feriado=AAAA-MM-DD (V2-L5-T02, UX-SPEC §8, RF-18.3)", () => {
+    it("com data válida e correspondente à lista, pré-seleciona o item", async () => {
+      const { getFeriadosProlongados } = await import(
+        "@/lib/actions/feriados"
+      );
+      vi.mocked(getFeriadosProlongados).mockResolvedValue([feriadoFixture]);
+
+      const FeriadosPage = (await import("@/app/entrada/feriados/page"))
+        .default;
+      const element = await FeriadosPage({
+        searchParams: Promise.resolve({ feriado: "2026-06-12" }),
+      });
+      render(element);
+
+      expect(
+        screen.getByRole("radio", { name: /Corpus Christi/ }),
+      ).toBeChecked();
+    });
+
+    it("com formato inválido, renderiza a lista sem seleção e sem erro", async () => {
+      const { getFeriadosProlongados } = await import(
+        "@/lib/actions/feriados"
+      );
+      vi.mocked(getFeriadosProlongados).mockResolvedValue([feriadoFixture]);
+
+      const FeriadosPage = (await import("@/app/entrada/feriados/page"))
+        .default;
+      const element = await FeriadosPage({
+        searchParams: Promise.resolve({ feriado: "12/06/2026" }),
+      });
+      render(element);
+
+      expect(
+        screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked),
+      ).toBe(true);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 });

@@ -196,6 +196,42 @@ describe("RoteiroScreen — estado Sucesso", () => {
   });
 });
 
+describe("RoteiroScreen — conta_necessaria (V2-L7-T07/RF-16.9)", () => {
+  it("carregamento inicial: acesso direto por URL/sessão anônima antiga navega para T-GATE preservando sessionId", async () => {
+    renderScreen({
+      gerarRoteiro: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+  });
+
+  it("aprovar roteiro recebendo conta_necessaria navega para T-GATE em vez de mostrar o rodapé de conclusão", async () => {
+    const user = userEvent.setup();
+    const actions = renderScreen({
+      aprovarRoteiro: vi
+        .fn()
+        .mockResolvedValue({ status: "conta_necessaria", sessionId: "session-1" }),
+    });
+
+    await screen.findByText("Café da manhã no hotel");
+    await user.click(
+      screen.getByRole("button", { name: "Aprovar roteiro e concluir" }),
+    );
+
+    await waitFor(() => expect(actions.aprovarRoteiro).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/cadastro?sessionId=session-1"),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Ver resumo da viagem" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("RoteiroScreen — estado Erro", () => {
   it("mostra ErrorRetryState após falha da Server Action e permite tentar novamente", async () => {
     const gerarRoteiro = vi

@@ -47,12 +47,19 @@ export interface ConfirmacaoDestinoClientProps {
   sessionId: string;
   destino: string;
   currentState: SessionFlowState;
+  /** V2-L7-T06 (RF-16.6/RF-16.7, ADR-009) — resolvido pelo servidor
+   * (`page.tsx`) na renderização: se `false`, a tela mostra o aviso "No
+   * próximo passo eu peço um e-mail..." (UX-SPEC.md §8.2 "T05") ANTES do
+   * clique. `undefined` (default) equivale a `true` (comportamento MVP,
+   * sem aviso). */
+  temConta?: boolean;
 }
 
 export function ConfirmacaoDestinoClient({
   sessionId,
   destino,
   currentState,
+  temConta,
 }: ConfirmacaoDestinoClientProps) {
   const router = useRouter();
 
@@ -61,8 +68,19 @@ export function ConfirmacaoDestinoClient({
       sessionId={sessionId}
       destino={destino}
       currentState={currentState}
+      temConta={temConta}
       onConfirmar={async (input) => {
         const result = await confirmarDestino(input);
+        // V2-L7-T06 (ADR-009 item 3) — `confirmarDestino` (V2-L6-T04) devolve
+        // um resultado discriminado: sem conta, a sessão NÃO avançou (rollback
+        // no servidor) e a navegação correta é para T-GATE, preservando
+        // `sessionId`, nunca para /hospedagem (Diretriz de Implementação 3 —
+        // nenhuma navegação otimista/além do que o servidor confirmou).
+        if ("status" in result && result.status === "conta_necessaria") {
+          const params = new URLSearchParams({ sessionId: result.sessionId });
+          router.push(`/cadastro?${params.toString()}`);
+          return result;
+        }
         const params = new URLSearchParams({
           sessionId: input.sessionId,
           flowState: "hospedagem_pendente",

@@ -61,8 +61,22 @@ export interface DestinoConfirmacaoScreenProps {
   onConfirmar?: ConfirmarOuTrocarDestinoAction;
   /** Ação de "Trocar destino" (RF-11) — ver `ConfirmarOuTrocarDestinoAction` acima. */
   onTrocar?: ConfirmarOuTrocarDestinoAction;
+  /**
+   * V2-L7-T06 (RF-16.6, UX-SPEC.md §8.2 "T05") — se a sessão corrente tem (ou
+   * já está vinculada a) uma conta, resolvido pelo servidor na renderização
+   * (nunca decidido no client, Diretriz de Implementação 3). `undefined`
+   * (default, callers que ainda não passam a prop) se comporta como `true`
+   * (com conta) — nenhum aviso extra, comportamento idêntico ao MVP.
+   */
+  temConta?: boolean;
   className?: string;
 }
+
+/** UX-SPEC.md §8.2 "T05" — texto exato do aviso mostrado a quem não tem conta,
+ * logo abaixo do botão primário, ANTES do clique (evita surpresa com o
+ * pedido de cadastro em T-GATE, RF-16.6). */
+const AVISO_CONTA_NECESSARIA =
+  "No próximo passo eu peço um e-mail para guardar a sua viagem.";
 
 const GENERIC_ERROR_MESSAGE =
   "Não conseguimos concluir agora. Tente novamente.";
@@ -81,6 +95,7 @@ export function DestinoConfirmacaoScreen({
   currentState = "destino_confirmado",
   onConfirmar,
   onTrocar,
+  temConta = true,
   className,
 }: DestinoConfirmacaoScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -169,6 +184,12 @@ export function DestinoConfirmacaoScreen({
           {pendingAction === "trocar" ? "Trocando..." : "Trocar destino"}
         </Button>
       </div>
+
+      {!temConta && (
+        <p className="text-sm text-foreground-muted">
+          {AVISO_CONTA_NECESSARIA}
+        </p>
+      )}
     </main>
   );
 }

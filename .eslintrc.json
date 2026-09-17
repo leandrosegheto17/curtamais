@@ -1,3 +1,35 @@
 {
-  "extends": ["next/core-web-vitals", "next/typescript"]
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "overrides": [
+    {
+      "files": [
+        "src/app/page.tsx",
+        "src/app/roteiro-exemplo/**/*.{ts,tsx}",
+        "src/components/home/**/*.{ts,tsx}",
+        "src/content/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "no-restricted-imports": "off",
+        "@typescript-eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/lib/gateway-ia",
+                  "@/lib/gateway-ia/*",
+                  "@/lib/stage-rules",
+                  "@/lib/stage-rules/*",
+                  "@/lib/prisma",
+                  "openai"
+                ],
+                "message": "ADR-011 item 5 (RN-08): a home estática não pode chamar o Gateway de IA, stage-rules, o Prisma nem o SDK da OpenAI em tempo de execução. `import type { ... }` continua permitido (ADR-011 item 4 exige reaproveitar os tipos de `@/lib/stage-rules/roteiro` em `src/content/roteiro-exemplo.ts`) porque um import só de tipo não gera nenhuma chamada em runtime — só um import de valor (ex.: `import { generateStructuredCompletion } from ...`) é bloqueado aqui.",
+                "allowTypeImports": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

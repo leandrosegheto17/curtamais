@@ -37,6 +37,7 @@
 // dados, só o conteúdo/rótulo da tela, Seção 2) — é uma decisão de fronteira
 // dentro da margem do Executor.
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 
 import {
@@ -80,20 +81,23 @@ export interface EncerramentoScreenProps {
   flowState: EncerramentoFlowState;
   resumo: EncerramentoResumo;
   /**
-   * CTA "Ver isso depois" (UX-SPEC.md Seção 2/§7: "RF-09/ADR-005 — nenhuma
-   * tela tem botão explícito de 'salvar'... T-END só informa que o dado está
-   * salvo, sem exigir ação adicional do usuário"). Opcional — quando ausente,
-   * o botão ainda aparece (reforça a mensagem de "já está salvo") mas não
-   * dispara nenhuma navegação, já que o MVP não tem uma tela de "minhas
-   * viagens" para onde ir (Fase 2, fora de escopo, `prisma/schema.prisma`
-   * cabeçalho).
+   * V2-L7-T09/RF-17/RNF-11 — `true` quando a sessão já está vinculada a uma
+   * conta (`TripSession.userId !== null`, resolvido por
+   * `obterResumoEncerramento`/T-GATE). Determina a copy inteira do rodapé
+   * desta tela: com conta, confirma que o roteiro está salvo em "Meus
+   * roteiros" (CTA leva para lá); sem conta, é sempre honesta — NUNCA afirma
+   * "salvo" para quem não criou/vinculou conta (RNF-11, confiabilidade
+   * percebida), com um aviso claro de que nada foi persistido além da sessão
+   * anônima.
    */
-  onVerDepois?: () => void;
+  temConta: boolean;
   className?: string;
 }
 
 const COMPLETE_LABEL = "Viagem decidida!";
 const PARTIAL_LABEL = "Parte da sua viagem está decidida";
+const SEM_CONTA_AVISO =
+  "Sem uma conta, não consigo guardar esta viagem para depois. Se quiser, anote ou tire um print.";
 
 function approvedStepsFromResumo(
   resumo: EncerramentoResumo,
@@ -116,7 +120,7 @@ function approvedStepsFromResumo(
 export function EncerramentoScreen({
   flowState,
   resumo,
-  onVerDepois,
+  temConta,
   className,
 }: EncerramentoScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -128,7 +132,15 @@ export function EncerramentoScreen({
   }, []);
 
   const isComplete = flowState === "concluida";
-  const statusLabel = isComplete ? COMPLETE_LABEL : PARTIAL_LABEL;
+  // V2-L7-T09/UX-SPEC.md §8.2 — sem conta, o rótulo de status deixa de ser
+  // "Viagem decidida!"/"Parte decidida" e vira uma confirmação restrita ao
+  // que de fato aconteceu (o destino escolhido), sem sugerir que qualquer
+  // coisa além disso foi guardada.
+  const statusLabel = temConta
+    ? isComplete
+      ? COMPLETE_LABEL
+      : PARTIAL_LABEL
+    : `Seu destino está escolhido: ${resumo.destino?.name ?? ""}.`;
   const approvedSteps = approvedStepsFromResumo(resumo);
 
   return (
@@ -168,59 +180,94 @@ export function EncerramentoScreen({
         <p className="font-serif text-xl text-foreground">{statusLabel}</p>
       </div>
 
-      <div className="flex flex-col gap-4 md:flex-row md:flex-wrap">
-        {resumo.destino && (
-          <ResumoBloco title="Destino">
-            <p className="text-foreground">{resumo.destino.name}</p>
-          </ResumoBloco>
-        )}
+      <EncerramentoResumoBlocks resumo={resumo} />
 
-        {resumo.hospedagem && (
-          <ResumoBloco title="Hospedagem">
-            <p className="text-foreground">{resumo.hospedagem.name}</p>
-            <p className="text-sm text-foreground-muted">
-              {resumo.hospedagem.type}
-            </p>
-          </ResumoBloco>
-        )}
-
-        {resumo.passeios && resumo.passeios.length > 0 && (
-          <ResumoBloco title="Passeios">
-            <ul className="flex flex-col gap-2" role="list">
-              {resumo.passeios.map((passeio, index) => (
-                <li
-                  key={`${passeio.name}-${index}`}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="text-foreground">{passeio.name}</span>
-                  {passeio.free && <PriceRangeBadge min={0} max={0} free />}
-                </li>
-              ))}
-            </ul>
-          </ResumoBloco>
-        )}
-
-        {resumo.roteiroAprovado && (
-          <ResumoBloco title="Roteiro">
-            <p className="text-foreground">Roteiro completo aprovado.</p>
-          </ResumoBloco>
-        )}
-      </div>
-
+      {/*
+        V2-L7-T09/RNF-11 — bloco de rodapé é a única fonte da confirmação (ou
+        recusa honesta) de persistência: com conta, afirma "salvo" porque de
+        fato está (RF-09/ADR-006, toda aprovação já persiste); sem conta,
+        NUNCA usa a palavra "salvo" — texto e CTA mudam juntos, nunca só o
+        texto (um CTA para "Meus roteiros" sem conta seria enganoso).
+      */}
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-foreground-muted">
-          Tudo já está salvo — você não precisa fazer mais nada agora.
+          {temConta
+            ? "Está salvo em 'Meus roteiros'."
+            : SEM_CONTA_AVISO}
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11"
-          onClick={onVerDepois}
-        >
-          Ver isso depois
-        </Button>
+        {temConta ? (
+          <Button asChild variant="outline" className="min-h-11">
+            {/*
+              V2-L8-T04 (futura, fora deste lote) ainda não criou a rota real
+              de `/meus-roteiros` — o link já aponta para lá porque não é uma
+              regressão nem quebra nada: no pior caso, antes de V2-L8-T04
+              existir, é um 404 igual ao já aceito noutras rotas do V2
+              (mesmo padrão de gap documentado em L10-T04/L7-T02/L9-T02).
+            */}
+            <Link href="/meus-roteiros">Ver meus roteiros</Link>
+          </Button>
+        ) : (
+          <Button asChild variant="outline" className="min-h-11">
+            <Link href="/">Planejar outra viagem</Link>
+          </Button>
+        )}
       </div>
     </main>
+  );
+}
+
+/**
+ * V2-L8-T05 — blocos de resumo (Destino/Hospedagem/Passeios/Roteiro)
+ * extraídos de `EncerramentoScreen` para serem reaproveitados, ao pé da
+ * letra, por `RoteiroSalvoScreen` (T-MEUS-DET, UX-SPEC.md §8.2: "Bloco de
+ * resumo igual ao de T-END"). Nenhuma mudança de comportamento em
+ * `EncerramentoScreen` — mesma marcação, só movida para um componente
+ * nomeado e exportado.
+ */
+export function EncerramentoResumoBlocks({
+  resumo,
+}: {
+  resumo: EncerramentoResumo;
+}) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:flex-wrap">
+      {resumo.destino && (
+        <ResumoBloco title="Destino">
+          <p className="text-foreground">{resumo.destino.name}</p>
+        </ResumoBloco>
+      )}
+
+      {resumo.hospedagem && (
+        <ResumoBloco title="Hospedagem">
+          <p className="text-foreground">{resumo.hospedagem.name}</p>
+          <p className="text-sm text-foreground-muted">
+            {resumo.hospedagem.type}
+          </p>
+        </ResumoBloco>
+      )}
+
+      {resumo.passeios && resumo.passeios.length > 0 && (
+        <ResumoBloco title="Passeios">
+          <ul className="flex flex-col gap-2" role="list">
+            {resumo.passeios.map((passeio, index) => (
+              <li
+                key={`${passeio.name}-${index}`}
+                className="flex items-center justify-between gap-2"
+              >
+                <span className="text-foreground">{passeio.name}</span>
+                {passeio.free && <PriceRangeBadge min={0} max={0} free />}
+              </li>
+            ))}
+          </ul>
+        </ResumoBloco>
+      )}
+
+      {resumo.roteiroAprovado && (
+        <ResumoBloco title="Roteiro">
+          <p className="text-foreground">Roteiro completo aprovado.</p>
+        </ResumoBloco>
+      )}
+    </div>
   );
 }
 

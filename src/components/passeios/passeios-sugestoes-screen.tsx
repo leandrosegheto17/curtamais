@@ -110,6 +110,10 @@ import { ErrorRetryState } from "@/components/design-system/error-retry-state";
 import { SuggestionCard } from "@/components/design-system/suggestion-card";
 import { BudgetInsufficientBanner } from "@/components/design-system/budget-insufficient-banner";
 import type { PasseiosSuggestionResult } from "@/lib/stage-rules";
+import type {
+  GerarSugestoesPasseiosResult,
+  AprovarPasseiosResult,
+} from "@/lib/actions/passeios";
 import { cn } from "@/lib/utils";
 
 const GENERIC_ERROR_MESSAGE =
@@ -121,13 +125,25 @@ const NENHUM_ITEM_SELECIONADO_MESSAGE =
 
 type ScreenState = "loading" | "error" | "success";
 
-/** Ver bloco "CONTRATO ESPERADO DA SERVER ACTION DE L9-T03" no cabeçalho do arquivo. */
-export type AprovarSelecaoPasseiosResult = {
-  proximaEtapa: "roteiro";
-  sessionId: string;
-  flowState: "roteiro_pendente";
-  passeios: string[];
-};
+/**
+ * V2-L6-T06 (fix-loop) — `@/lib/actions/passeios.ts` (L9-T03, já concluída)
+ * passou a devolver um resultado discriminado (`status: "ok" |
+ * "conta_necessaria"`, ADR-009 item 2) tanto para `gerarSugestoesPasseios`
+ * quanto para `aprovarSelecaoPasseios`. O tipo antigo desta tela (definido
+ * localmente antes de `@/lib/actions/passeios.ts` existir, ver bloco
+ * "CONTRATO ESPERADO DA SERVER ACTION DE L9-T03" acima) foi substituído pelo
+ * tipo REAL importado do módulo de ações — a Server Action é a fonte da
+ * verdade (TASK.md Seção 1 item 3), mesmo precedente já registrado no
+ * cabeçalho deste arquivo. Mantido o mesmo NOME exportado
+ * (`AprovarSelecaoPasseiosResult`) para não quebrar quem já importa esse tipo
+ * daqui (ex.: `__tests__/passeios-sugestoes-screen.test.tsx`).
+ *
+ * V2-L7-T07 — os dois call sites abaixo (`handleStreamComplete`/
+ * `handleApproveSelection`) tratam o branch `status: "conta_necessaria"`
+ * navegando para T-GATE (`/cadastro?sessionId=`), em vez do guard mínimo
+ * (mensagem de erro genérica) usado antes desta tarefa.
+ */
+export type AprovarSelecaoPasseiosResult = AprovarPasseiosResult;
 
 /** Ver bloco "CONTRATO ESPERADO DA SERVER ACTION DE L9-T03" no cabeçalho do arquivo. */
 export type EncerrarResolucaoPasseiosResult = {
@@ -139,7 +155,7 @@ export type EncerrarResolucaoPasseiosResult = {
 export interface PasseiosScreenActions {
   gerarSugestoesPasseios: (
     sessionId: string,
-  ) => Promise<PasseiosSuggestionResult[]>;
+  ) => Promise<GerarSugestoesPasseiosResult>;
   aprovarSelecaoPasseios: (input: {
     sessionId: string;
     selecionados: PasseiosSuggestionResult[];
@@ -199,8 +215,14 @@ export function PasseiosSugestoesScreen({
     null,
   );
 
-  const [approved, setApproved] =
-    useState<AprovarSelecaoPasseiosResult | null>(null);
+  // V2-L6-T06 (fix-loop): só o branch `status: "ok"` de
+  // `AprovarSelecaoPasseiosResult` chega a `approved` — `handleApproveSelection`
+  // abaixo nunca chama `setApproved` com `status: "conta_necessaria"` (vira
+  // `approveError` genérico em vez disso).
+  const [approved, setApproved] = useState<Extract<
+    AprovarSelecaoPasseiosResult,
+    { status: "ok" }
+  > | null>(null);
   const [approvePending, setApprovePending] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
@@ -231,16 +253,31 @@ export function PasseiosSugestoesScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, actions]);
 
+  // V2-L7-T07 (ADR-009 item 2/"Contrato com o cliente") — leva para T-GATE
+  // preservando `sessionId`, mesmo destino usado pela T05 (`V2-L7-T06`) e por
+  // `HospedagemSugestoesScreen`. Cobre tanto o acesso direto por URL quanto
+  // sessão anônima antiga (RF-16.9): `gerarSugestoesPasseios` já roda no
+  // carregamento inicial da tela, então nenhum guard adicional é necessário
+  // além deste.
+  function redirectToContaGate() {
+    router.push(`/cadastro?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
   function handleStreamComplete(fullText: string) {
-    let parsed: PasseiosSuggestionResult[] = [];
+    let parsed: GerarSugestoesPasseiosResult;
     try {
-      parsed = JSON.parse(fullText) as PasseiosSuggestionResult[];
+      parsed = JSON.parse(fullText) as GerarSugestoesPasseiosResult;
     } catch {
       setLoadErrorMessage(GENERIC_ERROR_MESSAGE);
       setScreen("error");
       return;
     }
-    setItems(toItems(parsed));
+    // V2-L7-T07: `status: "conta_necessaria"` leva para T-GATE.
+    if (parsed.status !== "ok") {
+      redirectToContaGate();
+      return;
+    }
+    setItems(toItems(parsed.passeios));
     setScreen("success");
   }
 
@@ -296,6 +333,12 @@ export function PasseiosSugestoesScreen({
         sessionId,
         selecionados: selectedSuggestions,
       });
+      // V2-L7-T07: `status: "conta_necessaria"` leva para T-GATE — mesmo
+      // raciocínio de `handleStreamComplete` acima.
+      if (result.status !== "ok") {
+        redirectToContaGate();
+        return;
+      }
       setApproved(result);
     } catch {
       setApproveError(GENERIC_ACTION_ERROR_MESSAGE);

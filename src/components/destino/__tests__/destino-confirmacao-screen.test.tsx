@@ -163,4 +163,48 @@ describe("DestinoConfirmacaoScreen (T05, L7-T04, RF-11)", () => {
       screen.getByRole("navigation", { name: "Progresso da viagem" }),
     ).toBeInTheDocument();
   });
+
+  it("V2-L7-T06 (RF-16.6): sem `temConta`, não mostra o aviso de e-mail (default = com conta, comportamento MVP)", () => {
+    render(
+      <DestinoConfirmacaoScreen sessionId="session-1" destino="Foz do Iguaçu" />,
+    );
+
+    expect(
+      screen.queryByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("V2-L7-T06 (RF-16.6): com `temConta={true}`, não mostra o aviso de e-mail", () => {
+    render(
+      <DestinoConfirmacaoScreen
+        sessionId="session-1"
+        destino="Foz do Iguaçu"
+        temConta={true}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("V2-L7-T06 (RF-16.6, UX-SPEC.md §8.2 'T05'): com `temConta={false}`, mostra o aviso de e-mail abaixo dos botões, antes do clique", () => {
+    render(
+      <DestinoConfirmacaoScreen
+        sessionId="session-1"
+        destino="Foz do Iguaçu"
+        temConta={false}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "No próximo passo eu peço um e-mail para guardar a sua viagem.",
+      ),
+    ).toBeInTheDocument();
+  });
 });

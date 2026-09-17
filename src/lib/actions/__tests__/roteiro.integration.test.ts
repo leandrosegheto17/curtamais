@@ -26,7 +26,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { applySessionFlowTransition } from "@/lib/session-flow";
-import { InvalidTransitionError } from "@/lib/session-flow/errors";
+import {
+  InvalidTransitionError,
+  SessionNotFoundError,
+} from "@/lib/session-flow/errors";
 import type { RoteiroDayResult } from "@/lib/stage-rules";
 import { gerarRoteiro, aprovarRoteiro } from "@/lib/actions/roteiro";
 import {
@@ -190,6 +193,11 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
 
     const result = await gerarRoteiro(session.id);
 
+    if (!Array.isArray(result)) {
+      throw new Error(
+        `esperava RoteiroDayResult[], recebeu resultado discriminado: ${JSON.stringify(result)}`,
+      );
+    }
     expect(result).toHaveLength(2);
     expect(result[0].date).toBe("2026-12-20");
     expect(result[0].morning[0].activity).toBe("Trilha das Cataratas");
@@ -216,6 +224,36 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
     await expect(gerarRoteiro(session.id)).rejects.toBeInstanceOf(
       RoteiroEtapaInvalidaError,
     );
+    expect(generateStructuredCompletionWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it("V2-L6-T07/RF-16.7: sem conta (cookie anônimo divergente), recusa sem chamar o Gateway de IA", async () => {
+    const session = await createSessionAtRoteiroPendente();
+    sessionIds.push(session.id);
+    // Identidade da requisição não bate com o `anonSessionId` da sessão —
+    // mesmo efeito de "sem conta" para uma sessão que ainda é anônima: a
+    // posse falha ANTES mesmo de `exigeConta` ser avaliado (ADR-009 item 2,
+    // linha 4 da tabela) — 404 lógico, nunca `ContaNecessariaError`.
+    cookieGetMock.mockReturnValue({ value: "00000000-0000-4000-8000-000000000000" });
+
+    await expect(gerarRoteiro(session.id)).rejects.toBeInstanceOf(
+      SessionNotFoundError,
+    );
+    expect(generateStructuredCompletionWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it("V2-L6-T07/RF-16.7: dono anônimo confirmado mas sem conta autenticada devolve conta_necessaria sem chamar o Gateway de IA", async () => {
+    const session = await createSessionAtRoteiroPendente();
+    sessionIds.push(session.id);
+    // Cookie confere (mesmo `ANON_ID` do `beforeEach`), mas
+    // `getServerSessionMock` continua `null` (sem conta autenticada) — posse
+    // confirmada, `exigeConta: true` faz `assertSessionAccess` lançar
+    // `ContaNecessariaError`, capturada por `gerarRoteiro` e convertida no
+    // resultado discriminado.
+
+    const result = await gerarRoteiro(session.id);
+
+    expect(result).toEqual({ status: "conta_necessaria", sessionId: session.id });
     expect(generateStructuredCompletionWithRetryMock).not.toHaveBeenCalled();
   });
 });
@@ -273,6 +311,11 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
       dias: DIAS_PARA_APROVAR,
     });
 
+    if (!("proximaEtapa" in result)) {
+      throw new Error(
+        `esperava AprovarRoteiroResult, recebeu resultado discriminado: ${JSON.stringify(result)}`,
+      );
+    }
     expect(result.proximaEtapa).toBe("encerramento");
     expect(result.flowState).toBe("concluida");
     expect(result.totalItens).toBe(3);
@@ -417,5 +460,45 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
       /\[\s*\/?\s*inst\s*\]|novo\s+assistente/i,
     );
     expect(item.timingJustification).toContain("Evitar fila");
+  });
+
+  it("V2-L6-T07/RF-16.7: sem conta (cookie anônimo divergente), recusa sem persistir nenhum ItineraryItem nem avançar a etapa", async () => {
+    const session = await createSessionAtRoteiroPendente();
+    sessionIds.push(session.id);
+    cookieGetMock.mockReturnValue({ value: "00000000-0000-4000-8000-000000000000" });
+
+    await expect(
+      aprovarRoteiro({ sessionId: session.id, dias: DIAS_PARA_APROVAR }),
+    ).rejects.toBeInstanceOf(SessionNotFoundError);
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("roteiro_pendente");
+    const items = await prisma.itineraryItem.findMany({
+      where: { sessionId: session.id },
+    });
+    expect(items).toHaveLength(0);
+  });
+
+  it("V2-L6-T07/RF-16.7: dono anônimo confirmado mas sem conta autenticada devolve conta_necessaria sem persistir nenhum ItineraryItem nem avançar a etapa", async () => {
+    const session = await createSessionAtRoteiroPendente();
+    sessionIds.push(session.id);
+
+    const result = await aprovarRoteiro({
+      sessionId: session.id,
+      dias: DIAS_PARA_APROVAR,
+    });
+
+    expect(result).toEqual({ status: "conta_necessaria", sessionId: session.id });
+
+    const stored = await prisma.tripSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.flowState).toBe("roteiro_pendente");
+    const items = await prisma.itineraryItem.findMany({
+      where: { sessionId: session.id },
+    });
+    expect(items).toHaveLength(0);
   });
 });

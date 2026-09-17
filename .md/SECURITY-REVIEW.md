@@ -2071,3 +2071,751 @@ rota (ela mesma se declara temporária). Recomendação: prosseguir para
 **staging** é aceitável (mesmo ambiente onde o diagnóstico é necessário),
 mas produção deve aguardar essa confirmação — ver Bloqueio 009 para
 detalhamento e sugestão de próximo passo.
+
+## Lote V2-L1 — Schema V2.0 (migration) (2026-09-16)
+
+Auditoria após aprovação funcional do chapéu QA (`QA-REPORT.md`, "Lote
+V2-L1"). Escopo: os dois campos novos de dado pessoal/LGPD em `User`
+(`privacyConsentAt`, `privacyConsentVersion`) e `TripSession.linkedAt`,
+contra `SDD.md` §8.5/§8.7 e `GUARDRAILS.md` (item 31).
+
+### 1. Requisitos de segurança/compliance (`SDD.md` §8.7, `GUARDRAILS.md` #31)
+
+`privacyConsentAt`/`privacyConsentVersion` existem exatamente para
+satisfazer o guardrail 31 ("nunca criar conta sem consentimento explícito
+marcado... a versão do texto aceito é sempre gravada junto da conta").
+Este lote só cria as colunas — a escrita condicional a
+`consentimento === true` e o valor de `CONSENTIMENTO_VERSAO` são
+responsabilidade da tarefa de cadastro (fora de `V2-L1`, não auditada
+aqui); nada nesta migration força ou contorna esse requisito. Ambos os
+campos são nullable, coerente com contas de teste pré-existentes sem
+consentimento (nota de implementação do Executor, confirmada contra
+`SDD.md` §8.5: "nenhum produto foi ao ar").
+
+### 2. Exposição de dado sensível
+
+`privacyConsentAt` é um timestamp — não é dado sensível por si.
+`privacyConsentVersion` é `String?`, mas destinado a receber um literal de
+código (`CONSENTIMENTO_VERSAO`), não texto livre do usuário; nenhum
+`console.log`/mensagem de erro toca os campos novos nesta tarefa (a
+migration não contém lógica de aplicação). `linkedAt` idem — timestamp
+técnico, sem dado pessoal direto. Nenhum dos três campos aparece em
+resposta de API/log nesta tarefa, porque nenhuma leitura/escrita de
+aplicação foi implementada em `V2-L1` (só o schema). Sem achado de
+exposição.
+
+### 3. Análise estática / dependências
+
+Mudança é só schema Prisma + SQL de migration; sem lógica executável nova.
+`npx prisma validate`/`generate` sem erro (reconfirmado). Nenhuma
+dependência de terceiro nova introduzida por este lote — `npm audit` já
+coberto nas auditorias de lote anteriores, sem mudança de `package.json`
+aqui.
+
+### 4. Compliance (LGPD)
+
+Coerente com `GUARDRAILS.md` §"LGPD (RNF-06/RNF-13)": coleta continua
+restrita a e-mail/senha existentes; os campos novos armazenam metadado do
+*ato* de consentimento (quando e qual versão do texto), não dado pessoal
+adicional coletado do usuário. Nenhum enum/coluna obrigatória nova que
+pudesse forçar coleta além do já aprovado. Sem achado de compliance em
+aberto nesta tarefa.
+
+### 5. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum requisito novo derivado deste lote especificamente — mesmas
+variáveis de ambiente/secrets já geridas pelo MVP; a migration em si não
+introduz gestão de segredo nova.
+
+### Achados que exigem escalonamento
+
+Nenhum. A pendência de aplicar a migration contra um Postgres real (já
+registrada na nota de implementação e no veredito de QA) não é achado de
+segurança — é limitação de ambiente de execução, mesma classe já aceita
+para `L11-T02a` no MVP; não exige escalonamento ao Gestor.
+
+## Veredito (Lote V2-L1)
+
+**Aprovado, sem débito.** Nenhum achado de severidade alta/crítica, nenhum
+achado de compliance obrigatório em aberto. Os campos de consentimento
+LGPD (ADR-012) e vínculo de sessão (ADR-009) estão corretos na forma
+definida por `SDD.md` §8.5/§8.7 e coerentes com `GUARDRAILS.md` #31; a
+aplicação real do consentimento (checkbox, gravação condicional) é
+responsabilidade de tarefa futura do V2.0, fora do escopo de `V2-L1`.
+
+## Lote V2-L2 — Catálogo de destinos e estratégia de imagens (RF-15, RN-10, ADR-010) (2026-09-16)
+
+Auditoria após aprovação funcional do chapéu QA (`QA-REPORT.md`, "Lote
+V2-L2", aprovado). Escopo: `src/lib/catalogo/destinos.ts`,
+`src/lib/catalogo/resolver-imagem.ts`,
+`src/components/catalogo/destination-image.tsx`,
+`src/components/catalogo/destination-fallback-art.tsx`, `next.config.mjs`,
+mudanças em `src/lib/stage-rules/destino.ts`/`src/lib/actions/destino.ts`,
+`src/components/design-system/suggestion-card.tsx`,
+`src/components/destino/destino-sugestoes-screen.tsx` — contra `SDD.md`
+§8.2.2/§8.7, `GUARDRAILS.md` regras 28-30 e ADR-010.
+
+### 1. Superfície de imagem servida (`next/image`, ADR-010 §4)
+
+`next.config.mjs`: `images.formats`/`images.minimumCacheTTL` configurados,
+**sem** `images.remotePatterns` — todo arquivo servido por `next/image`
+vem de `public/destinos/` (próprio domínio), nenhuma URL externa
+configurável em tempo de execução. Confirmado que `public/destinos/` não
+existe no repositório (nenhuma foto curada ainda, coerente com `imagem:
+null` em todos os 23 destinos de `V2-L2-T01`) — não há, hoje, nenhum
+arquivo servido por essa via, e mesmo quando houver, o campo `arquivo` de
+`ImagemCurada` é tipado `` `/destinos/${string}` `` (template literal
+type), o que barra qualquer valor com esquema (`http://`/`https://`) ou
+`../` de passar na checagem de tipo do TypeScript, reduzindo o risco de um
+autor curador acidentalmente apontar para fora do próprio domínio. Como
+não há `remotePatterns`, mesmo que alguém tentasse, `next/image` rejeitaria
+uma URL absoluta externa em runtime. **Conforme** ADR-010 §4 e
+`GUARDRAILS.md` regra 30 (nunca buscar imagem em serviço externo em tempo
+de execução).
+
+### 2. Correspondência aproximada / integridade do catálogo (`GUARDRAILS.md` #29)
+
+Lido `resolver-imagem.ts` linha a linha: `resolverImagemDestino` só usa
+`MAPA_CORRESPONDENCIA_EXATA.get(chave)` (igualdade de string exata sobre o
+nome normalizado) — nenhuma chamada a função de distância de
+edição/similaridade em todo o módulo (`grep` por
+`includes`/`similar`/`distance`/`levenshtein`: nenhuma ocorrência). Em
+qualquer caso de dúvida (destino inexistente, ou existente sem `imagem`
+curada), cai sempre no fallback determinístico — nunca numa aproximação
+que pudesse, por exemplo, atribuir a foto de um destino a outro por engano
+de correspondência. **Conforme** `GUARDRAILS.md` regra 29.
+
+### 3. Créditos de imagem/link externo (`ImageCredit`, RF-15.5)
+
+`src/components/design-system/suggestion-card.tsx`, componente
+`ImageCredit`: os dois links (`autorUrl`, `fonteUrl`) usam
+`target="_blank" rel="noreferrer"`. `noreferrer` já implica `noopener`
+(impede que a aba nova acesse `window.opener`, mesma proteção contra
+tabnabbing reverso) — não falta `noopener` separadamente, é redundante
+adicioná-lo junto de `noreferrer`. Prática consistente com o resto do
+projeto (mesmo padrão já usado em outros pontos que abrem link externo,
+confirmado por amostragem). URLs (`autorUrl`/`fonteUrl`) só existem quando
+`imagem.tipo === "curada"`, ou seja, só quando um humano (dono do produto)
+já curou a foto e preencheu esses campos manualmente em
+`catalogo/destinos.ts` — não há caminho de um valor vindo de entrada de
+usuário ou da IA virar `href` de link renderizado (`resolverImagemDestino`
+nunca gera URL a partir do nome livre passado por parâmetro, só usa o
+`arquivo`/`autorUrl`/`fonteUrl` já cadastrados no catálogo estático).
+**Sem achado.**
+
+### 4. Exposição de dado sensível
+
+Todo o conteúdo novo deste lote é dado de catálogo estático (nome de
+destino, UF, região, crédito de foto) — nenhum dado pessoal de usuário.
+`resolverImagemDestino(suggestion.nome)`/`resolverImagemDestino(destino)`
+(chamadas em `stage-rules/destino.ts` e
+`destino-sugestoes-screen.tsx`) processam o nome do destino (sugerido pela
+IA ou digitado pelo usuário), nunca e-mail/senha/dado de sessão — e o
+resultado (`ImagemResolvida`) não é logado em nenhum ponto (confirmado por
+leitura: nenhum `console.log`/log estruturado nos arquivos tocados).
+Confirmado também (ver `QA-REPORT.md`, T04) que `imagem` nunca é persistida
+em `DestinationApproval` — reforça que não há superfície nova de
+armazenamento de dado a proteger. **Sem achado.**
+
+### 5. Análise estática / dependências
+
+Nenhuma dependência de terceiro nova introduzida por este lote (`git diff
+package.json`: sem alteração). `next/image` é API já usada/auditada no MVP
+(mesmo componente, este lote só passa a usá-lo para um novo tipo de
+conteúdo). Sem padrão de injeção (SQL/prompt/XSS) aplicável: não há
+interpolação de string em query nem em prompt do Gateway de IA neste
+código (o campo `imagem` é estritamente pós-processamento, confirmado em
+`QA-REPORT.md` T04 que `buildDestinoPrompt`/`destinoSugestoesSchema`
+permanecem intocados).
+
+### 6. Compliance (LGPD)
+
+Não aplicável — sem coleta/processamento de dado pessoal novo neste lote.
+
+### 7. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum novo. `public/destinos/` (quando existir) é servido como asset
+estático do próprio build Next.js — não introduz gestão de segredo, rede
+ou firewall diferente do que já existe para o restante de `public/`.
+Quando a curadoria real adicionar arquivos a `public/destinos/`, vale
+reforçar (não bloqueante agora, achado 0 arquivos hoje) que o pipeline de
+CI/CD confirme que cada arquivo de imagem tem autor/fonte/licença
+registrados em `catalogo/destinos.ts` antes do merge (`GUARDRAILS.md`
+regra 28) — sugestão de gate automatizado para o chapéu DevOps considerar
+quando a curadoria começar, não um requisito bloqueante desta auditoria.
+
+### Achados que exigem escalonamento
+
+Nenhum. Nenhum achado de severidade alta/crítica, nenhuma questão de
+risco/compliance que seja decisão de negócio — nada a escalar ao Gestor
+neste lote.
+
+## Veredito (Lote V2-L2)
+
+**Aprovado, sem débito.** Nenhum achado de severidade alta/crítica, nenhum
+achado de compliance obrigatório em aberto. Estratégia de imagem
+(`next/image` só do próprio domínio, sem `remotePatterns`), ausência de
+correspondência aproximada e prática de link externo (`rel="noreferrer"`)
+estão conformes com `SDD.md` §8.2.2/§8.7, `ADR-010` e `GUARDRAILS.md`
+regras 28-30.
+
+## Lote V2-L5 — Entradas pré-preenchidas (RF-13, RF-18.3) (2026-09-16)
+
+Auditoria após aprovação funcional do chapéu QA (`QA-REPORT.md`, "Lote
+V2-L5", aprovado). Escopo: as duas superfícies novas de entrada não
+confiável introduzidas por este lote — o parâmetro `destino` (slug) em
+`/entrada/data-livre` e o parâmetro `feriado` (data) em
+`/entrada/feriados` — contra `SDD.md` §8.2.4 e `GUARDRAILS.md`.
+
+### 1. `destino` (querystring) — `/entrada/data-livre`
+
+Lido `resolveDestinoInicial` (`src/app/entrada/data-livre/page.tsx`,
+linha 22-31): o valor de `searchParams.destino` é usado **exclusivamente**
+como chave de busca exata em `CATALOGO_DESTINOS.find((item) => item.slug
+=== slug)` — comparação de igualdade de string contra uma lista estática
+em memória (`@/lib/catalogo/destinos`, sem I/O, sem banco, sem chamada ao
+Gateway de IA). Nunca há interpolação do slug bruto em HTML/texto exibido:
+o que chega à UI é sempre `` `${destino.nome}, ${destino.uf}` `` — dado
+fixo do catálogo curado, não o slug da URL. Nenhuma consulta a `prisma`
+usa esse valor (confirmado por leitura: `page.tsx` não importa `prisma`
+nem qualquer módulo de acesso a dado). O texto renderizado por React
+(`{destinoInicial}` dentro de `value={destino}` em
+`t01-date-range-form.tsx`) é atribuição de `value` de um `<input>`
+controlado — não `dangerouslySetInnerHTML`, sem vetor de XSS mesmo se o
+slug contivesse caracteres de marcação (o `.find` de igualdade exata
+descarta qualquer slug que não bata literalmente com um dos 23 valores do
+catálogo, então nem chega a esse ponto). **Sem achado.**
+
+Quando o usuário mantém/edita o destino e submete, o valor passa por
+`sanitizeDestino` em `submeterDataLivre`
+(`src/lib/actions/data-livre.ts`, linha 124-132) — trim, limite de 200
+caracteres (rejeitado, não truncado, `InvalidDestinoLengthError`) e
+`sanitizeFreeTextForPrompt` (proteção de prompt injection, L11-T03,
+`GUARDRAILS.md` regra 18) antes de qualquer uso posterior — esse caminho
+não é novo neste lote (é RL6-T01/L11-T03, já auditado), só recebe um
+valor inicial diferente. **Sem achado novo.**
+
+### 2. `feriado` (querystring) — `/entrada/feriados`
+
+Lido `src/app/entrada/feriados/page.tsx`, linha 13/30-31:
+`FERIADO_PARAM_FORMAT = /^\d{4}-\d{2}-\d{2}$/` valida o formato **antes**
+de qualquer uso — valor que não bate vira `undefined` e nunca chega a
+`FeriadosScreen`. Mesmo o valor validado pelo formato não é usado para
+consulta a banco/IA: `FeriadosScreen` só faz comparação de igualdade de
+string (`holidayDateParam(holiday) === initialFeriadoDate`) contra a lista
+já calculada localmente por `getFeriadosProlongados` (cálculo
+determinístico, ADR-007, sem LLM). Não há interpolação em HTML: o valor
+nunca é renderizado diretamente — só usado para decidir qual
+`HolidayListItem` (dado da lista, não a querystring) marcar como
+selecionado e compor a mensagem de anúncio com `match.name`/`match.label`
+(dado da lista, novamente, não a string da URL). **Sem achado.**
+
+### 3. Exposição de dado sensível
+
+Nenhum dos dois parâmetros novos (`destino` slug, `feriado` data) é dado
+pessoal ou sensível — são referência a catálogo estático e a uma data de
+feriado nacional público. Nenhum `console.log`/log estruturado nos
+arquivos tocados por este lote (confirmado por leitura). Nenhum dos dois
+valores é persistido em `TripSession`/banco por este lote — a persistência
+do destino continua acontecendo só na submissão do formulário (via
+`sanitizeDestino`, já auditado), não a partir do valor da querystring em
+si.
+
+### 4. Análise estática / dependências
+
+Nenhuma dependência de terceiro nova introduzida (`git diff package.json`:
+sem alteração neste lote — a diferença de `package.json`/`package-lock.json`
+no `git status` do repositório é de trabalho anterior/paralelo, não deste
+lote). Nenhum padrão de injeção (SQL/prompt/XSS) novo: `destino` só
+alimenta um `.find` de igualdade sobre array em memória; `feriado` só
+alimenta uma regex de formato seguida de outro `.find` de igualdade.
+Nenhum `eval`/`dangerouslySetInnerHTML`/interpolação de string em query
+SQL nos arquivos tocados.
+
+### 5. Compliance (LGPD)
+
+Não aplicável — nenhum dado pessoal novo coletado ou processado por este
+lote. Slug de destino e data de feriado são ambos dado não pessoal.
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum novo. Ambas as rotas continuam servidas pelo mesmo App Router do
+Next.js já em produção — nenhuma gestão de segredo, rede ou firewall
+adicional.
+
+### Achados que exigem escalonamento
+
+Nenhum. Nenhum achado de severidade alta/crítica, nenhuma questão de
+risco/compliance que seja decisão de negócio — nada a escalar ao Gestor
+neste lote.
+
+## Veredito (Lote V2-L5)
+
+**Aprovado, sem débito.** Nenhum achado de severidade alta/crítica, nenhum
+achado de compliance obrigatório em aberto. Os dois parâmetros de
+querystring novos (`destino`, `feriado`) são tratados como entrada não
+confiável corretamente: `destino` só serve de chave de busca exata contra
+um catálogo estático (nunca interpolado em HTML/consulta de banco/IA sem
+antes ser resolvido contra o catálogo), `feriado` é validado por regex de
+formato antes de qualquer uso. Sem XSS/injeção possível por essas duas
+superfícies novas.
+
+## Lote V2-L6 — Verificação de conta no servidor (RF-16.7, ADR-009)
+
+Este é o lote de maior risco de segurança do V2.0 até aqui: muda quem pode
+acessar/escrever cada `TripSession` (retrofit do guard central, ADR-008
+item 4 → ADR-009 item 2). Auditoria por leitura direta de código e `git
+diff`, não pela nota do Executor, sobre `authorization.ts`,
+`persistence.ts`, `confirmacao-destino.ts`, `hospedagem.ts`, `passeios.ts`,
+`roteiro.ts`, e busca própria por consumidores da rota removida.
+
+### 1. Negação de posse sempre 404
+
+Rastreado todo ponto que usa o guard novo/alias:
+- `resolveSessionAccess` (`authorization.ts`, linhas 185-200): os 3 ramos
+  de negação de posse (`userId` divergente, `anonSessionId` divergente,
+  nenhum dos dois gravado/`record` nulo) devolvem `"denied"`,
+  nunca `"conta_necessaria"`, independente de `exigeConta`.
+- `assertSessionAccess` (linhas 226-239): `"denied"` sempre vira
+  `throw new SessionNotFoundError(sessionId)` — o MESMO erro/formato já
+  usado no MVP para "sessão inexistente" (não um erro 403/`Forbidden`
+  dedicado, confirmado por não haver nenhuma outra classe de erro de
+  autorização no arquivo). `"conta_necessaria"` só é possível depois que
+  a linha 3 da tabela (posse por cookie) já retornou `"granted"`/
+  `"conta_necessaria"` — nunca no mesmo `return` que trata negação.
+- Todo chamador (`persistence.ts` passo 2, `hospedagem.ts`/`passeios.ts`/
+  `roteiro.ts`/`confirmacao-destino.ts`) usa `assertSessionAccess`/
+  `assertSessionOwnership` sem capturar `SessionNotFoundError`
+  separadamente para devolver uma mensagem diferente — a exceção segue seu
+  caminho normal (para a camada de erro do Next.js), então um solicitante
+  ilegítimo recebe o mesmo tratamento de "sessão não existe" já validado
+  no MVP (L11-T02a). **Sem achado.**
+
+### 2. `ContaNecessariaError` nunca vaza como exceção não tratada
+
+Rastreados os 4 call sites onde `exigeConta: true` foi integrado
+(T04-T07), um por um:
+- `confirmacao-destino.ts` (`confirmarDestino`, linhas 96-115): a chamada
+  a `applySessionFlowTransition` está dentro de um `try`; o `catch`
+  verifica `error instanceof ContaNecessariaError` antes de qualquer outra
+  coisa e devolve o resultado discriminado; qualquer outro erro é
+  repropagado (`throw error`) — não silencia erros não relacionados.
+- `hospedagem.ts` (`gerarSugestoesHospedagem` linha 199-206,
+  `aprovarHospedagem` linha 381-390): mesmo padrão — `try/catch` dedicado
+  em volta só do `assertSessionAccess`, nunca em volta de uma chamada mais
+  ampla que esconderia outro tipo de erro.
+- `passeios.ts` (`gerarSugestoesPasseios` linha 175-182,
+  `aprovarSelecaoPasseios` linha 376-383): idem.
+- `roteiro.ts` (`gerarRoteiro` linha 200-207, `aprovarRoteiro` linha
+  461-468): idem.
+
+Em todos os 8 pontos (4 tarefas × leitura/aprovação), o `catch` está
+restrito à chamada do guard (ou à transição que o encapsula, no caso de
+`confirmarDestino`) — não há nenhum `try` "largo demais" que capturaria
+`ContaNecessariaError` silenciosamente em outro lugar nem nenhum caminho
+de código entre o guard e o corpo da função que pule o `try/catch`.
+Também não há nenhuma chamada a `gerarSugestoesHospedagem`/
+`gerarSugestoesPasseios`/`gerarRoteiro`/`aprovarHospedagem`/
+`aprovarSelecaoPasseios`/`aprovarRoteiro`/`confirmarDestino` fora dos
+respectivos arquivos que poderia recriar o mesmo risco por fora (busca
+`grep -rn` sem resultado de import direto do módulo `session-flow`
+chamando essas Server Actions diretamente, fora dos componentes de tela
+esperados). **Sem achado.**
+
+### 3. Superfície pública após remoção de `POST /api/gateway-ia/[etapa]`
+
+Confirmado por busca própria (independente da nota do Executor):
+`src/app/api/gateway-ia/` só contém `streaming-spike/route.ts` hoje — a
+rota `[etapa]` e seu teste foram de fato removidos (`git status` mostra
+`D` para os dois). Nenhum consumidor de produção restante (as 4 telas que
+usam `LoadingStream` já usam `fetchImpl` ligado às Server Actions, não a
+essa rota HTTP). A rota removida não tinha um guard equivalente que
+precisasse ser preservado em outro lugar — a autorização de posse/conta
+agora vive inteiramente nas Server Actions (`assertSessionAccess`,
+verificado na seção 1/2 acima), que são a única forma de acionar
+`generateAccommodationSuggestions`/`generatePasseiosSuggestions`/
+`generateRoteiro` em produção. `checkGatewayIaRateLimit` (rate limit da
+rota removida) permanece código morto de produção mas ainda testado —
+não é uma superfície pública, é módulo sem consumidor; sem risco de
+segurança, só possível limpeza futura (fora do escopo declarado de T08).
+**Sem achado.**
+
+### 4. Regressão nos ~10 chamadores de `assertSessionOwnership`
+
+`assertSessionOwnership` (`authorization.ts`, linhas 251-256) tem
+`exigeConta: false` FIXO no literal do objeto passado a
+`assertSessionAccess` — não há nenhum parâmetro, variável ou
+configuração externa que possa alterar esse valor em runtime. Os
+chamadores confirmados (`destino.ts`, `encerramento.ts`, mais os usos
+residuais em `hospedagem.ts`/`passeios.ts`/`roteiro.ts` para funções fora
+do escopo de T05-T07) continuam recebendo exatamente o mesmo
+comportamento de posse do MVP (ADR-008 item 4) — `resolveSessionAccess`
+não introduz nenhuma checagem adicional quando `exigeConta: false`: as
+linhas 1/2/4/5 da tabela são idênticas com ou sem `exigeConta`, e a linha
+3 (`anonSessionId` bate) devolve `"granted"` sem nenhum efeito colateral
+novo quando `exigeConta: false`. O teste dedicado de `authorization.test.ts`
+("`assertSessionOwnership` como alias... nunca lança `ContaNecessariaError`,
+mesmo num cenário que exigiria conta via `assertSessionAccess` direto")
+cobre exatamente esse risco de regressão. 26/26 testes de
+`authorization.test.ts` (10 pré-existentes de `isSameSessionOwner`/
+`assertSessionOwnership` + 16 novos) passando na execução própria desta
+validação. **Sem achado — nenhuma regressão de autorização introduzida
+pelo retrofit de T03.**
+
+### 5. Compliance (LGPD)
+
+Nenhum dado pessoal novo coletado por este lote — `ContaNecessariaError`
+carrega só `sessionId` (já não-pessoal isoladamente); `resolveRequestIdentity`
+lê `userId`/cookie já existentes, sem gravar nada novo. Confirma a
+consulta ao `User` antes de tratar um `userId` de JWT como válido
+(ADR-009, Consequências) — mitiga o cenário de conta excluída continuar
+sendo tratada como identidade válida enquanto o JWT não expira, reduzindo
+risco de acesso pós-exclusão (alinhado ao já auditado em
+`account-deletion.ts`, lotes anteriores). **Sem achado.**
+
+### 6. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum novo requisito de infraestrutura introduzido por este lote — o
+guard central continua rodando dentro do mesmo processo Next.js
+(Server Actions), sem novo serviço/rede/segredo. Recomendação preventiva
+(débito de processo, não de código): isolar cada instância de Executor em
+worktree/clone próprio em rodadas futuras com paralelismo real sobre a
+mesma árvore de trabalho — ver Bloqueio 011 abaixo.
+
+### Achados que exigem escalonamento
+
+Nenhum achado de severidade alta/crítica ou compliance obrigatório em
+aberto — nada a escalar ao Gestor como achado técnico deste lote. Ver nota
+de Bloqueio 011 abaixo (incidente de processo/tooling, não achado de
+código) para o registro do incidente de `git stash` durante a execução
+paralela, já com causa raiz identificada e mitigado.
+
+### Comandos rodados nesta validação (execução própria do Validador)
+
+`npx tsc --noEmit` (projeto inteiro): sem erro novo. `npm run lint`: 0
+erros. `npx vitest run src/lib/session-flow
+src/lib/actions/__tests__/resolve-request-identity.test.ts
+src/lib/actions/__tests__/hospedagem.test.ts
+src/lib/actions/__tests__/passeios.test.ts
+src/lib/actions/__tests__/roteiro.test.ts
+src/lib/actions/__tests__/confirmacao-destino.test.ts`: 123/123 passando
+(fora dos 2 arquivos de integração que exigem Postgres, indisponível neste
+ambiente — limitação conhecida, não achado).
+
+## Veredito (Lote V2-L6)
+
+**Aprovado, sem débito de segurança.** Nenhum achado de severidade
+alta/crítica, nenhum achado de compliance obrigatório em aberto, nenhuma
+regressão de autorização identificada nos ~10 chamadores existentes do
+alias `assertSessionOwnership`. O retrofit do guard central (ADR-008 item
+4 → ADR-009 item 2) preserva a garantia "negação de posse sempre 404,
+nunca 403/mensagem reveladora" em todos os pontos auditados, e
+`ContaNecessariaError` está corretamente contida nos 4 pontos onde foi
+integrada (T04-T07) — nunca vaza como exceção não tratada. Build liberado
+
+## Lote V2-L7 — Cadastro, vínculo e telas de conta (RF-16, RNF-13; ADR-009 item 3, ADR-012) (2026-09-16)
+
+Auditoria roda depois da aprovação funcional do chapéu QA para este lote
+(`QA-REPORT.md`, Lote V2-L7, Aprovado sem ressalvas). Este lote introduz
+criação de conta, autenticação e vínculo de sessão anônima a conta — a
+auditoria mais sensível do V2.0 até aqui.
+
+### Escopo desta auditoria
+
+`src/lib/actions/conta.ts`, `src/lib/user-account.ts`,
+`src/lib/auth.ts`, `src/lib/auth-rate-limit.ts`,
+`src/lib/session-flow/link-anonymous-session-to-user.ts`,
+`src/lib/actions/vinculo-conta.ts`, `src/app/cadastro/page.tsx`,
+`src/app/cadastro/cadastro-client.tsx`, `src/app/entrar/page.tsx`,
+`src/app/entrar/login-screen.tsx`, `src/components/conta/auth-form.tsx`,
+`src/lib/consentimento.ts`.
+
+### 1. Rate limit aplicado antes de operação cara/sensível
+
+- `criarConta` (`src/lib/actions/conta.ts`): `criarContaRateLimiter.register(clientIp)`
+  é a PRIMEIRA linha executada dentro da função, antes até da chamada a
+  `createUserAccount` (que faz o `hashPassword`/`bcrypt` caro e a consulta
+  `findUnique`) — confirmado por leitura sequencial do arquivo, nenhuma
+  leitura/escrita no banco acontece se o limite for excedido.
+- `authorize` (`src/lib/auth.ts`): a checagem de rate limit
+  (`authorizeRateLimiter.register`) roda logo após a validação trivial de
+  presença de `email`/`password` (sem custo) e ANTES do
+  `prisma.user.findUnique` e de qualquer `bcrypt.compare` — confirmado por
+  leitura sequencial: nenhuma consulta ao Prisma acontece se o IP/e-mail
+  excedeu o limite.
+- **Conforme.**
+
+### 2. Chave de rate limit de `authorize` nunca usa e-mail em claro
+
+- `hashEmailForRateLimit` (`auth-rate-limit.ts`) aplica SHA-256 sobre o
+  e-mail normalizado (trim + lowercase) antes de compor a chave
+  `${clientIp}:${emailKey}`, usada como chave do `Map` em memória de
+  `authorizeRateLimiter`. Nenhum outro ponto do módulo usa o e-mail em
+  claro como chave — confirmado por leitura completa de
+  `auth-rate-limit.ts` (a única estrutura de dados em memória do módulo é
+  o `Map<string, RateLimitWindowState>` interno de
+  `createFixedWindowRateLimiter`, chaveado sempre pela string composta já
+  hasheada). Grep por `console.(log|error|warn|info)` em `auth.ts`,
+  `auth-rate-limit.ts` e `conta.ts` (e em todo `src/`) — zero ocorrências
+  nesses arquivos; o e-mail nunca é passado a nenhuma chamada de log.
+- **Conforme** SDD.md §8.7.
+
+### 3. Enumeração de e-mail (resposta idêntica)
+
+- `authorize`: os 3 caminhos de falha (`!user || !user.passwordHash`,
+  rate limit excedido, `!isValid`) devolvem exatamente `return null` — o
+  mesmo valor, sem diferença de shape/mensagem entre eles. O caminho
+  "e-mail não existe" (`!user`) executa `await bcrypt.compare(credentials.password,
+  DUMMY_PASSWORD_HASH)` antes de retornar — mesmo custo de CPU do caminho
+  "e-mail existe, senha errada" (`verifyPassword` → `bcrypt.compare` real).
+  Nenhum branch de `authorize` escapa da equalização: o único outro
+  `return null` sem `bcrypt.compare` prévio é a validação de presença
+  (`!credentials?.email || !credentials?.password`), que é O(1) e não
+  depende de consulta ao banco/hash em nenhum dos dois lados de
+  comparação — não é um caso de enumeração (não distingue e-mails
+  existentes de inexistentes, só ausência total de input).
+- `LoginScreen` (`login-screen.tsx`): todo `!result || result.error ||
+  !result.ok` vira a mesma mensagem "E-mail ou senha incorretos." —
+  confirmado por leitura, sem `switch`/`if` que distinga motivo.
+- Teste de integração real (`auth-authorize.test.ts`, executado nesta
+  validação): "nunca loga o e-mail informado" e o teste de 10.8s que
+  exercita concretamente o caminho de e-mail inexistente contra o dummy
+  hash — não é só leitura estática, o comportamento foi exercitado.
+- **Conforme.** Nenhum branch esquecido do dummy compare.
+
+### 4. Vínculo de sessão não sequestrável (T02)
+
+- `linkAnonymousSessionToUser`: a condição do `updateMany` é
+  `{ id: input.sessionId, anonSessionId: input.anonSessionId, userId: null
+  }` — inclui o `anonSessionId` esperado (cookie da requisição corrente,
+  lido por `resolveRequestIdentity`/V2-L6-T02, nunca do corpo da
+  requisição), não confia só no `sessionId`. Um solicitante que não tem o
+  cookie `anon_session_id` correto para aquela sessão (ex.: tentando
+  adivinhar/forçar um `sessionId` de outra pessoa) faz `count === 0`; a
+  releitura subsequente (`existing.userId === input.userId`) também falha
+  porque `existing.userId` é `null` (a sessão de outra pessoa continua
+  anônima) e `input.userId` é do solicitante — cai no `throw
+  SessionNotFoundError` (404), nunca vincula. Sessão já vinculada a OUTRA
+  conta: `updateMany` não bate (`userId: null` no `where` falha, já que
+  `userId` real não é nulo) e a releitura mostra `existing.userId !==
+  input.userId` → 404 também.
+- `vincularSessaoAConta` (`src/lib/actions/vinculo-conta.ts`) resolve
+  `userId`/`anonSessionId` via `resolveRequestIdentity()` — não do
+  `input` do cliente (o único campo do `input` é `sessionId`) — confirmado
+  por leitura, nenhum parâmetro de identidade vem do payload da Server
+  Action.
+- **Conforme.** Nenhuma forma identificada de vincular uma sessão que não
+  seja do solicitante.
+
+### 5. T-GATE — guard de posse antes de qualquer orquestração
+
+- `src/app/cadastro/page.tsx`: `assertSessionAccess(sessionId,
+  tripSession, { exigeConta: false })` é chamado logo após o único
+  `prisma.tripSession.findUnique` (uma leitura, sem side effect) e antes
+  de qualquer resolução de `voltarHref`/estado terminal/render de
+  `CadastroClient`. Nenhuma chamada de `criarConta`/`vincularSessaoAConta`
+  acontece no Server Component (GET) — só dentro de `CadastroClient`, e só
+  em resposta a `onClick`/`onSubmit` explícito (confirmado: nenhum
+  `useEffect` no arquivo). Isso significa que a criação de conta +
+  vínculo NUNCA pode ser disparada só por visitar a URL — precisa de posse
+  válida da sessão (`assertSessionAccess` já teria redirecionado para `/`
+  antes de `CadastroClient` montar) e de uma ação explícita do usuário.
+  Um `sessionId` de outra pessoa (sem o cookie anônimo correspondente ou
+  já vinculada a outra conta) cai em `SessionNotFoundError` → `redirect("/")`
+  antes de qualquer orquestração.
+- **Conforme.** Nenhuma forma identificada de abusar T-GATE para
+  sequestrar sessão de outro usuário — a defesa em profundidade
+  (guard no GET + `anonSessionId` na condição do `updateMany` do vínculo)
+  significa que mesmo um bypass hipotético do guard de página ainda cairia
+  no 404 de `linkAnonymousSessionToUser`.
+
+### Débitos/observações (não bloqueiam)
+
+- Rate limit em memória por instância/processo (mesmo trade-off já aceito
+  em Lote 1/SDD.md §8.6 para o Gateway de IA) — contornável reiniciando o
+  processo ou com múltiplas instâncias sem storage compartilhado
+  (Redis/etc). Já era um débito registrado no Lote 1 para o mecanismo
+  equivalente do Gateway de IA; este módulo reaproveita o mesmo
+  trade-off, não introduz um novo. Severidade baixa para o estágio atual
+  do protótipo (single instance) — mesma decisão já aceita, não repetida
+  aqui como novo achado.
+- `extractClientIp` cai em `"unknown"` sem `X-Forwarded-For` — agrupa
+  clientes sem IP identificável sob uma chave restrita compartilhada
+  (severidade baixa: pior caso é um rate limit mais agressivo para esse
+  grupo, nunca ausência de limite).
+
+Nenhum dos dois itens acima exige tarefa em `Refatoração Lote-V2-L7`
+(débito já coberto pela decisão prévia do Lote 1, sem prazo novo
+necessário) — registrados aqui só para rastreabilidade.
+
+### Comandos executados nesta auditoria
+
+`npx vitest run src/lib/__tests__/auth-rate-limit.test.ts
+src/lib/__tests__/auth-authorize.test.ts
+src/lib/actions/__tests__/conta-rate-limit.test.ts src/app/entrar
+src/app/cadastro src/components/conta` — 60/60 passando (8 arquivos,
+incluindo o teste de 10.8s que exercita a branch dummy de `bcrypt.compare`
+de fato, não só por inspeção). Grep dedicado por `console.*` nos arquivos
+tocados do lote e por `onVerDepois`/`api/auth/signup` no repo inteiro —
+sem ocorrência indevida.
+
+### Veredito (Lote V2-L7)
+
+**Aprovado, sem débito de segurança novo.** Nenhum achado de severidade
+alta/crítica, nenhum achado de compliance obrigatório em aberto. Rate
+limit aplicado antes de qualquer operação cara/sensível nos dois pontos de
+entrada; chave de `authorize` nunca expõe e-mail em claro; enumeração de
+e-mail mitigada em todos os branches identificados (tempo e mensagem
+idênticos); vínculo de sessão protegido por dupla defesa
+(`anonSessionId` na condição do `updateMany` + guard de posse no GET de
+T-GATE) — nenhuma forma de sequestro de sessão de outro usuário
+identificada. Nenhum achado de relevância estratégica a sinalizar ao
+Gestor além do já registrado no Lote 1 (rate limit em memória,
+trade-off aceito). Build liberado para deploy do ponto de vista de
+segurança deste lote (sujeito à dupla aprovação QA+DevSecOps combinada
+de todos os lotes envolvidos no deploy real).
+para dupla aprovação (QA + DevSecOps) sobre este lote.
+
+## Lote V2-L8 — Meus roteiros (RF-17) (2026-09-16)
+
+Auditoria roda depois da aprovação funcional do chapéu QA para este lote
+(`QA-REPORT.md`, Lote V2-L8, Aprovado sem ressalvas). Este lote expõe a
+listagem/leitura de dados de viagem de uma conta e o único fluxo do
+projeto que apaga permanentemente dados de usuário a partir de uma UI —
+merece atenção equivalente à do Lote V2-L7.
+
+### Escopo desta auditoria
+
+`src/lib/actions/meus-roteiros.ts`, `src/lib/actions/meus-roteiros-label.ts`,
+`src/lib/actions/retomar-sessao.ts`, `src/lib/actions/obter-roteiro-leitura.ts`,
+`src/app/meus-roteiros/page.tsx`, `src/app/meus-roteiros/meus-roteiros-client.tsx`,
+`src/app/meus-roteiros/[sessionId]/page.tsx`,
+`src/components/meus-roteiros/roteiro-salvo-screen.tsx`,
+`src/components/ui/alert-dialog.tsx`, `src/app/api/account/route.ts`
+(reaproveitada, não editada por este lote — auditada aqui só para
+confirmar que a tarefa não introduziu um novo caminho de exclusão sem a
+auditoria original).
+
+### 1. `listarMeusRoteiros` nunca lista sessão de outro `userId`
+
+- `listarMeusRoteiros()` (`meus-roteiros.ts`) não declara nenhum
+  parâmetro — confirmado pela assinatura completa da função (`():
+  Promise<ListarMeusRoteirosResult>`). Não há `sessionId`/`userId` de
+  query string, corpo de requisição, header ou prop de componente em
+  nenhum ponto da cadeia (`page.tsx` chama `listarMeusRoteiros()` sem
+  argumento nenhum). `userId` vem exclusivamente de
+  `resolveRequestIdentity()`, que por sua vez só lê `getServerSession`
+  (sessão HTTP assinada pelo NextAuth, não confiável por manipulação de
+  cliente). A query Prisma usa `where: { userId }` — nenhum `OR`/filtro
+  adicional que pudesse ser contornado.
+- **Conforme.** Nenhum caminho identificado (URL, corpo, header) que
+  permita a um cliente listar sessões de outro `userId`.
+
+### 2. Guard de posse roda antes de qualquer leitura/escrita sensível (T02/T03)
+
+- `retomarSessao`: `assertSessionAccess(sessionId, session, { exigeConta:
+  true })` é chamado logo após o único `prisma.tripSession.findUnique`
+  (leitura mínima necessária para resolver `userId`/`anonSessionId` —
+  não expõe nenhum dado sensível por si só) e ANTES de
+  `applySessionFlowTransition` (a única escrita da função) e de
+  `rotaDaEtapa`. Confirmado por leitura sequencial: não há nenhuma
+  ramificação que alcance a escrita sem passar pelo guard primeiro.
+- `obterRoteiroLeitura`: mesmo padrão — `assertSessionAccess` roda antes
+  de `prisma.itineraryItem.findMany` (a leitura sensível). Negação de
+  posse (`SessionNotFoundError`) é lançada antes de qualquer consulta a
+  `ItineraryItem`.
+- **Conforme.** Guard central sempre à frente da operação sensível nos
+  dois módulos.
+
+### 3. Exclusão de conta (`DELETE /api/account`) — reaproveitamento, não novo caminho
+
+- `src/app/api/account/route.ts` não foi editado por este lote (git diff
+  confirmado — arquivo ausente da lista de arquivos tocados por
+  `V2-L8-T04` no `TASK.md`, e o conteúdo lido nesta auditoria já traz o
+  cabeçalho original "L11-T01"). `userId` continua resolvido
+  exclusivamente por `getServerSession(authOptions)` — nunca de `body`/
+  query string — mesma auditoria original do Lote 11 permanece válida,
+  não precisa ser refeita.
+- `meus-roteiros-client.tsx` consome essa rota via `fetch("/api/account",
+  { method: "DELETE" })` puro — nenhuma lógica de exclusão (cascade,
+  seleção de tabelas) duplicada no cliente ou em qualquer novo módulo de
+  servidor. Confirmado por leitura completa do arquivo: a única operação
+  de escrita disparada por esta tela é essa chamada `fetch`.
+- **Conforme.** Nenhum novo caminho de exclusão de conta introduzido;
+  reaproveitamento correto da rota já auditada (Lote 11).
+
+### 4. `AlertDialog` — proteção contra confirmação acidental/double-submit
+
+- O diálogo exige duas interações distintas (abrir → confirmar dentro do
+  diálogo) antes de disparar `DELETE /api/account` — confirmado pelo
+  teste `meus-roteiros-client.test.tsx` ("não dispara no primeiro
+  clique"), e por leitura: o botão que abre o diálogo só chama
+  `setDialogAberto(true)`, nunca `handleConfirmarExclusao` diretamente.
+- Double-submit do botão de confirmar: `disabled={confirmPending}`
+  (prop repassada a partir de `excluindoPending`) e
+  `setExcluindoPending(true)` é a primeira linha de
+  `handleConfirmarExclusao` — um segundo clique já processado pelo React
+  (depois do primeiro re-render) não consegue disparar uma segunda
+  chamada. A janela teórica de dois cliques na mesma tarefa de evento
+  (antes do re-render) não está bloqueada por um lock explícito, mas o
+  pior caso é uma segunda requisição `DELETE /api/account` contra uma
+  conta já excluída — a rota devolve 404 (`UserNotFoundError`) sem
+  nenhum efeito colateral adicional (idempotência de fato, não por
+  design explícito, mas suficiente). Severidade: não aplicável (não é uma
+  vulnerabilidade — não há ganho possível para um atacante em repetir uma
+  exclusão da própria conta).
+- **Conforme.** Nenhum risco de exclusão disparada por clique
+  acidental/único.
+
+### 5. `sessionId` do path param (T05) tratado como entrada não confiável
+
+- `src/app/meus-roteiros/[sessionId]/page.tsx`: `sessionId` vem só de
+  `params` (path da URL, controlável pelo cliente) e é usado apenas como
+  argumento de `obterResumoEncerramento(sessionId)`/
+  `obterRoteiroLeitura(sessionId)` — nunca interpolado em query bruta,
+  nunca usado para decidir autorização por si só. Ambas as funções
+  chamadas aplicam o guard de posse central (`assertSessionAccess`)
+  antes de devolver qualquer dado; a página só decide o que renderizar
+  a partir do RESULTADO dessas funções (que já filtraram por posse), não
+  a partir do `sessionId` cru. Negação de posse em qualquer uma das duas
+  chamadas leva ao mesmo redirect (`/meus-roteiros?erro=sessao-nao-encontrada`).
+- **Conforme.** Nenhum caminho identificado em que o `sessionId` do path
+  param alcance dado de outra conta antes do guard central.
+
+### Débitos/observações (não bloqueiam)
+
+- Mesma observação já registrada no `QA-REPORT.md` (Lote V2-L8): os 2
+  testes de integração real do lote não puderam ser re-executados neste
+  ambiente (sem Postgres local). Recomendação ao chapéu DevOps: rodar a
+  suíte de integração completa contra um Postgres de staging real antes
+  de liberar o deploy deste lote — checagem operacional, não um achado de
+  segurança pendente (a lógica dos guards foi confirmada por leitura
+  completa do código nas 3 Server Actions do lote).
+- Nenhum item de compliance (LGPD) novo: a exclusão de conta em si já foi
+  auditada como parte do Lote 11 (RNF-06); este lote só adiciona a UI que
+  a dispara, sem alterar o que é apagado.
+
+Nenhum dos itens acima exige tarefa em `Refatoração Lote-V2-L8`.
+
+### Comandos executados nesta auditoria
+
+Leitura completa dos 9 arquivos em escopo (sem confiar nas notas de
+implementação do Executor). `grep -rn "console\.(log|error|warn|info)"`
+nos 9 arquivos do lote — zero ocorrências (nenhum dado sensível, e-mail
+ou `sessionId`, exposto em log). `grep` por edição de
+`src/app/api/account/route.ts` no diff do lote — confirmado não editado.
+
+### Veredito (Lote V2-L8)
+
+**Aprovado, sem débito de segurança novo.** Nenhum achado de severidade
+alta/crítica, nenhum achado de compliance obrigatório em aberto.
+Isolamento por `userId` garantido em `listarMeusRoteiros` (assinatura sem
+parâmetro); guard de posse central sempre à frente de leitura/escrita
+sensível em `retomarSessao`/`obterRoteiroLeitura`; exclusão de conta
+reaproveita a rota já auditada no Lote 11 sem introduzir novo caminho;
+`AlertDialog` protege contra confirmação acidental e double-submit
+prático; `sessionId` de path param tratado como entrada não confiável em
+toda a extensão da rota T-MEUS-DET. Nenhum achado de relevância
+estratégica a sinalizar ao Gestor. Build liberado para deploy do ponto de
+vista de segurança deste lote (sujeito à dupla aprovação QA+DevSecOps
+combinada de todos os lotes envolvidos no deploy real).

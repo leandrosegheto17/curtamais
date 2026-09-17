@@ -64,7 +64,13 @@ export default async function EncerramentoPage({
 
   try {
     const resumo = await obterResumoEncerramento(sessionId);
-    return <EncerramentoScreen flowState={flowState} resumo={resumo} />;
+    return (
+      <EncerramentoScreen
+        flowState={flowState}
+        resumo={resumo}
+        temConta={resumo.temConta}
+      />
+    );
   } catch (error) {
     if (error instanceof SessionNotFoundError) {
       redirect("/");
