@@ -34,8 +34,12 @@ const suggestion = (
   exceedsBudget: false,
   // V2-L2-T04: campo agora obrigatório em `DestinationSuggestionResult`;
   // valor real de `resolverImagemDestino` (mesma função usada em produção),
-  // não um dublê, já que este é um campo puro de dado.
-  imagem: resolverImagemDestino("Gramado"),
+  // não um dublê, já que este é um campo puro de dado. Resolvido a partir
+  // do `name` final (depois do override), não hardcoded em "Gramado" —
+  // "Gramado" tem foto curada real desde RL-catálogo-fotos (2026-09-18),
+  // então um teste que passa outro `name` esperando fallback precisa que
+  // `imagem` acompanhe esse `name`, não fique preso ao default.
+  imagem: resolverImagemDestino(overrides.name ?? "Gramado"),
   ...overrides,
 });
 
@@ -105,22 +109,24 @@ describe("DestinoSugestoesScreen — estado Sucesso", () => {
   });
 
   // V2-L2-T05 — RF-15/UX-SPEC.md §8.2: cada sugestão exibe imagem ou
-  // fallback (`resolverImagemDestino("Gramado")` cai em fallback, porque
-  // nenhum destino do catálogo tem foto curada ainda — V2-L2-T01), com alt
-  // ilustrativo e o rótulo fixo "Combina com o seu período porque…" acima do
-  // nome, sem gerar texto novo.
+  // fallback. Usa um nome de destino DELIBERADAMENTE fora do catálogo (não
+  // "Gramado" — que tem foto curada real desde RL-catálogo-fotos,
+  // 2026-09-18) para que `resolverImagemDestino` sempre caia no fallback
+  // aqui, independente de quais destinos já foram curados.
   it("cada card exibe a imagem/fallback do destino (RF-15) e o rótulo fixo acima do nome", async () => {
     renderScreen({
-      gerarSugestoesDestino: vi.fn().mockResolvedValue([suggestion({ name: "Gramado" })]),
+      gerarSugestoesDestino: vi
+        .fn()
+        .mockResolvedValue([suggestion({ name: "Vila Fictícia de Teste" })]),
     });
 
-    await screen.findByText("Gramado");
+    await screen.findByText("Vila Fictícia de Teste");
 
     expect(
       screen.getAllByText("Combina com o seu período porque…"),
     ).toHaveLength(1);
-    // Nenhum destino do catálogo tem foto curada ainda (V2-L2-T01) — o card
-    // cai no fallback, sem crédito/selo, "porque não é foto" (UX-SPEC §8.2).
+    // Nome fora do catálogo (V2-L2-T01) — o card cai no fallback, sem
+    // crédito/selo, "porque não é foto" (UX-SPEC §8.2).
     expect(screen.getByTestId("destination-fallback-art")).toBeInTheDocument();
     expect(screen.queryByText("Imagem ilustrativa")).not.toBeInTheDocument();
   });

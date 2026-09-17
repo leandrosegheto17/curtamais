@@ -4,14 +4,16 @@
 // Para os cenários com imagem curada, mutamos temporariamente o campo
 // `imagem` de um destino real no `CATALOGO_DESTINOS` e restauramos o valor
 // ORIGINAL capturado antes da mutação (nunca `null` "de olho fechado" —
-// desde a curadoria do Rio de Janeiro, RL-catálogo-fotos, alguns destinos
-// já têm `imagem` !== null de verdade) — evita mockar `resolver-imagem.ts`
-// inteiro só para testar a UI que consome o resultado, e exercita o mesmo
-// caminho de código de produção (`resolverImagemDestino`) sem duplicar sua
-// lógica de correspondência aqui. Os testes que mutam usam um destino que
-// hoje ainda não tem foto curada (`SEM_IMAGEM_CURADA`, resolvido em
-// runtime), nunca um índice fixo, para não depender de qual destino já foi
-// curado.
+// desde a curadoria de fotos reais, RL-catálogo-fotos, os 8 destinos da
+// vitrine já têm `imagem` !== null de verdade, então os testes que precisam
+// do estado "sem imagem" usam um destino fora da vitrine). Não dá para usar
+// um `DestinoCatalogo` sintético/desacoplado aqui: `resolverImagemDestino`
+// (consumida por `ShowcaseCard`/`ImageCreditsSection` via
+// `resolverImagemDoDestino`) resolve por NOME contra o mapa construído a
+// partir do `CATALOGO_DESTINOS` real — um objeto solto com nome inventado
+// nunca bate no mapa e sempre cairia no fallback, ignorando o `imagem` que
+// setamos nele. Mutar o objeto real (mesma referência do mapa) é a única
+// forma de controlar o resultado.
 import type { ImgHTMLAttributes } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,12 +37,12 @@ const DESTINOS_VITRINE_ORDEM = CATALOGO_DESTINOS.filter((d) => d.vitrine !== nul
   (a, b) => a.vitrine! - b.vitrine!,
 );
 
-/** Um destino da vitrine ainda sem foto curada — usado pelos testes que mutam `imagem`. */
+/** Um destino do catálogo (fora da vitrine) ainda sem foto curada — usado pelos testes que mutam `imagem`. */
 function pegarDestinoSemImagemCurada() {
-  const destino = DESTINOS_VITRINE_ORDEM.find((d) => d.imagem === null);
+  const destino = CATALOGO_DESTINOS.find((d) => d.imagem === null);
   if (!destino) {
     throw new Error(
-      "Todos os destinos da vitrine já têm imagem curada — ajuste estes testes para mutar um destino fora da vitrine.",
+      "Todo o catálogo já tem imagem curada — ajuste estes testes (ex.: mockar `resolver-imagem.ts` em vez de mutar dado real).",
     );
   }
   return destino;
@@ -121,35 +123,31 @@ describe("ShowcaseSection (V2-L4-T04)", () => {
   });
 
   it("mostra o botão 'i' de crédito, fora do link principal, quando a imagem do card é curada (RF-15.5)", () => {
-    const destino = pegarDestinoSemImagemCurada();
-    const original = destino.imagem;
-    destino.imagem = IMAGEM_CURADA_EXEMPLO(destino.slug, "unsplash");
+    // Todos os 8 destinos da vitrine já têm imagem curada real — usa o
+    // primeiro deles diretamente, sem mutar nada.
+    const destino = DESTINOS_VITRINE_ORDEM[0];
+    expect(destino.imagem).not.toBeNull();
 
-    try {
-      render(<ShowcaseSection />);
+    render(<ShowcaseSection />);
 
-      const botaoCredito = screen.getByRole("link", {
-        name: `Crédito da imagem de ${destino.nome}`,
-      });
-      expect(botaoCredito).toHaveAttribute("href", "#creditos");
+    const botaoCredito = screen.getByRole("link", {
+      name: `Crédito da imagem de ${destino.nome}`,
+    });
+    expect(botaoCredito).toHaveAttribute("href", "#creditos");
 
-      const linkPrincipal = screen.getByRole("link", {
-        name: `Planejar viagem para ${destino.nome}`,
-      });
-      expect(linkPrincipal).not.toContainElement(botaoCredito);
-    } finally {
-      destino.imagem = original;
-    }
+    const linkPrincipal = screen.getByRole("link", {
+      name: `Planejar viagem para ${destino.nome}`,
+    });
+    expect(linkPrincipal).not.toContainElement(botaoCredito);
   });
 });
 
 describe("ImageCreditsSection (V2-L4-T04, RF-15.5)", () => {
   it("não renderiza nada quando nenhum destino recebido tem imagem curada", () => {
-    // Passa a lista explicitamente (em vez de usar o default `DESTINOS_VITRINE`)
-    // para não depender de quais destinos já têm foto curada no catálogo real.
-    const { container } = render(
-      <ImageCreditsSection destinos={DESTINOS_VITRINE_ORDEM.filter((d) => d.imagem === null)} />,
-    );
+    const destino = pegarDestinoSemImagemCurada();
+    expect(destino.imagem).toBeNull();
+
+    const { container } = render(<ImageCreditsSection destinos={[destino]} />);
 
     expect(container).toBeEmptyDOMElement();
   });
@@ -160,7 +158,7 @@ describe("ImageCreditsSection (V2-L4-T04, RF-15.5)", () => {
     destino.imagem = IMAGEM_CURADA_EXEMPLO(destino.slug, "pexels");
 
     try {
-      render(<ImageCreditsSection />);
+      render(<ImageCreditsSection destinos={[destino]} />);
 
       const secao = document.getElementById("creditos");
       expect(secao).not.toBeNull();
