@@ -649,30 +649,47 @@ secrets (`DATABASE_URL`/`NEXTAUTH_SECRET`/`OPENAI_API_KEY`/
 `VERCEL_TOKEN`/`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`) — produção nunca foi
 provisionada com credenciais próprias, só staging (Bloqueios 007/008).
 
+**Por que ter as variáveis configuradas na Vercel não resolve isto**
+(dúvida levantada pelo dono do produto, vale registrar): os segredos
+deste projeto vivem em dois lugares distintos, com propósitos distintos
+(Seção 3, item "Segredos") — **Environment Variables da Vercel**
+(escopadas Production/Preview) são o que a APLICAÇÃO usa quando builda
+e roda; **GitHub Environment Secrets** (escopados `staging`/`production`)
+são o que o WORKFLOW usa. O step que falhou (`npm run db:migrate`) roda
+no runner do GitHub Actions, antes de qualquer coisa chegar na Vercel —
+lê `secrets.DATABASE_URL` do GitHub, não a variável homônima da Vercel.
+As variáveis da Vercel para Production seguem válidas e necessárias (é
+delas que o build remoto se alimenta, Seção 4.2); elas só não participam
+deste step.
+
 **Pendência operacional exata** (ação humana, fora do alcance de
-qualquer agente — requer os valores reais das credenciais de produção):
-cadastrar os mesmos 6 secrets no GitHub Environment `production`
-(nome exato, minúsculo — é o que o `workflow_dispatch` usa):
+qualquer agente — requer os valores reais): o `deploy.yml` lê **apenas 4
+secrets** (grep em `.github/workflows/deploy.yml`: `DATABASE_URL` L50,
+`VERCEL_TOKEN` L60, `VERCEL_ORG_ID` L62, `VERCEL_PROJECT_ID` L63).
+`NEXTAUTH_SECRET`/`OPENAI_API_KEY` estão cadastrados no Environment
+`staging` por precaução histórica, mas **nunca são lidos pelo workflow**
+— só importam do lado da Vercel. Logo, bastam estes 4 no GitHub
+Environment `production` (nome exato, minúsculo — é o que o
+`workflow_dispatch` usa):
 
 ```
-gh secret set DATABASE_URL --env production --repo leandrosegheto17/curtamais
-gh secret set NEXTAUTH_SECRET --env production --repo leandrosegheto17/curtamais
-gh secret set OPENAI_API_KEY --env production --repo leandrosegheto17/curtamais
 gh secret set VERCEL_TOKEN --env production --repo leandrosegheto17/curtamais
 gh secret set VERCEL_ORG_ID --env production --repo leandrosegheto17/curtamais
 gh secret set VERCEL_PROJECT_ID --env production --repo leandrosegheto17/curtamais
+gh secret set DATABASE_URL --env production --repo leandrosegheto17/curtamais
 ```
 
-Decisão do dono do produto: se produção deve ter seu próprio banco
-Postgres/API keys distintos de staging (recomendado a longo prazo) ou
-se, por ora, reaproveita os mesmos valores de staging para destravar o
-primeiro deploy. `VERCEL_TOKEN`/`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`
-podem ser os mesmos de staging (é o mesmo projeto Vercel) sem problema —
-a distinção que importa é `DATABASE_URL` (schema/dados) e possivelmente
-`OPENAI_API_KEY` (billing separado). Depois de cadastrados, confirmar
-com `gh secret list --env production --repo leandrosegheto17/curtamais`
-antes de re-disparar `gh workflow run deploy.yml -f
-environment=production -f ref=main`.
+Os 3 primeiros podem ser copiados idênticos de `staging` sem ressalva —
+é o mesmo projeto Vercel. O único com decisão real de negócio é
+`DATABASE_URL`: hoje existe um único banco Neon (`sa-east-1`), apontado
+pelo secret de `staging` — ou seja, se produção reaproveitar o mesmo
+valor, "staging" e "produção" passam a compartilhar o mesmo banco e os
+mesmos dados reais de usuário, e todo deploy de staging roda migration
+contra a base de produção. Recomendação (não decisão): criar um segundo
+banco Neon para produção antes de publicar de fato. Depois de
+cadastrados, confirmar com `gh secret list --env production --repo
+leandrosegheto17/curtamais` antes de re-disparar `gh workflow run
+deploy.yml -f environment=production -f ref=main`.
 
 **Status desta tentativa**: `Bloqueado (GitHub Environment production
 sem nenhum secret cadastrado)`. Nenhuma tarefa `Concluída` revertida —

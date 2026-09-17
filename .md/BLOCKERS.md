@@ -1162,21 +1162,37 @@ entregue.
   qualquer chamada à Vercel. Não há evidência de que produção já tenha
   sido publicada por este workflow em algum momento (histórico de
   `gh run list` só mostra sucessos com `environment=staging`).
-- Sugestão (do orquestrador, não uma decisão): cadastrar os mesmos 6
-  secrets (valores reais de produção — que podem ou não ser os mesmos de
-  staging, decisão do dono do produto: banco/API keys de produção
-  geralmente devem ser distintos dos de staging) no GitHub Environment
-  `production` (nome exato, minúsculo, batendo com a opção do
-  `workflow_dispatch`): `gh secret set DATABASE_URL --env production --repo
-  leandrosegheto17/curtamais` (repetir para os outros 5). Se a intenção for
-  reaproveitar o mesmo projeto/banco de staging para produção agora (não
-  recomendado a longo prazo, mas destrava o disparo), os valores podem ser
-  copiados de staging — decisão do usuário, este Validador/orquestrador não
-  tem acesso aos valores para copiar sozinho. Depois de cadastrados,
-  confirmar com `gh secret list --env production --repo
-  leandrosegheto17/curtamais` (mesma checagem de timestamp já usada nos
-  Bloqueios 008/009 para confirmar que o cadastro de fato aconteceu) antes
-  de re-disparar.
+- **Distinção importante (fonte de confusão real, levantada pelo usuário)**:
+  os segredos deste projeto vivem em DOIS lugares distintos, com propósitos
+  distintos (já descrito na Seção 3 do `.md/DEPLOY.md`, item "Segredos", mas
+  fácil de confundir) — (1) **Environment Variables da Vercel**, escopadas
+  por ambiente Vercel (Production/Preview), que são o que a APLICAÇÃO usa
+  quando builda e roda; e (2) **GitHub Environment Secrets**, escopados por
+  GitHub Environment (`staging`/`production`), que são o que o WORKFLOW do
+  GitHub Actions usa. Este bloqueio é exclusivamente sobre (2): o step que
+  falhou (`npm run db:migrate`) roda no runner do GitHub, ANTES de qualquer
+  coisa chegar na Vercel, e por isso lê `secrets.DATABASE_URL` do GitHub —
+  não a variável de mesmo nome cadastrada na Vercel. Ter a variável
+  configurada na Vercel para Production (que é o caso) não supre isso.
+- Sugestão (do orquestrador, não uma decisão): o `deploy.yml` lê **apenas 4
+  secrets** (confirmado por grep em `.github/workflows/deploy.yml`:
+  `DATABASE_URL` linha 50, `VERCEL_TOKEN` linha 60, `VERCEL_ORG_ID` linha
+  62, `VERCEL_PROJECT_ID` linha 63). `NEXTAUTH_SECRET`/`OPENAI_API_KEY`
+  estão cadastrados no Environment `staging` mas **nunca são lidos pelo
+  workflow** — só importam do lado da Vercel, onde o build remoto acontece
+  (ver Seção 4.2 do `DEPLOY.md`, "Decisão: build remoto"). Logo, para
+  destravar produção bastam esses 4 no GitHub Environment `production`
+  (nome exato, minúsculo, batendo com a opção do `workflow_dispatch`).
+  Destes, 3 (`VERCEL_TOKEN`/`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`) podem ser
+  copiados idênticos de `staging` sem ressalva — é o mesmo projeto Vercel.
+  O único com decisão real de negócio é `DATABASE_URL`: se produção deve
+  apontar para um banco Neon próprio (recomendado — hoje `staging` aponta
+  para o único banco existente, logo "staging" e "produção" compartilhariam
+  dados reais) ou reaproveitar o mesmo por ora. Este orquestrador não tem
+  acesso aos valores para copiar sozinho. Depois de cadastrados, confirmar
+  com `gh secret list --env production --repo leandrosegheto17/curtamais`
+  (mesma checagem de timestamp já usada nos Bloqueios 008/009 para
+  confirmar que o cadastro de fato aconteceu) antes de re-disparar.
 - Severidade: **bloqueia publicação em produção** — não é achado de código
   (nenhum dos 12+8 lotes já aprovados é afetado), é puramente ausência de
   credencial no ambiente de produção do GitHub, nunca provisionada até
