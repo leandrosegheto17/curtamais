@@ -100,9 +100,30 @@ Disparo **manual** (`workflow_dispatch`), nunca automático em push — decisão
 deliberada: o modelo deste projeto é deploy gated por lote com dupla aprovação
 (QA + DevSecOps), não deploy contínuo a cada merge. Parâmetros do disparo:
 `environment` (`staging`/`production`) e `ref` (branch/SHA já aprovado).
-Passos: checkout do `ref` informado, `vercel pull`/`vercel build`/`vercel
-deploy --prebuilt` via Vercel CLI, autenticado por `VERCEL_TOKEN` (GitHub
-Secret, escopado ao Environment do GitHub correspondente).
+Passos: checkout do `ref` informado, `vercel deploy` (sem `--prebuilt`) via
+Vercel CLI, autenticado por `VERCEL_TOKEN` (GitHub Secret, escopado ao
+Environment do GitHub correspondente) e linkado ao projeto certo via
+`VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` (também GitHub Secrets, evita que a CLI
+tente adivinhar/criar um projeto novo).
+
+**Decisão: build remoto (na Vercel), não local (no runner)** — tentativa
+inicial usava `vercel pull` + `vercel build` + `vercel deploy --prebuilt`
+(compilando no runner do GitHub Actions e só publicando o artefato pronto).
+Essa abordagem quebrou porque `DATABASE_URL`/`NEXTAUTH_SECRET`/
+`OPENAI_API_KEY` estão cadastradas na Vercel como variável tipo **Secret**
+(antigo "Sensitive") — esse tipo só é decriptografado dentro da própria
+infraestrutura de build/runtime da Vercel, nunca entregue a `vercel pull`
+rodando fora dela (o CLI escreve `[SENSITIVE]` como placeholder). Resultado:
+`DATABASE_URL` chegava vazia ao `npm run build` local, e o Prisma Client
+falhava com `TypeError: Invalid URL` ao pré-renderizar `/`. Convertê-las para
+o tipo **Config** resolveria sem mudar o workflow, mas exige apagar e
+recriar cada variável (um valor tipo Secret não pode virar Config depois de
+salvo) — decisão do dono do produto foi evitar mexer nessas credenciais reais
+agora e resolver só no pipeline: `vercel deploy` sem `--prebuilt` faz upload
+do código-fonte e builda remotamente na Vercel, onde essas variáveis
+funcionam normalmente. Trade-off aceito: o log de build (`next build`,
+lint, prerender) deixa de aparecer no GitHub Actions e só fica visível no
+dashboard da Vercel.
 
 O ambiente `production` do GitHub Actions deve ter **"Required reviewers"**
 configurado manualmente em Settings > Environments do repositório (gate humano

@@ -52,28 +52,10 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
-      - name: Pull configuração do ambiente Vercel
-        run: >-
-          vercel pull --yes
-          --environment=${{ github.event.inputs.environment == 'production' && 'production' || 'preview' }}
-          --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Build (Vercel)
-        run: >-
-          vercel build
-          ${{ github.event.inputs.environment == 'production' && '--prod' || '' }}
-          --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
       - name: Deploy (Vercel)
         id: deploy
         run: >-
-          vercel deploy --prebuilt
+          vercel deploy
           ${{ github.event.inputs.environment == 'production' && '--prod' || '' }}
           --token=${{ secrets.VERCEL_TOKEN }}
         env:
