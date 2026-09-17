@@ -10,9 +10,10 @@
 // compõe aqui, na ordem exata do UX-SPEC.md §8.2 T-HOME, as 9 seções que as
 // tarefas V2-L4-T02 a T09 implementaram standalone (Bloqueio 011 evitou
 // edição concorrente deste arquivo por instâncias paralelas do Executor).
-// `ExamplePreviewSection` (V2-L4-T05) fica de fora — segue `Bloqueada` pelo
-// Bloqueio 010 (revisão editorial de `src/content/roteiro-exemplo.ts`
-// pendente) — e entra nesta mesma integração quando destravar.
+// `ExamplePreviewSection` (V2-L4-T05) entrou depois, quando o Bloqueio 010
+// (revisão editorial de `src/content/roteiro-exemplo.ts`) foi resolvido em
+// 2026-09-17 — mesma posição (item 5) que o UX-SPEC.md §8.2 já reservava,
+// entre `ShowcaseSection` (item 4) e `UpcomingHolidaysSection` (item 6).
 // `ImageCreditsSection` (de `ShowcaseSection`, V2-L4-T04) é passada como o
 // slot `imageCredits` de `SiteFooter` (V2-L4-T07): um único rodapé de
 // créditos para as imagens curadas da vitrine.
@@ -38,6 +39,7 @@ import { AccountNav } from "@/components/home/account-nav";
 import { EntryPathsSection } from "@/components/home/entry-paths-section";
 import { HowItWorksSteps } from "@/components/home/how-it-works-steps";
 import { ShowcaseSection, ImageCreditsSection } from "@/components/home/showcase-section";
+import { ExamplePreviewSection } from "@/components/home/example-preview-section";
 import { UpcomingHolidaysSection } from "@/components/home/upcoming-holidays-section";
 import { FaqSection } from "@/components/home/faq-section";
 import { SiteFooter } from "@/components/home/site-footer";
@@ -59,6 +61,7 @@ export default function HomePage() {
         <EntryPathsSection />
         <HowItWorksSteps />
         <ShowcaseSection />
+        <ExamplePreviewSection />
         <UpcomingHolidaysSection />
         <FaqSection />
         <SiteFooter imageCredits={<ImageCreditsSection />} />

@@ -1,12 +1,10 @@
 // AUTO-GERADO por `scripts/exportar-roteiro-exemplo.ts` (V2-L3-T01, RF-14,
 // ADR-011) — não editar os dados abaixo à mão; rode o script de novo.
 //
-// ATENÇÃO (ver nota completa em `generatedFrom.note` abaixo e em
-// `.md/TASK.md`, V2-L3-T01): este conteúdo está PENDENTE DE REVISÃO HUMANA
-// do dono do produto antes de ser tratado como definitivo (sem preço fora de
-// faixa, sem afirmação factual duvidosa, voz de consultor) — a tarefa que o
-// gerou fica `Bloqueada`, não `Concluída`, até essa revisão acontecer e um
-// novo commit confirmar o conteúdo revisado (ver `.md/BLOCKERS.md`).
+// Conteúdo revisado e aprovado como definitivo pelo dono do produto em
+// 2026-09-17 ("Roteiro aprovado" — nomes de hospedagem/passeios, faixas de
+// preço e tom de voz aceitos como estão) — ver resolução do Bloqueio 010 em
+// `.md/BLOCKERS.md`. `V2-L3-T01` está `Concluída` em `.md/TASK.md`.
 //
 // Tipos deliberadamente formatados como `Omit<RoteiroDayResult, "date">`
 // (mais `dayLabel`) — mesmos tipos do roteiro real

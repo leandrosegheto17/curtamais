@@ -3598,6 +3598,193 @@ nota do Executor. Nenhuma reprovação crítica. Um achado **simples**
 fechamento estrutural abaixo — não bloqueia o lote nem exige retorno ao
 `executor`.
 
+## Lote V2-L4 — Home vitrine (RF-12, RF-18; ADR-011) (2026-09-17)
+
+10 tarefas (`V2-L4-T01` a `T09` + `RL-V2-L4-T01`, integração final),
+todas `Concluída` no `TASK.md` no momento desta validação — primeiro
+veredito de lote completo e definitivo do V2-L4. Uma checagem estrutural
+anterior (2026-09-16) havia sido parcial, feita com `V2-L4-T05`
+`Bloqueada` (Bloqueio 010); esse bloqueio foi resolvido em 2026-09-17
+(dono do produto aprovou `src/content/roteiro-exemplo.ts`) e `V2-L4-T05` +
+`RL-V2-L4-T01` já a integram na página real. `.md/QA-REPORT.md` nunca
+tinha uma seção "V2-L4" — este é o primeiro registro formal.
+
+Validado contra o critério de aceite literal de cada linha (Seção 3 do
+`TASK.md`) e contra `UX-SPEC.md` §8.2 T-HOME (ordem fixa das 9 seções,
+RF-12.1), `PRD-TECNICO.md` (RF-12, RF-18) e `ADR-011` — pelo código real
+(`src/app/page.tsx`, `src/components/home/*`, `src/content/roteiro-exemplo.ts`)
+e pela suíte executada de forma independente nesta validação, não pelas
+notas de implementação do Executor.
+
+### Suíte executada nesta validação (independente das notas do Executor)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit` (projeto inteiro) | Nenhum erro novo atribuível a `src/components/home`, `src/app/page.tsx` ou `src/app/__tests__/page.test.tsx`. Erros pré-existentes (spread de teste em `src/app/*/\__tests__/page.test.tsx` de outras rotas, `budget-insufficient-banner.test.tsx`, `auth-callbacks.test.ts`) confirmados não relacionados a este lote. |
+| `npx eslint src/components/home src/app/page.tsx src/app/__tests__/page.test.tsx` | 0 erros, 3 warnings pré-existentes idênticos (`_priority` não usado nos mocks de `next/image` de `page.test.tsx`, `hero-section.test.tsx`, `showcase-section.test.tsx`) — mesmo padrão já documentado em outras validações, não bloqueante. |
+| `npx vitest run src/components/home src/app/__tests__/page.test.tsx` | 65/65 testes passando, 12 arquivos, sem regressão. |
+| `npm run build` (`next build`, projeto inteiro) | Verde. `/` prerendered estático (`○`), `5.22 kB`/`137 kB First Load JS`, `revalidate: 1h`, `expire: 1y`. |
+
+### Integração ponta a ponta das 9 seções (RL-V2-L4-T01)
+
+`src/app/page.tsx` compõe `HeroSection` → `EntryPathsSection` (`#caminhos`)
+→ `HowItWorksSteps` → `ShowcaseSection` → `ExamplePreviewSection` →
+`UpcomingHolidaysSection` → `FaqSection` → `SiteFooter` (recebendo
+`<ImageCreditsSection />` no slot `imageCredits`) → `MobileStickyCta` (fora
+de `<main>`) — ordem idêntica, item a item, ao `UX-SPEC.md` §8.2 T-HOME
+(itens 1 a 9), confirmada por leitura direta do arquivo e pelo teste
+`RL-V2-L4-T01 > renderiza as 9 seções na ordem exata do UX-SPEC.md §8.2,
+cada uma uma única vez` (`compareDocumentPosition` par a par + asserção de
+contagem 1 para cada marcador). Nenhuma seção duplicada, nenhuma seção
+ausente. `ExamplePreviewSection` (`V2-L4-T05`) está na posição exata do
+item 5 ("O que você recebe"), entre `ShowcaseSection` (item 4) e
+`UpcomingHolidaysSection` (item 6) — confirma que a integração pendente
+registrada na checagem estrutural de 2026-09-16 foi de fato concluída, não
+só marcada `Concluída` na tabela.
+
+`MobileStickyCta` usa os seletores default
+(`[aria-label="Destino em destaque"]`/`#caminhos`), que batem com o DOM
+real desta página (não props explícitas) — confirmado pelo teste
+dedicado. `ImageCreditsSection` some corretamente hoje (nenhum destino do
+catálogo tem imagem curada, ADR-010) sem quebrar `SiteFooter`, que
+continua presente normalmente — o slot é de fato opcional, confirmado pelo
+teste.
+
+### V2-L4-T01 a T04, T06a/T06b, T07, T08, T09 — seções individuais
+
+Critérios de aceite específicos de cada tarefa (overlay AA do hero/RNF-09,
+três caminhos com peso igual e foco programático em `#caminhos`/RF-12.1,
+4 passos com texto exato de `HowItWorksSteps`, 8 `ShowcaseCard` na ordem do
+catálogo sem preço/temporada/RF-12.3, `getProximosFeriados` sem duplicar
+cálculo de RF-02.2/RNF-07, 5 perguntas do FAQ com identificação como IA
+visível/RNF-11, `MobileStickyCta` só abaixo de `md` respeitando
+`prefers-reduced-motion`/RNF-10, `AccountNav` sem `SessionProvider` global
+e sem CLS) já haviam sido confirmados linha a linha na checagem estrutural
+de 2026-09-16 (código lido diretamente, não só a nota do Executor) e são
+reconfirmados nesta validação pela suíte 65/65 verde — sem regressão em
+nenhum teste isolado de seção. Não há mudança de código nestes arquivos
+desde então; a única mudança relevante ao lote foi a integração de
+`V2-L4-T05`/`RL-V2-L4-T01`, tratada em detalhe acima.
+
+`prefers-reduced-motion` confirmado por leitura direta de
+`src/components/home/mobile-sticky-cta.tsx` (`window.matchMedia
+("(prefers-reduced-motion: reduce)")`, linha 102); overlay AA confirmado
+por leitura direta de `src/components/home/hero-section.tsx`
+(`overlay-scrim-hero`, RNF-09, linha 60).
+
+### V2-L4-T05 — `ExamplePreviewSection` (validação completa, não só a leve já feita)
+
+`src/components/home/example-preview-section.tsx`: reaproveita
+`roteiroExemplo.days[0]` (`@/content/roteiro-exemplo`, mesmo arquivo de
+T-EX/`V2-L3-T01`, já aprovado pelo dono em 2026-09-17) e
+`ItineraryDayBlock` com `readOnly` — mesmo componente/prop que T-EX já
+usa, sem duplicar lógica de apresentação do dia. `ExampleBadge` presente;
+nota fixa "Os preços que eu sugiro são faixas aproximadas, não cotações."
+(RF-12.3) presente; CTA "Ver o roteiro de exemplo completo" →
+`/roteiro-exemplo`. 5/5 testes de
+`src/components/home/__tests__/example-preview-section.test.tsx`
+confirmam cada um destes pontos individualmente, incluindo que o Dia 1
+vem do fixture real (atividades específicas de manhã/tarde/noite) e não é
+reescrito no componente.
+
+**Aprovado.**
+
+### Achado simples (não bloqueia) — comentário desatualizado em `src/content/roteiro-exemplo.ts`
+
+- **Severidade: simples.** As linhas 1-9 do arquivo ainda dizem "PENDENTE
+  DE REVISÃO HUMANA... a tarefa que o gerou fica `Bloqueada`, não
+  `Concluída`, até essa revisão acontecer" — mas o Bloqueio 010 foi
+  resolvido em 2026-09-17 (dono do produto aprovou o conteúdo,
+  `.md/BLOCKERS.md`) e `V2-L3-T01` já está `Concluída`. O comentário não
+  foi atualizado no commit de resolução.
+- Não compromete nenhum critério de aceite central: o conteúdo em si está
+  aprovado e correto, é só o comentário de cabeçalho do arquivo que ficou
+  desatualizado — risco de confundir quem ler o arquivo depois (parece
+  sugerir que o conteúdo ainda não é definitivo, quando já é). Não
+  bloqueia nenhuma outra tarefa do lote.
+- Ação: **não** volta ao `executor` imediatamente — vira tarefa em
+  `Refatoração Lote-V2-L4` (ver `.md/TASK.md`), registrada pelo Validador
+  nesta mesma validação (não havia registro prévio deste achado
+  específico em `Refatoração Lote-V2-L4`, confirmado por busca no
+  arquivo antes de criar a entrada).
+
+### Requisitos não funcionais relevantes ao lote
+
+- Acessibilidade: foco programático em `#caminhos` só quando chega via
+  hash (não rouba foco em visita normal), `aria-live` não aplicável a este
+  lote (sem anúncio dinâmico), FAQ com identificação como IA em texto
+  visível (RNF-11), contraste AA do overlay do hero (RNF-09).
+- Performance: `/` estática, `revalidate: 3600`, sem `cookies()`/
+  `getServerSession` na página (confirmado por teste dedicado e pela
+  ausência de `Route (app)` dinâmica para `/` no output do build) — nenhum
+  I/O bloqueante de rota introduzido pelo lote.
+- Usabilidade: ordem das seções idêntica ao `UX-SPEC.md` §8.2, sem
+  duplicação de CTA (`MobileStickyCta` some quando `#caminhos` está
+  visível, evitando ação redundante ao lado dos três caminhos).
+
+### Bugs encontrados
+
+Nenhum bug de severidade crítica ou simples encontrado nas 10 tarefas além
+do achado de comentário desatualizado acima (que não é um bug de
+comportamento, é uma inconsistência de documentação inline).
+
+### Veredito (Lote V2-L4)
+
+**Aprovado, sem ressalva bloqueante.** As 10 tarefas (`V2-L4-T01` a `T09` +
+`RL-V2-L4-T01`) cumprem seu critério de aceite literal, confirmado por
+leitura do código, `git diff` implícito na comparação com a checagem
+estrutural anterior, e execução real e independente da suíte (tsc/eslint/
+vitest/build) nesta validação. Nenhuma reprovação crítica, nenhuma
+reprovação simples de comportamento. Um achado simples de documentação
+(comentário desatualizado em `src/content/roteiro-exemplo.ts`) vira tarefa em
+`Refatoração Lote-V2-L4` no fechamento estrutural abaixo — não bloqueia o
+lote nem exige retorno ao `executor`. Lote liberado para a auditoria de
+segurança do chapéu DevSecOps.
+
+### Validação pontual — `RL-V2-L4-T02` (2026-09-17)
+
+Escopo reduzido: só a tarefa `RL-V2-L4-T02` (achado simples anterior,
+comentário desatualizado em `src/content/roteiro-exemplo.ts`), marcada
+`Concluída` pelo Executor.
+
+- `git diff -- src/content/roteiro-exemplo.ts` confirmado: só as linhas
+  1-9 (comentário de cabeçalho) mudaram. Nenhum dado de `roteiroExemplo`
+  tocado.
+- Comentário novo não menciona mais "PENDENTE DE REVISÃO HUMANA"/
+  `Bloqueada`; referencia diretamente a resolução do Bloqueio 010
+  (2026-09-17, "Roteiro aprovado") e `V2-L3-T01 Concluída`, em vez da
+  descrição desatualizada.
+- `npx tsc --noEmit` executado de forma independente: mesmos erros
+  pré-existentes de outros arquivos (`src/app/*/__tests__/page.test.tsx`
+  com spread de tupla, `budget-insufficient-banner.test.tsx`,
+  `auth-callbacks.test.ts`), nenhum novo erro e nada relacionado a
+  `roteiro-exemplo.ts`.
+- `npx vitest run` dos três arquivos relevantes executado de forma
+  independente: `src/content/__tests__/roteiro-exemplo.test.ts` (8),
+  `src/components/home/__tests__/example-preview-section.test.tsx` (5),
+  `src/app/__tests__/page.test.tsx` (10) — 23/23 verdes.
+
+**Veredito: Aprovado.** Critério de aceite cumprido item a item.
+
+### Achado simples novo (não bloqueia) — metadado de proveniência também desatualizado
+
+- **Severidade: simples.** Fora do escopo literal de `RL-V2-L4-T02`
+  (restrito ao comentário), mas registrado nesta mesma validação: em
+  `src/content/roteiro-exemplo.ts`, o campo de dados
+  `generatedFrom.reviewedByOwner` (hoje `false`) e o texto de
+  `generatedFrom.note` (linhas ~203-208) também ficaram desatualizados
+  pela aprovação do Bloqueio 010 — ainda dizem "PENDENTE DE REVISÃO
+  HUMANA... V2-L3-T01 permanece 'Bloqueada'".
+- Confirmado que é metadado de proveniência interno, não lido por
+  nenhuma tela/UI (busca em `src/` fora do próprio arquivo só encontra
+  uso em `src/content/__tests__/roteiro-exemplo.test.ts`, que testa que
+  `reviewedByOwner` é `boolean` e que `note` não é vazio — nunca o valor
+  específico). Não compromete nenhum critério de aceite central, não
+  bloqueia nenhuma outra tarefa.
+- Ação: vira tarefa `RL-V2-L4-T03` em `Refatoração Lote-V2-L4`
+  (`.md/TASK.md`), registrada pelo Validador nesta checagem estrutural —
+  sem retorno ao `executor` imediato.
+
 ## Lote V2-L5 — Entradas pré-preenchidas (RF-13, RF-18.3) (2026-09-16)
 
 2 tarefas (`V2-L5-T01`, `V2-L5-T02`), ambas `Concluída` no `TASK.md` antes

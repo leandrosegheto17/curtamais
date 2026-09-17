@@ -849,7 +849,19 @@ qualquer nova tentativa de promoção a staging.
   `V2-L6`, `V2-L7`, `V2-L8` seguem sem dependência deste conteúdo) — bloqueia
   só `V2-L3-T02` e `V2-L4-T05`, que não devem iniciar implementação antes
   desta revisão.
-- Status: Aberto
+- Status: Resolvido
+- Resolução (2026-09-17, usuário/dono do produto): conteúdo de
+  `src/content/roteiro-exemplo.ts` revisado e aprovado como definitivo
+  ("Roteiro aprovado") — nomes de hospedagem/passeios, faixas de preço e tom
+  de voz aceitos como estão, opção (a) da sugestão acima (dono revisa e
+  confirma o fixture, sem rodar o fluxo real). `V2-L3-T01` marcada
+  `Concluída` em `.md/TASK.md`. `V2-L3-T02` (rota `/roteiro-exemplo`) já
+  havia sido implementada antecipadamente (commit `810be02`, 2026-09-17)
+  usando o mesmo conteúdo ainda não aprovado à época — sem risco retroativo,
+  já que o conteúdo publicado é exatamente o que acaba de ser aprovado aqui;
+  `TASK.md` corrigido de `Pendente` para `Concluída`. `V2-L4-T05` (prévia do
+  Dia 1 na home) liberada de `Bloqueada` para `Não iniciada`, elegível para
+  execução.
 
 ## Nota de escopo — o que a L4-T01 implementou apesar do bloqueio
 

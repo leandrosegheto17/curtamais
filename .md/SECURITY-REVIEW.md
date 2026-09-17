@@ -2259,6 +2259,153 @@ correspondência aproximada e prática de link externo (`rel="noreferrer"`)
 estão conformes com `SDD.md` §8.2.2/§8.7, `ADR-010` e `GUARDRAILS.md`
 regras 28-30.
 
+## Lote V2-L4 — Home vitrine (RF-12, RF-18; ADR-011) (2026-09-17)
+
+Auditoria após aprovação funcional do chapéu QA (`QA-REPORT.md`, "Lote
+V2-L4", aprovado sem ressalva bloqueante — achado simples de documentação
+registrado em `Refatoração Lote-V2-L4`, fora do escopo desta auditoria).
+Escopo: as 10 tarefas do lote (`V2-L4-T01` a `T09` + `RL-V2-L4-T01`,
+integração final) — `src/app/page.tsx`, `src/components/home/*.tsx`
+(incluindo `example-preview-section.tsx`, novo desde a checagem parcial de
+2026-09-16), `src/components/design-system/example-badge.tsx`,
+`src/content/roteiro-exemplo.ts` — contra `SDD.md` §7, `ADR-011` e
+`GUARDRAILS.md` regra correspondente a RN-08. Achados verificados por
+leitura direta do código e grep próprio, não pelas notas de implementação
+do Executor.
+
+### 1. Zero chamada a `gateway-ia`/`stage-rules`/Prisma/OpenAI SDK (RN-08, ADR-011)
+
+Regra `@typescript-eslint/no-restricted-imports` em `.eslintrc.json`
+(bloco `overrides`, linhas 3-34) cobre `src/app/page.tsx`,
+`src/app/roteiro-exemplo/**`, `src/components/home/**` e
+`src/content/**` — bloqueia import de valor de `@/lib/gateway-ia`,
+`@/lib/stage-rules`, `@/lib/prisma` e `openai`, mas permite `import type`
+(necessário porque `src/content/roteiro-exemplo.ts` reaproveita os tipos
+de `@/lib/stage-rules/roteiro`). `npx eslint` rodado nesta auditoria sobre
+todos os arquivos do lote: 0 erros, só os 3 warnings pré-existentes de
+mock de `next/image` (`_priority` não usado) já documentados nas
+validações anteriores — nenhum erro novo, a regra segue ativa e cobrindo
+o diretório inteiro, incluindo `example-preview-section.tsx` (novo desde a
+última auditoria).
+
+Confirmado por leitura direta que `example-preview-section.tsx`
+(`V2-L4-T05`) importa `roteiroExemplo` de `@/content/roteiro-exemplo` — um
+módulo TypeScript estático (objeto literal `export const roteiroExemplo:
+RoteiroExemplo = {...}`, sem `fetch`/I/O/chamada de rede, sem `async`) que
+já está "congelado" em tempo de build/bundle: não é uma chamada dinâmica a
+nenhum serviço, é dado embutido no bundle como qualquer outra constante.
+`src/content/roteiro-exemplo.ts` também está dentro do escopo da regra de
+lint (`src/content/**/*.{ts,tsx}`), então mesmo que alguém tentasse
+adicionar uma chamada de valor a `gateway-ia`/`prisma` ali no futuro, o
+lint bloquearia em CI. `src/app/page.tsx` confirma `export const
+revalidate = 3600` (linha 48) e nenhuma leitura de `cookies()`/`headers()`/
+`getServerSession` — `npm run build` (rodado nesta auditoria) confirma `/`
+segue prerendered estático (`○`), sem rota dinâmica. **Sem achado.**
+
+### 2. `AccountNav` — exposição de dado de sessão (V2-L4-T09, RL-V2-L4-T01)
+
+Lido `src/components/home/account-nav.tsx` linha a linha: `getSession()`
+(não `useSession()`, sem `SessionProvider` global, conforme ADR-011) é
+chamado dentro de `useEffect`, e o único dado do objeto `session`
+efetivamente usado é o booleano `session?.user` (linha 52-54) para decidir
+entre os estados `authenticated`/`unauthenticated` — nenhum campo de
+`session.user` (nome, email, id) é lido, armazenado em `state` ou
+renderizado no DOM. `getSession` rejeitada cai no mesmo estado
+`unauthenticated` (padrão seguro, linha 57-62). Nenhum `console.log`/log
+estruturado no arquivo. A integração final (`RL-V2-L4-T01`,
+`src/app/page.tsx` linha 57) só renderiza `<AccountNav />` sem passar nem
+receber props adicionais — não alterou o comportamento auditado
+anteriormente. **Reconfirmado, sem achado**, mesma conclusão da checagem
+parcial de 2026-09-16.
+
+### 3. `dangerouslySetInnerHTML`/`eval`/`new Function` nos componentes novos
+
+Grep próprio (`dangerouslySetInnerHTML|eval\(|new Function|localStorage|
+sessionStorage|document\.cookie|fetch\(|XMLHttpRequest`) sobre todo
+`src/components/home/*.tsx`: nenhuma ocorrência. **Sem achado.**
+
+### 4. Créditos de imagem/link externo (`ShowcaseSection`/`ImageCreditsSection`, `HeroSection`)
+
+`autorUrl`/`fonteUrl` renderizados em `showcase-section.tsx`
+(`ImageCreditsSection`, linhas 171-183) e `hero-section.tsx` (linhas
+97-109) vêm exclusivamente de `resolverImagemDestino`
+(`@/lib/catalogo/resolver-imagem`, já auditado no Lote V2-L2) contra o
+catálogo estático `catalogo/destinos.ts` — nunca de entrada do usuário ou
+de saída da IA, mesma conclusão já registrada na auditoria do Lote V2-L2
+para este mesmo padrão de dado. Nenhum dos dois pontos usa
+`target="_blank"` (confirmado por grep — zero ocorrência de `target=` em
+`src/components/home/`), diferente do componente `ImageCredit` de
+`suggestion-card.tsx` (Lote V2-L2, que usa `target="_blank"
+rel="noreferrer"`): sem `target="_blank"` não existe o vetor de
+tabnabbing reverso que o `rel="noreferrer"` mitiga ali, então a ausência
+de `rel` aqui não é uma vulnerabilidade — é só uma pequena inconsistência
+de padrão entre componentes de crédito de imagem do projeto (um abre em
+nova aba, os dois novos deste lote não). Não registro como débito de
+segurança (não há risco real a mitigar); é uma observação de consistência
+de UX/padrão de componente, fora do escopo deste papel. **Sem achado de
+segurança.**
+
+### 5. Exposição de dado sensível / logs
+
+Nenhum `console.log`/log estruturado nos arquivos do lote (confirmado por
+grep). Nenhum dado de sessão além do booleano de autenticação (item 2)
+chega ao DOM ou a qualquer armazenamento local. `src/content/roteiro-exemplo.ts`
+não contém dado pessoal — é conteúdo fixo de exemplo (destino fictício
+"Gramado", preços, horários), `generatedFrom` (proveniência) tem
+`aria-hidden`/não é renderizado na UI (confirmado por leitura: o campo
+não é referenciado em nenhum `.tsx` do lote, só existe no módulo de
+dados). **Sem achado.**
+
+### 6. Compliance (LGPD)
+
+Nenhuma das 9 seções integradas em `src/app/page.tsx` (`RL-V2-L4-T01`)
+coleta dado pessoal: `EntryPathsSection`/`HowItWorksSteps`/
+`ShowcaseSection`/`ExamplePreviewSection`/`UpcomingHolidaysSection`/
+`FaqSection`/`SiteFooter`/`MobileStickyCta` são apresentação estática ou
+links de navegação (sem formulário, sem input controlado). `AccountNav`
+(item 2) só lê sessão já existente via NextAuth, não coleta dado novo —
+qualquer coleta de dado pessoal (cadastro, login) acontece em rotas fora
+deste lote (`/entrar`, já auditado em V2-L7). **Confirmado: a home
+continua pré-conta, sem coleta de dado pessoal, mesmo com as 9 seções
+integradas.** Não aplicável / conforme.
+
+### 7. Análise estática / dependências
+
+`git diff` de `package.json` desde o início do V2.0 mostra só uma
+dependência nova relevante ao projeto como um todo: `tsx` (dev
+dependency, usada pelo script `scripts/exportar-roteiro-exemplo.ts` de
+`V2-L3-T01` para gerar `src/content/roteiro-exemplo.ts` — ferramenta de
+build/dev, não roda em produção, fora do runtime da home). Nenhuma
+dependência nova em `dependencies` (produção) atribuível a este lote.
+Nenhum padrão de injeção (SQL/prompt/XSS) nos arquivos do lote.
+
+### 8. Requisitos de segurança operacional para o chapéu DevOps
+
+Nenhum novo. A home continua servida pelo mesmo App Router já em
+produção, estática (`revalidate: 3600`) — nenhuma gestão de segredo, rede
+ou firewall adicional exigida por este lote.
+
+### Achados que exigem escalonamento
+
+Nenhum. Nenhum achado de severidade alta/crítica, nenhuma não-conformidade
+obrigatória, nenhuma questão de risco/compliance que seja decisão de
+negócio — nada a escalar ao Gestor neste lote.
+
+## Veredito (Lote V2-L4)
+
+**Aprovado, sem débito.** Nenhum achado de severidade alta/crítica, nenhum
+achado de compliance obrigatório em aberto. Guardrail RN-08/ADR-011 (home
+estática, zero chamada a `gateway-ia`/`stage-rules`/Prisma/OpenAI SDK)
+confirmado por lint (`no-restricted-imports`) ativo em CI cobrindo todos
+os arquivos do lote, incluindo `example-preview-section.tsx` (novo) e
+`src/content/roteiro-exemplo.ts` (dado estático congelado em build, não
+chamada dinâmica). `AccountNav` reconfirmado sem expor dado de sessão além
+do booleano de autenticação. Nenhum `dangerouslySetInnerHTML`/`eval` nos
+componentes novos. Nenhuma coleta de dado pessoal nas 9 seções integradas
+— home continua pré-conta. Lote liberado para a checagem estrutural final
+do Validador (dupla aprovação QA + DevSecOps satisfeita para efeito de
+`/deploy`, quando solicitado).
+
 ## Lote V2-L5 — Entradas pré-preenchidas (RF-13, RF-18.3) (2026-09-16)
 
 Auditoria após aprovação funcional do chapéu QA (`QA-REPORT.md`, "Lote

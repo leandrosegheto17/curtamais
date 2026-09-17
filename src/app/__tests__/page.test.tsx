@@ -177,6 +177,9 @@ describe("RL-V2-L4-T01 — integração final das 9 seções (UX-SPEC.md §8.2 T
       .getByRole("heading", { name: "Uma etapa de cada vez. Nada avança sem o seu ok." })
       .closest("section");
     const vitrine = screen.getByRole("list", { name: "Destinos para começar" }).closest("section");
+    const exemplo = screen
+      .getByRole("heading", { name: "Um roteiro pronto, com hora e motivo." })
+      .closest("section");
     const feriados = screen
       .getByRole("heading", { name: "A folga já está no calendário. Falta o destino." })
       .closest("section");
@@ -185,7 +188,7 @@ describe("RL-V2-L4-T01 — integração final das 9 seções (UX-SPEC.md §8.2 T
       selector: "footer p",
     }).closest("footer");
 
-    const secoesNaOrdem = [hero, caminhos, comoFunciona, vitrine, feriados, faq, footer];
+    const secoesNaOrdem = [hero, caminhos, comoFunciona, vitrine, exemplo, feriados, faq, footer];
     secoesNaOrdem.forEach((secao) => expect(secao).toBeInTheDocument());
 
     for (let i = 0; i < secoesNaOrdem.length - 1; i += 1) {
@@ -206,6 +209,9 @@ describe("RL-V2-L4-T01 — integração final das 9 seções (UX-SPEC.md §8.2 T
       screen.getAllByRole("heading", { name: "Uma etapa de cada vez. Nada avança sem o seu ok." }),
     ).toHaveLength(1);
     expect(screen.getAllByRole("list", { name: "Destinos para começar" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("heading", { name: "Um roteiro pronto, com hora e motivo." }),
+    ).toHaveLength(1);
     expect(
       screen.getAllByRole("heading", { name: "A folga já está no calendário. Falta o destino." }),
     ).toHaveLength(1);
