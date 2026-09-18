@@ -42,3 +42,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# dependencias instaladas dentro de skills do Claude
+.claude/skills/*/node_modules/
