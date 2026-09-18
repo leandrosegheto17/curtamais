@@ -9,7 +9,7 @@ release subsequente.
 
 **Atualização 2026-09-16 — V2.0 ("consultor de roteiros de viagem").** O
 V2.0 foi aprovado para início (`PRD.md` Seção 4, "Plano do V2"). Esta
-rodada acrescenta RF-12 a RF-18, RNF-08 a RNF-13, RN-07 a RN-12, os fluxos
+rodada acrescenta RF-12 a RF-18 (mais o rascunho de 2026-09-18 do checklist: RF-19 a RF-21, RNF-14 a RNF-16, RN-13 a RN-16, INT-17 a INT-20), RNF-08 a RNF-13, RN-07 a RN-12, os fluxos
 do V2.0, as dependências e as interpretações INT-06 a INT-16. Os
 requisitos do MVP (RF-01 a RF-11) continuam válidos. Onde o V2.0 altera
 um comportamento do MVP, o requisito novo diz isso explicitamente. O
@@ -368,6 +368,139 @@ INT-15.
 - RF-18.4: O destaque visual de feriado na home DEVE usar o acento de
   feriado dos tokens de RNF-08 e nunca a cor de CTA.
 
+### Adição pontual (2026-09-18) — Checklist de bagagem e documentos — RASCUNHO da rodada 2
+
+> **RASCUNHO da rodada 2, aguardando aprovação final do dono.** Decisões
+> do dono e do Gestor em `PRD.md` Seção 7, "Decisões do dono e do Gestor
+> — 2026-09-18"; não há pergunta em aberto. Numeração seguinte a
+> RF-18, RNF-13, RN-12, INT-16. **Não altera** nenhum RF/RNF/RN existente,
+> exceto a exceção declarada sobre INT-15 (RF-19.9).
+
+### RF-19 — Checklist de bagagem e documentos gerado por regra
+**Origem:** R14 do PRD.md (adição de 2026-09-18); depende de RF-17.
+- RF-19.1: QUANDO o usuário autenticado abre a leitura de uma sessão
+  "Roteiro concluído" em `/meus-roteiros/[sessionId]` (RF-17.5), O SISTEMA
+  DEVE exibir, junto do roteiro, uma seção "Checklist de bagagem e
+  documentos". Sessão "Encerrada em {etapa}" (encerramento parcial) NÃO
+  recebe a seção, mesmo com destino e datas.
+- RF-19.2: O SISTEMA DEVE montar a lista **no momento da leitura**, por
+  regra determinística e conteúdo curado versionado no repositório, a
+  partir de: destino da sessão, mês (ou meses) do período de datas,
+  duração em dias e tipo de experiência (RF-03.1 item 3, quando existir
+  na sessão; senão, o perfil do destino no catálogo).
+- RF-19.3: O SISTEMA DEVE agrupar os itens nas seis categorias fixas:
+  documentos e dinheiro; roupas e calçados; higiene e cuidados;
+  eletrônicos e carregadores; itens do clima e do tipo de viagem; antes de
+  sair de casa.
+- RF-19.11: O SISTEMA DEVE incluir, para todo usuário e sem perguntar nem
+  inferir nada, exatamente dois itens condicionais estáticos: "Documento ou
+  autorização do menor, se viajar com criança ou adolescente" (documentos e
+  dinheiro) e "O que o seu animal de estimação precisa, se ele for junto"
+  (antes de sair de casa). Nenhum outro item condicional.
+- RF-19.12: O SISTEMA NÃO DEVE oferecer campo para o usuário adicionar
+  item próprio, nem botão de exportar/PDF ou compartilhar.
+- RF-19.4: A duração DEVE influenciar a lista por faixas fixas (até 3
+  dias; 4 a 7; 8 ou mais), ajustando a sugestão de quantidade de peças e
+  itens como "kit de lavagem" na faixa longa.
+- RF-19.5: O mês DEVE ser mapeado para a estação/faixa climática do
+  hemisfério sul e combinado ao perfil de clima do destino (ex.: praia
+  tropical; serra fria; cerrado/termal; chuvosa/seca), sem previsão do
+  tempo em tempo real.
+- RF-19.6: A seção DEVE exibir o aviso, em voz de consultor: "Montei
+  esta lista pelo clima típico da época; confira a previsão perto da
+  viagem" (RN-14).
+- RF-19.7: O SISTEMA NÃO DEVE fazer nenhuma chamada ao provider de LLM
+  para montar, ajustar ou exibir o checklist (RNF-15).
+- RF-19.8: A lista DEVE ser idêntica para a mesma combinação de entradas
+  (mesmo destino, período, duração e tipo), reprodutível e testável.
+- RF-19.9: **Exceção declarada a INT-15.** A tela de leitura continua sem
+  renomear/excluir/compartilhar sessão, e RF-17.5 (roteiro em modo
+  leitura) segue valendo para o roteiro; a única escrita permitida do
+  usuário nessa tela é a marcação de itens do checklist (RF-20).
+- RF-19.10: O checklist NÃO DEVE aparecer em nenhuma etapa do fluxo
+  (T01 a T08), na home nem em sessão "Em andamento" (RN-13).
+
+**Critérios de aceite (EARS/testáveis):**
+- QUANDO um usuário autenticado abre uma sessão concluída com destino
+  "Gramado", datas em julho e 5 dias, ENTÃO a leitura DEVE exibir itens de
+  agasalho/frio na categoria de clima e a faixa "4 a 7 dias".
+- QUANDO a mesma sessão for aberta duas vezes sem alteração, ENTÃO as
+  duas listas DEVEM ser idênticas, e o log de LLM NÃO DEVE ganhar nenhum
+  registro.
+- QUANDO um usuário abre uma sessão "Em andamento" ou uma home/T01-T08,
+  ENTÃO nenhuma seção de checklist DEVE ser renderizada.
+- QUANDO a sessão é "Encerrada em {etapa}" com destino e datas, ENTÃO
+  nenhuma seção de checklist DEVE ser renderizada.
+- QUANDO uma sessão concluída é aberta, ENTÃO a seção DEVE conter os dois
+  itens condicionais de RF-19.11 (mesmo texto para qualquer usuário), e NÃO
+  DEVE conter campo de item próprio nem botão de exportar/PDF.
+- SE a sessão concluída for de destino no catálogo em janeiro (verão), ENTÃO
+  a lista NÃO DEVE conter agasalho pesado, salvo perfil "serra fria".
+
+### RF-20 — Marcação persistida dos itens
+**Origem:** R14; depende de RF-19, RF-16.7, RF-17.8.
+- RF-20.1: QUANDO o usuário aciona um item do checklist, O SISTEMA DEVE
+  alternar seu estado entre "marcado" e "não marcado" e persistir a escolha
+  vinculada à sessão e à conta dele.
+- RF-20.2: O SISTEMA DEVE gravar, por marcação, somente: identificador
+  da sessão, chave estável do item (`itemKey`, código, não o texto
+  exibido), estado marcado e data/hora da última alteração (RNF-14).
+- RF-20.3: QUANDO o usuário reabre a sessão, O SISTEMA DEVE exibir os
+  itens com o estado gravado, inclusive em outro dispositivo/navegador
+  autenticado na mesma conta.
+- RF-20.4: SE a lista gerada mudar (ex.: conteúdo curado atualizado) e
+  uma `itemKey` gravada deixar de existir, ENTÃO O SISTEMA DEVE ignorá-la
+  sem erro; SE uma `itemKey` nova aparecer, ENTÃO DEVE exibi-la como não
+  marcada.
+- RF-20.5: SE a requisição de marcação vier sem conta autenticada, ou de
+  conta que não seja dona da sessão, ou para sessão que não esteja
+  concluída, ENTÃO O SISTEMA DEVE recusá-la no servidor, sem gravar nada
+  (mesma verificação de RF-16.7/RF-17.8).
+- RF-20.6: SE a gravação falhar, ENTÃO O SISTEMA DEVE reverter o item
+  ao estado anterior na tela, informar o erro em linguagem simples e
+  manter o restante do roteiro utilizável.
+- RF-20.7: O SISTEMA DEVE exibir o progresso (ex.: "12 de 27 itens") de
+  forma textual, atualizado a cada marcação.
+- RF-20.8: A marcação NÃO DEVE alterar o estado, as aprovações nem a
+  `updatedAt` usada para ordenar "Meus roteiros" em RF-17.2 (não é
+  transição da state machine).
+
+**Critérios de aceite (EARS/testáveis):**
+- QUANDO o usuário marca 3 itens e recarrega a página, ENTÃO os 3 itens
+  DEVEM continuar marcados.
+- QUANDO um usuário B tenta marcar item de sessão do usuário A, ENTÃO o
+  servidor DEVE responder com recusa e nenhum registro DEVE ser criado.
+- QUANDO a conta é excluída (RNF-06), ENTÃO todas as marcações da conta
+  DEVEM ser removidas junto com as demais entidades filhas.
+- QUANDO uma marcação é gravada, ENTÃO o registro NÃO DEVE conter texto
+  livre nem o nome do item, só a `itemKey`.
+- QUANDO uma marcação é feita, ENTÃO a ordem de "Meus roteiros" (RF-17.2)
+  NÃO DEVE mudar.
+
+### RF-21 — Destino fora do catálogo ou dados incompletos
+**Origem:** R14; reaproveita a lógica de RN-10 (na dúvida, genérico).
+- RF-21.1: SE o destino da sessão não corresponder a um destino do
+  catálogo (mesma correspondência exata de RF-15.4), ENTÃO O SISTEMA DEVE
+  exibir apenas a lista universal (documentos básicos, higiene,
+  eletrônicos, roupas por duração) e NÃO DEVE afirmar clima específico do
+  destino.
+- RF-21.2: SE a sessão não tiver datas, ENTÃO O SISTEMA DEVE omitir os
+  itens que dependem do mês e DEVE avisar que "sem as datas não consigo
+  ajustar a lista à época".
+- RF-21.3: SE o destino estiver fora do Brasil (destino livre, INT-05),
+  ENTÃO O SISTEMA NÃO DEVE afirmar exigência de passaporte, visto ou
+  vacina (regra vale também para destino do catálogo); DEVE exibir a nota "confira as regras de entrada do destino em
+  fonte oficial" (RN-15).
+- RF-21.4: A lista universal DEVE funcionar sem nenhuma dependência de
+  dado do catálogo.
+
+**Critérios de aceite (EARS/testáveis):**
+- QUANDO a sessão concluída tem destino "Lisboa", ENTÃO a leitura DEVE
+  exibir lista universal e a nota de RF-21.3, e NÃO DEVE conter a palavra
+  "visto" como exigência afirmada.
+- SE a sessão concluída não tem datas, ENTÃO nenhum item dependente do
+  mês DEVE aparecer e o aviso de RF-21.2 DEVE ser exibido.
+
 ## 2. Requisitos Não-Funcionais
 
 | ID | Requisito | Categoria |
@@ -385,6 +518,9 @@ INT-15.
 | RNF-11 (V2.0) | Voz e copy: todo texto voltado ao usuário DEVE usar a voz de consultor de roteiros em primeira pessoa (ex.: "Separei 3 destinos para o seu período"), sem linguagem de sistema (ex.: "Aprovar este destino" passa a ter redação de conversa, mantendo a ação clara). O produto DEVE se identificar como assistente de IA pelo menos na home e no FAQ, e nunca sugerir atendimento humano. Proibido o vocabulário de reserva/venda (RN-07). Critério de aceite: o Validador revisa todas as telas contra uma lista de termos proibidos e contra o glossário de copy do UX-SPEC revisado | Usabilidade / Confiabilidade percebida |
 | RNF-12 (V2.0) | Performance da home: todas as imagens DEVEM ser servidas por `next/image` (ou equivalente otimizado definido pelo Coordenador), em tamanho responsivo. A imagem do hero DEVE ser carregada com prioridade, e todas as demais (vitrine, exemplo, T04) com carregamento lazy. Meta: LCP da home <= 2,5 s em perfil mobile de laboratório (Lighthouse, rede 4G lenta simulada), sem layout shift causado por imagem (dimensões reservadas; CLS <= 0,1). Medição de laboratório porque não há RUM no protótipo (INT-13) | Performance |
 | RNF-13 (V2.0) | Cadastro com fricção mínima e LGPD: o cadastro de RF-16 DEVE pedir apenas e-mail e senha, sem nenhum outro campo obrigatório ou opcional (reaproveita o NextAuth Credentials já implementado, ADR-008). A tela DEVE informar em linguagem simples a finalidade do dado ("usado para salvar e recuperar seus roteiros"), que o e-mail não é usado para marketing e que a conta pode ser excluída (exclusão já existente no MVP, RNF-06). A senha segue a política já implementada no MVP (mínimo de 8 caracteres, `src/lib/user-account.ts`). **Consentimento (decisão do dono, 2026-09-16):** o cadastro DEVE ter um checkbox, desmarcado por padrão, com texto do tipo "Concordo com o armazenamento dos meus dados para salvar meus roteiros"; SE o checkbox não estiver marcado, ENTÃO o sistema NÃO DEVE criar a conta e DEVE mostrar a mensagem junto ao campo; o sistema DEVE gravar data e hora do consentimento junto da conta. O cadastro no NextAuth e o vínculo da sessão anônima (RF-16) só acontecem depois do consentimento. Uma página completa de política de privacidade NÃO faz parte do V2.0: é pré-requisito de "colocar no ar de verdade e divulgar" (PRD.md §4) | Usabilidade / Compliance |
+| RNF-14 (checklist, rascunho 2026-09-18) | LGPD da marcação de itens: o sistema DEVE gravar só `sessionId`, `itemKey` (código), estado marcado e data/hora (RF-20.2); NÃO DEVE gravar texto livre, número de documento nem nada que infira saúde, menores ou condição pessoal; os dois itens condicionais de RF-19.11 são estáticos e iguais para todos, sem inferência. As marcações DEVEM ser excluídas em cascata com a exclusão de conta (GUARDRAILS item 20, RNF-06), e NÃO DEVEM ser enviadas a nenhum LLM nem usadas para outro fim (GUARDRAILS itens 17 e 21). A finalidade ("lembrar o que você já separou") DEVE constar na tela em linguagem simples. Critério de aceite: teste de exclusão de conta sem resíduo; revisão do Validador (DevSecOps) do schema e das rotas | Compliance |
+| RNF-15 (checklist, rascunho 2026-09-18) | Custo de IA zero e determinismo: geração, exibição e marcação do checklist NÃO DEVEM chamar o provider de LLM; o conteúdo é versionado no repositório (como ADR-007/ADR-010); a lista é função pura das entradas (RF-19.8). Qualquer proposta de usar IA no checklist exige nova rodada com limite por roteiro definido, pois não há teto de gasto (PRD.md decisão 5). Critério de aceite: zero registros novos em `LlmGenerationLog` ao abrir/marcar | Custo / Confiabilidade |
+| RNF-16 (checklist, rascunho 2026-09-18) | Acessibilidade e usabilidade: cada item DEVE ser controle com rótulo textual associado (checkbox nativo ou equivalente com papel/estado expostos a leitor de tela), operável por teclado, alvo mínimo 44x44 px (RNF-09), contraste WCAG 2.1 AA, estado marcado indicado por mais que cor (ex.: ícone e texto riscado sem perda de legibilidade), sem animação com deslocamento sob `prefers-reduced-motion` (RNF-10). Responsivo em mobile (RNF-04). **Impressão (decisão do dono):** QUANDO o usuário imprime a tela de leitura pelo navegador, ENTÃO o checklist DEVE sair legível, com CSS de impressão simples: fundo claro e texto escuro, itens em coluna com caixa de seleção visível (marcado/não marcado distinguíveis sem cor), categorias sem quebra no meio do item, sem navegação nem botões; sem botão de exportar/PDF. Voz de consultor em primeira pessoa, sem vocabulário de reserva/venda (RNF-11, RN-07). Critério de aceite: Validador confere teclado, leitor de tela e contraste | Acessibilidade |
 
 ## 3. Regras de Negócio
 
@@ -402,6 +538,10 @@ INT-15.
 | RN-10 (V2.0) | Uma imagem só representa um destino se vier do catálogo curado com correspondência exata. Na dúvida, usa-se o fallback de gradiente. Nunca imagem gerada por IA para lugar real, nunca busca automática de imagem no V2.0, nunca legenda de "foto do local" | Uma foto errada quebra mais confiança do que a ausência de foto (PRD.md R-10); a curadoria manual com licença registrada controla o risco jurídico (R-06) |
 | RN-11 (V2.0) | Criar conta ou entrar nunca descarta o que a sessão anônima já aprovou: a sessão é vinculada à conta com todo o seu conteúdo | O pedido de cadastro aparece logo depois de o usuário ver valor; perder o destino nesse ponto anularia a conversão (PRD.md R-12) |
 | RN-12 (V2.0) | Encerrar a viagem no destino continua possível sem conta; o pedido de cadastro não é uma parede para sair, só para seguir | Preserva RN-03 ("concluída com valor" mesmo só com destino) e a métrica de ativação anônima (PRD.md Seção 4, "Efeito na métrica primária") |
+| RN-13 (checklist, rascunho) | O checklist é um painel de leitura pós-conclusão: não é etapa, não cria estado nem transição, e não existe fora de `/meus-roteiros/[sessionId]` para sessão **concluída** (decisão 1 do dono, PRD.md Seção 7); sessão encerrada parcialmente não recebe checklist | PRD.md proíbe mudança na state machine; manter fora do wizard preserva a métrica de conclusão do fluxo |
+| RN-14 (checklist, rascunho) | Toda lista dependente de época se declara "clima típico", nunca previsão, e manda conferir a previsão perto da viagem | Mesmo racional de RN-05 (faixa aproximada): gerenciar expectativa; não há fonte de previsão e o risco R-14 é de credibilidade |
+| RN-15 (checklist, rascunho) | O produto não afirma regras de entrada, visto, passaporte ou vacina; só lembra de conferir em fonte oficial | Informação que muda e tem consequência legal; não há fonte confiável integrada (R-01). Documentos afirmados limitam-se aos nacionais comuns (RG ou CNH, CPF) |
+| RN-16 (checklist, rascunho) | O usuário nunca digita nem envia dado pessoal no checklist; a marcação é só "tenho/separei" | Reduz a superfície de LGPD (RNF-14) e mantém "documentos" como lembrete, não como cofre de documentos (isso é Fase 2) |
 
 ## 4. Fluxos de Usuário/Processo
 
@@ -568,6 +708,11 @@ flowchart TD
 | RF-17 (meus roteiros, V2.0) | RF-16 (sessões vinculadas a conta) e RF-09 (dado persistido por sessão) | Bloqueante: sem vínculo de sessão à conta, a lista fica vazia para quem começou anônimo |
 | RF-18 (feriados na home, V2.0) | RF-02.2 / RNF-07 (cálculo determinístico) | Bloqueante: reaproveita o mesmo cálculo, sem implementação paralela |
 | RNF-12 (performance, V2.0) | Otimização de imagem (`next/image`) | Técnica; o catálogo servido pelo próprio domínio dispensa `images.remotePatterns` no V2.0 |
+| RF-19 (checklist, rascunho) | RF-17.5 (leitura do roteiro concluído) e catálogo de destinos (RF-15) para perfil de clima/tipo | Bloqueante para exibir; sem catálogo cai em RF-21 (lista universal), então o conteúdo do catálogo não bloqueia a entrega técnica |
+| RF-19 (conteúdo) | Mapa curado perfil de clima x mês x duração x tipo, dos 23 destinos, revisado pelo dono | Bloqueante de conteúdo antes do deploy (P-07): PM redige, Gestor aprova pelos critérios objetivos da decisão 9 (PRD.md Seção 7), como tarefa do lote |
+| RF-20 (marcação) | RF-16.7/RF-17.8 (verificação de conta e de dono no servidor) e RNF-06 (exclusão em cascata) | Bloqueante: nova tabela filha da sessão precisa entrar no cascade; decisão de schema é do Coordenador |
+| RF-20 | State machine (ADR-006) | Sem dependência de escrita: a marcação não é transição e não altera `TripSession` (RF-20.8) |
+| RF-21 | RF-15.4 (correspondência exata com o catálogo) | Reaproveita a mesma função de correspondência |
 
 ### Integrações externas necessárias
 | Integração | Propósito | Observação de escopo |
@@ -583,6 +728,7 @@ flowchart TD
 | Unsplash e Pexels | Fonte das fotos do catálogo (RF-15) | **Só fonte de curadoria manual**, feita pelo dono do produto: a foto é baixada, registrada com autor/licença e servida pelo próprio domínio. **Não há integração em tempo de execução, chave de API nem busca automática no V2.0** (a camada 2 é V2.1) |
 | NextAuth (Credentials) | Cadastro e entrada (RF-16, RF-17) | Já existente (ADR-008); nenhum provider novo (sem login social, sem magic link) no V2.0 |
 | Provider de LLM (GPT-4o-mini, ADR-002) | Sem integração nova | O V2.0 não cria nenhuma chamada nova de IA; RN-08 proíbe chamadas na home e no exemplo, e RF-16.7 elimina chamadas anônimas após o destino |
+| Checklist (adição 2026-09-18) | Nenhuma integração externa nova | Sem LLM, sem API de clima, sem API de documentos/entrada (RNF-15, RN-15). Conteúdo local e versionado |
 
 **Notas do registro anterior (direção V2), agora resolvidas por esta
 rodada:** o "limite de sessões anônimas com contador" foi substituído
@@ -590,6 +736,30 @@ pelo corte por etapa (RN-09/RF-16), então não há contador de sessão no
 V2.0. O ajuste do rate limiting por identidade e o teto diário de custo
 ficam para "colocar no ar de verdade e divulgar" (`PRD.md` Seção 4). A
 reformulação visual virou RNF-08 a RNF-11, estendendo RNF-03.
+
+### Adição 2026-09-18 — Fluxo do checklist (RF-19 a RF-21)
+
+```mermaid
+flowchart TD
+    A[Meus roteiros: abre sessão] --> Est{Estado da sessão}
+    Est -->|Em andamento| Etapa[Abre a etapa atual, sem checklist, RF-19.10]
+    Est -->|Encerrada| Res[Resumo parcial, sem checklist]
+    Est -->|Concluída| Ler[Leitura do roteiro, RF-17.5]
+    Ler --> Dest{Destino no catálogo?}
+    Dest -->|Sim| Datas{Tem datas?}
+    Dest -->|Não| Uni[Lista universal + nota de conferir regras, RF-21.1/21.3]
+    Datas -->|Sim| Reg[Regra: clima x mês x duração x tipo, RF-19.2]
+    Datas -->|Não| SemMes[Itens sem mês + aviso, RF-21.2]
+    Reg --> Lista[Checklist com estado gravado, RF-20.3]
+    SemMes --> Lista
+    Uni --> Lista
+    Lista --> Marca{Usuário marca item}
+    Marca --> Auth{Conta dona da sessão concluída?}
+    Auth -->|Não| Recusa[Recusa no servidor, nada gravado, RF-20.5]
+    Auth -->|Sim| Grava{Gravou?}
+    Grava -->|Sim| OK[Atualiza item e progresso, RF-20.7]
+    Grava -->|Não| Rev[Reverte item + mensagem, RF-20.6]
+```
 
 ## 6. Premissas e Riscos Resolvidos
 
@@ -606,6 +776,11 @@ reformulação visual virou RNF-08 a RNF-11, estendendo RNF-03.
 | R-06/R-10 (PRD.md) | Licença de imagem e foto errada | Mitigados por RF-15.4 a RF-15.7 e RN-10 (correspondência exata, crédito e licença registrados, sem busca automática nem imagem por IA) | PRD.md decisões 7 e 8 |
 | R-08 (PRD.md) | Custo de IA anônimo sem teto | Reduzido por RN-08 (home sem IA) e RN-09/RF-16.7 (só a etapa de destino é anônima, com checagem no servidor). O risco residual é aceito no protótipo (decisão do dono) | PRD.md decisão 5 |
 | R-12 (PRD.md) | Perda do destino no cadastro | Coberto por RF-16.4/RN-11 como critério de aceite testável; o mecanismo é do Coordenador (ADR-008) | Esta rodada |
+| P-06 (PRD.md, 2026-09-18) | Checklist gera retorno ao app | **Não validável antes do uso real.** Nenhum requisito depende dela; RF-20 grava o suficiente (marcado + data) para medir por contagem no banco | PRD.md, adição pontual |
+| P-07 (PRD.md) | Mapa curado cobre os 23 destinos | **Pendente**: o conteúdo ainda não existe. Processo definido: PM redige e o Gestor aprova (delegação do dono) por seis critérios: sem regra de entrada/visto/passaporte/vacina; clima "típico", nunca previsão; itens coerentes com clima e época dos 23 destinos; sem item que infira saúde/menores além dos dois condicionais; sem vocabulário de reserva/venda; `itemKey` estável e único. Mitigada por RF-21 e RN-14 | PRD.md Seção 7, decisão 9 |
+| R-13 (PRD.md) | LGPD da marcação persistida | Mitigado por RNF-14, RN-16, RF-20.2 e RF-20.5; validação do Validador (DevSecOps) antes do deploy | GUARDRAILS itens 17, 20, 21 |
+| R-14 (PRD.md) | Lista errada por época | Mitigado por RN-14 e pela aprovação de conteúdo do Gestor (critérios da decisão 9); não eliminado | PRD.md P-07 |
+| R-15 (PRD.md) | Crescimento de escopo para Fase 2 | Mitigado pelos cortes explícitos (item próprio, compartilhar, lembrete, dados de documento fora) | PRD.md adição pontual |
 
 ## 7. Interpretações Registradas
 
@@ -626,4 +801,8 @@ reformulação visual virou RNF-08 a RNF-11, estendendo RNF-03.
 | INT-13 (V2.0) | Como medir a performance da home sem RUM? | Meta de laboratório: LCP <= 2,5 s e CLS <= 0,1 em perfil mobile do Lighthouse (RNF-12) | Sem RUM no protótipo (decisão do dono), só a medição de laboratório é verificável pelo Validador. Os limiares são os de "bom" dos Web Vitals |
 | INT-14 (V2.0) | O PRD.md fala em "e-mail/senha ou magic link". Qual deles? | E-mail e senha (Credentials), mais "entrar" para quem já tem conta (RF-16.3, RNF-13) | É o que o MVP já implementou (`src/lib/auth.ts`, ADR-008); o magic link exigiria provedor de e-mail novo, fora do "reaproveitar o NextAuth já implementado" |
 | INT-15 (V2.0) | O que "meus roteiros" permite além de listar? | Listar, continuar a etapa atual e ver em modo leitura. Sem renomear, excluir sessão ou compartilhar no V2.0 (RF-17) | O PRD.md diz "tela simples"; excluir/renomear/compartilhar aproximam a Fase 2 (organização) e não foram pedidos. A exclusão de dados já é atendida pela exclusão de conta (RNF-06) |
+| INT-17 (checklist, rascunho) | Onde o checklist aparece? | Só na leitura de sessão **concluída** em `/meus-roteiros/[sessionId]` (RF-19.1, RN-13) | Decidido pelo dono (2026-09-18): nem sessão encerrada parcialmente nem wizard. Aparecer no wizard mudaria a experiência das etapas e tangenciaria a state machine (proibida); a razão de voltar ao app está no roteiro já concluído |
+| INT-18 (checklist, rascunho) | "Documentos por destino": o que significa num catálogo 100% Brasil? | Lembrete de documentos nacionais comuns (RG ou CNH, CPF etc.) e, fora do catálogo/exterior, só a nota de conferir regras oficiais (RF-21, RN-15) | Afirmar exigência de entrada é risco de alucinação/consequência legal (R-01) sem fonte integrada. Decisão do Gestor (delegada pelo dono, 2026-09-18) |
+| INT-19 (checklist, rascunho) | A lista é gravada ou calculada? | Calculada na leitura; só a marcação por `itemKey` é gravada (RF-19.2, RF-20.2) | Evita snapshot desatualizado e reduz dado pessoal; RF-20.4 trata mudança de conteúdo |
+| INT-20 (checklist, rascunho) | A marcação contradiz "meus roteiros é tela simples" (INT-15)? | É exceção restrita e declarada (RF-19.9); nenhuma outra escrita entra | Marcar é o núcleo do valor do recurso; renomear/excluir/compartilhar continuam fora |
 | INT-16 (V2.0) | O pedido de cadastro impede encerrar a sessão no destino? | Não: desistir leva ao T-END parcial com o destino preservado (RF-16.5, RN-12) | O dono decidiu que o destino é grátis; negar o resumo do destino a quem não quer conta contradiria isso e RN-03 |

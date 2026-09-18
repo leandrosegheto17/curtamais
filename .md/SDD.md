@@ -112,6 +112,7 @@ mudança de decisão gera novo ADR com `Status: Superseded by ADR-NNN`.
 | [ADR-010](adr/010-catalogo-de-destinos-e-estrategia-de-imagens.md) | Catálogo de destinos e estratégia de imagens (V2.0) | Catálogo em módulo TS versionado + imagens em `public/`; correspondência exata após normalização; fallback por hash FNV-1a numa paleta pré-verificada; `next/image` sem `remotePatterns` |
 | [ADR-011](adr/011-home-vitrine-estatica-e-conteudo-congelado.md) | Home vitrine estática e conteúdo congelado (V2.0) | Home estática com ISR de 1 h, sem sessão no servidor; feriados por função pura; roteiro de exemplo (Gramado) exportado uma vez e versionado; fronteira de import verificada por lint |
 | [ADR-012](adr/012-registro-de-consentimento-no-cadastro.md) | Registro de consentimento no cadastro (V2.0) | `User.privacyConsentAt` + `privacyConsentVersion`; texto versionado em código; cadastro por Server Action; remoção de `POST /api/auth/signup` |
+| [ADR-013](adr/013-checklist-de-bagagem-conteudo-curado-e-marcacao-persistida.md) | Checklist de bagagem: conteúdo curado em módulo puro e marcação persistida por `itemKey` (adição 2026-09-18) | Lista calculada na leitura por regra determinística (zero IA) sobre conteúdo tipado no repositório; tabela filha `trip_checklist_marks` (só `sessionId`, `itemKey`, `checked`, `updatedAt`) com cascade; escrita idempotente por estado desejado com allowlist de chaves; state machine e `TripSession` inalteradas |
 
 ## 5. Modelo de Dados de Alto Nível
 
@@ -739,3 +740,92 @@ Os itens abaixo acrescentam ou alteram a Seção 7:
   - teto diário global continua fora do V2.0 (decisão do dono).
 - A nota final da Seção 7 continua valendo: estes são requisitos de
   arquitetura, e SAST/DAST continuam com o Validador.
+
+## 9. Adição pontual (2026-09-18) — Checklist de bagagem e documentos
+
+Atende RF-19 a RF-21, RNF-14 a RNF-16, RN-13 a RN-16, INT-17 a INT-20 do
+`PRD-TECNICO.md`. Decisão completa e alternativas em
+[ADR-013](adr/013-checklist-de-bagagem-conteudo-curado-e-marcacao-persistida.md).
+É uma **adição isolada**: nenhum lote `Validado` muda de status, nenhuma
+tarefa antiga é alterada, a state machine (ADR-006) e as tabelas existentes
+não ganham coluna.
+
+### 9.1 Componentes e fluxo de dados
+
+```mermaid
+flowchart LR
+    Page["/meus-roteiros/[sessionId] (Server Component)"] -->|flowState = concluida| Obter["obterChecklist(sessionId)"]
+    Obter --> Guard["assertSessionAccess exigeConta (404 se não for do dono)"]
+    Obter --> Regra["gerarChecklist (módulo puro src/lib/checklist)"]
+    Regra --> Conteudo["conteudo/: universal, perfis, destinos (23)"]
+    Obter --> Marcas[("trip_checklist_marks")]
+    Page --> Painel["ChecklistPanel (client)"]
+    Painel -->|marcado: boolean| Marcar["marcarItemChecklist"]
+    Marcar --> Guard
+    Marcar -->|allowlist de itemKey + upsert| Marcas
+```
+
+- **Módulo `src/lib/checklist/`** (puro): tipos, calendário (mês -> estação
+  do hemisfério sul, faixa de duração, meses do período), `gerarChecklist`,
+  conteúdo curado. Sem Prisma, Gateway de IA ou `next/*`
+  (`no-restricted-imports`).
+- **`src/lib/actions/checklist.ts`**: `obterChecklist` (leitura) e
+  `marcarItemChecklist` (escrita idempotente). Ambas usam o padrão de guard
+  de `obterRoteiroLeitura` e devolvem resultado discriminado
+  (`ok` | `conta_necessaria` | `indisponivel` | `item_invalido`), nunca
+  exceção de conta para o cliente.
+- **Painel em T-MEUS-DET**: só quando a sessão está `concluida`. Sessão
+  parcial ou em andamento não renderiza nada, e nenhuma etapa do wizard, home
+  ou T-END conhece o checklist (RN-13).
+- Entrada de `gerarChecklist`: `{ destino: string | null, inicio: string |
+  null, fim: string }`. `destino` vem de `DestinationApproval.name`;
+  correspondência com o catálogo por `normalizarNomeDestino` (igualdade
+  exata, RF-15.4). Sem correspondência: lista universal + nota (RF-21).
+
+### 9.2 Modelo de dados (adição)
+
+Migration aditiva `YYYYMMDDHHMMSS_v2_trip_checklist_marks`: cria
+`trip_checklist_marks` (ver ADR-013 decisão 5) e adiciona a `TripSession`
+apenas o campo de relação `checklistMarks` (sem coluna nova).
+
+- `UNIQUE(session_id, item_key)`; FK `session_id -> trip_sessions(id) ON
+  DELETE CASCADE`. A exclusão de conta já apaga `TripSession` por
+  `deleteMany`; a cascata leva as marcas. `account-deletion.ts` não muda.
+- Sem texto livre, sem `user_id`, sem número de documento (RNF-14).
+- Sem backfill; tabela vazia até o primeiro uso.
+- Métrica do dono (roteiros concluídos com >= 1 item marcado em até 7 dias)
+  sai de `checked = true` + `updatedAt` vs `TripSession.updatedAt`/conclusão,
+  por consulta manual, sem instrumentação nova.
+
+### 9.3 Riscos técnicos (adição)
+
+| Risco | Severidade | Mitigação / decisão | Dívida técnica aceita |
+|---|---|---|---|
+| Dado pessoal na marcação (LGPD, R-13) | Média | Só `itemKey` (código) + booleano + data; allowlist no servidor; sem texto livre; cascata; Validador confere antes do deploy | — |
+| Lista errada por época/destino (R-14) | Média (confiança) | Aviso "clima típico"; conteúdo tipado com teste de cobertura e de coerência; aprovação do Gestor pelos 6 critérios antes do deploy | Julgamento editorial de `mesesChuvosos` e perfil; corrigido por commit |
+| Conteúdo afirmar visto/passaporte/vacina | Alta (consequência legal) | Teste automatizado de termos proibidos sobre todo o conteúdo + critério (i) da aprovação; lista universal só com a nota "confira em fonte oficial" | — |
+| Marcação alterar `TripSession.updatedAt` e reordenar "Meus roteiros" | Baixa | Escrita direta na tabela filha, teste de integração da ordem (RF-20.8) | — |
+| Escrita concorrente/duplo clique | Baixa | Estado desejado + `upsert` sobre `UNIQUE` (idempotente) | — |
+| Abuso de escrita (rajada de marcações) | Baixa | Allowlist limita as linhas ao tamanho da lista (~30-50 por sessão); só o dono autenticado; sem rate limit novo | Sem rate limit próprio; usa o limite em memória já aceito no protótipo (`SDD.md` §8.6) |
+| Tipo de viagem vem do destino, não do quiz (quiz não persistido) | Baixa | Perfil e tipo curados por destino (ADR-013 decisão 4) | Sem personalização por resposta do quiz; evolução registrada |
+| Conteúdo de um destino novo no catálogo sem checklist | Baixa | `Record<SlugDestino, ...>` quebra a compilação; teste de cobertura; fallback universal em runtime | — |
+
+### 9.4 Requisitos de segurança (adição)
+
+- **Autorização**: leitura e marcação usam o guard de dono no servidor
+  (`assertSessionAccess` com `exigeConta: true`); divergência de posse é 404
+  lógico; nunca decidido pelo cliente; `sessionId` do cliente só seleciona.
+- **Estado**: ambas as ações exigem `flowState === "concluida"` no servidor
+  (RF-20.5). Marcar em sessão parcial/andamento é recusado sem gravar.
+- **Entrada**: `itemKey` validada por regex **e** por pertencer ao conjunto
+  gerado para a sessão; `marcado` é booleano estrito.
+- **CSRF**: Server Actions com a verificação de origem nativa do Next.js;
+  nenhum GET com efeito colateral, nenhuma rota REST nova.
+- **Zero LLM**: nenhum import do Gateway de IA no módulo nem nas actions;
+  teste de que o Gateway não é chamado; `LlmGenerationLog` não ganha
+  registro (RNF-15).
+- **LGPD**: dado pessoal mínimo e removido com a sessão/conta (RNF-06); sem
+  item que infira saúde/menores além dos dois condicionais estáticos.
+- **Conteúdo**: nenhuma afirmação de entrada/visto/passaporte/vacina (RN-15),
+  garantida por teste e por aprovação editorial. Isto é requisito de
+  arquitetura; SAST/DAST continuam com o Validador.

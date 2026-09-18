@@ -429,6 +429,103 @@ aprovação do V2.0 (P-03 a P-05, R-05 a R-11).
    ciclo. Requisitos no `PRD-TECNICO.md`; SDD/ADR/UX-SPEC/TASK são do
    Coordenador, na etapa seguinte.
 
+### Adição pontual (2026-09-18) — Checklist de bagagem e documentos por destino e época — RASCUNHO da rodada 2, aguardando aprovação final do dono
+
+> **Status: RASCUNHO da rodada 2, aguardando aprovação final do dono.**
+> Decisões do dono e do Gestor de 2026-09-18 incorporadas (fim da Seção 7).
+> Origem: item #5 das 8 funcionalidades recomendadas
+> pelo PM em 2026-09-18, escolhido pelo dono. Gate 1 desta demanda:
+> **Aprovado com ressalvas** (`CTO-REVIEW.md`, 2026-09-18; ressalvas 1 e 3
+> fechadas na rodada 2). É uma
+> **atualização** do plano do V2, não reescrita: nada acima muda. Requisitos
+> em `PRD-TECNICO.md` (RF-19 a RF-21, RNF-14 a RNF-16, RN-13 a RN-16).
+> SDD/UX-SPEC/TASK são do Coordenador, só depois da aprovação do dono.
+
+**Problema e valor.** Depois de aprovar o roteiro, o usuário não tem motivo
+para reabrir o app, e "o que levar" é a dúvida seguinte de quase toda
+viagem (clima da época, duração, documentos). Hoje ele resolve isso fora do
+produto (notas, WhatsApp). Um checklist marcável dentro de "Meus roteiros"
+dá um motivo concreto de retorno e prolonga o valor do roteiro concluído,
+sem custo de IA e sem tocar a vitrine, a reserva ou o fluxo em etapas.
+
+**Público.** O mesmo do V2: usuário autenticado que **concluiu** um roteiro
+(sessão encerrada parcialmente não recebe checklist, decisão 1).
+
+**Objetivo de sucesso (mensurável, leitura manual do banco no protótipo).**
+Percentual de roteiros concluídos que tiveram **pelo menos 1 item do
+checklist marcado em até 7 dias** após a conclusão. Baseline: não existe.
+Meta: **sem meta até haver baseline** (mesmo racional de P-01/"Métricas do
+V2"); hipótese de partida a validar, não compromisso: >= 30%. Métrica de
+apoio: dos usuários que marcaram algum item, quantos reabrem o roteiro em
+outro dia (retorno). Ambas saem de contagens já persistidas (RF-20), sem
+RUM.
+
+**Dentro do escopo (esta adição).**
+- Checklist **gerado por regra determinística e conteúdo curado** (sem IA)
+  a partir de: perfil de clima do destino, mês da viagem, duração em dias e
+  tipo de viagem/experiência. Justificativa: custo zero de IA (sem teto de
+  gasto ainda), sem alucinação, mesmo estilo de ADR-007/ADR-010.
+- Seis categorias de itens (decisão 2): documentos e dinheiro; roupas e
+  calçados; higiene e cuidados; eletrônicos e carregadores; itens do
+  clima e do tipo de viagem (ex.: protetor solar, capa de chuva, agasalho);
+  antes de sair de casa.
+- Itens **marcáveis e persistidos por usuário/roteiro**, exibidos **só na
+  tela de leitura do roteiro concluído** em `/meus-roteiros/[sessionId]`
+  (decisão 1).
+- Documentos por destino cobrem **viagem nacional** (RG ou CNH, CPF,
+  cartão do plano de saúde se houver etc.). Justificativa: o catálogo é
+  100% Brasil (decisão 4).
+- Destino fora do catálogo ou sem dados suficientes: lista universal
+  (RF-21), sem afirmar clima nem regra de entrada.
+- Dois itens condicionais estáticos, iguais para todos, sem o app
+  perguntar nem inferir nada (decisão 5).
+- **Impressão pelo navegador** com CSS de impressão simples (decisão 6).
+
+**Fora do escopo (esta adição), cada corte com justificativa.**
+- **Item próprio digitado pelo usuário** — fora (decisão 3, final para
+  esta entrega): texto livre amplia a superfície de dado pessoal (LGPD) e
+  de moderação/UX; só entra numa rodada futura, se houver uso que
+  justifique.
+- **Chamada de IA** para gerar ou refinar a lista — fora: sem teto de custo
+  (pré-requisito de "colocar no ar de verdade", decisão 5). Reabrir só com
+  justificativa e limite por roteiro.
+- **Checklist em qualquer etapa do fluxo** (T01 a T08) — fora: evita mexer
+  na state machine e no wizard (proibido pelo PRD).
+- **Regras de entrada, visto, passaporte, vacina, alfândega, previsão do
+  tempo em tempo real** — fora: dependem de fonte externa e de dado que muda
+  (R-01); o produto só diz "clima típico da época" e manda conferir.
+- **Upload/foto/número de documento, dados de voo e hospedagem** — fora:
+  são a parte "Dados de voo/hospedagem e documentos" da Fase 2, mais
+  sensível; aqui "documentos" é só "lembrete do que levar".
+- **Botão de exportar/PDF e compartilhar** — fora: compartilhamento é
+  Fase 2; a impressão do navegador basta (decisão 6).
+- **Lembretes por e-mail/push** — fora, decisão final do dono (decisão 7);
+  o e-mail da conta também não é usado para marketing (RNF-13).
+- **Marcar itens sem conta** — fora: o recurso vive em "Meus roteiros",
+  que exige conta (RF-17.7).
+
+**Conflitos checados e como o desenho evita.**
+- *"Fora do V2 (qualquer fase)":* nenhum item da lista é tocado. Não é
+  página de detalhe/SEO (é privado, autenticado); não é IA na home; não é
+  busca/filtro da vitrine; não é pagamento; não é reserva (o texto do
+  checklist segue RN-07: nada de "reservar/comprar"); nada de autoplay; e
+  **não muda a state machine** (é painel de leitura pós-conclusão, sem novo
+  estado nem transição; a marcação grava em tabela própria, não em
+  `TripSession`).
+- *Fase 2 (Seção 4, "Dentro do escopo — Fase 2"):* "Checklist de bagagem"
+  e "documentos da viagem" estão listados lá para uma release posterior.
+  Esta adição **antecipa apenas uma fatia mínima** (lembrete de itens, sem
+  dados de documento). **Aprovado explicitamente pelo dono em 2026-09-18**
+  (decisão 8).
+- *INT-15 (meus roteiros sem editar):* a marcação é a primeira escrita do
+  usuário em "Meus roteiros" além de navegar. É exceção declarada, restrita
+  aos itens do checklist; RF-17.5 (roteiro em modo leitura) segue valendo
+  para o conteúdo do roteiro.
+
+**Decisões:** todas as perguntas da rodada 1 foram respondidas; ver
+Seção 7, "Decisões do dono e do Gestor — 2026-09-18". Resta só a aprovação
+final do dono sobre o rascunho da rodada 2.
+
 ## 5. Requisitos de Alto Nível Priorizados
 
 | # | Requisito | Prioridade | Justificativa |
@@ -446,6 +543,7 @@ aprovação do V2.0 (P-03 a P-05, R-05 a R-11).
 | R11 | Visual web cuidado/diferenciado | Must-have | Prioridade explícita do fundador; parte do valor percebido do produto, não só polimento |
 | R12 (Fase 2, não deste MVP) | Cronograma, checklist, dados de viagem, compartilhamento, gastos | Backlog priorizado para release seguinte | Valor de negócio confirmado, mas depende de validar primeiro a Fase 1 |
 | R13 (V2.0, não deste MVP nem da Fase 2) | Home vitrine, catálogo de 23 destinos com imagem em T04, destino grátis e anônimo com cadastro básico exigido a partir da hospedagem, "meus roteiros", reformulação visual e voz de "consultor de roteiros de viagem" (ex-"agência de viagem virtual") | Must-have do ciclo V2.0 (aprovado para início em 2026-09-16) | Ver Seção 4, "Plano do V2"; RF-12 a RF-18 e RNF-08 a RNF-13 no `PRD-TECNICO.md`. V2.1 segue fora deste ciclo |
+| R14 (adição 2026-09-18, RASCUNHO da rodada 2) | Checklist de bagagem e documentos por destino e época, determinístico, marcável e persistido, só em "Meus roteiros" (roteiro concluído) | Should-have, escolhido pelo dono; aguarda aprovação final do rascunho | Dá motivo de retorno ao app, esforço P, custo de IA zero. Antecipa fatia mínima da Fase 2 (R12); ver Seção 4, "Adição pontual". RF-19 a RF-21 no `PRD-TECNICO.md` |
 
 ## 6. Premissas e Riscos de Produto
 
@@ -468,6 +566,11 @@ aprovação do V2.0 (P-03 a P-05, R-05 a R-11).
 | R-10 | Risco | Imagem que não corresponde ao destino sugerido | Coordenador | Só catálogo + fallback de gradiente no V2.0 (RN-10); camada 2 só no V2.1, se aprovada |
 | R-11 | Risco | O pedido de cadastro no meio do fluxo derruba a conclusão completa em relação ao MVP e isso é lido como regressão | Gestor (PM) | Ler a ativação anônima e a conclusão pós-cadastro separadas (Seção 4, "Efeito na métrica primária") |
 | R-12 | Risco | A sessão anônima se perde no cadastro e o usuário perde o destino que acabou de aprovar, no pior momento do funil | Coordenador (decisão técnica, toca ADR-008) + Validador | Critério de aceite RF-16.4 coberto por teste antes do deploy |
+| P-06 | Premissa (2026-09-18) | Um checklist marcável dentro de "Meus roteiros" leva a pelo menos parte dos usuários a voltar ao app depois de concluir o roteiro | Gestor (PM) | Contagem de roteiros com >= 1 item marcado em 7 dias, leitura manual do banco; meta só depois do baseline |
+| P-07 | Premissa (2026-09-18) | Um mapa curado por perfil de clima x faixa de mês x duração x tipo de viagem cobre os 23 destinos com precisão suficiente, sem previsão do tempo em tempo real | Gestor (PM redige; chapéu CTO/Gestor aprova) | Antes do deploy: aprovação do conteúdo curado dos 23 destinos pelo Gestor, com os critérios objetivos da decisão 9 (tarefa do lote) |
+| R-13 | Risco (2026-09-18) | Item persistido por usuário/roteiro é dado pessoal (LGPD); texto livre ou item que revele saúde/menores amplia o risco | Gestor (CTO) + Coordenador | Desenho grava só `itemKey` + marcado + data; sem texto livre; sem item que infira condição de saúde; exclusão em cascata (RNF-14). Validador confere antes do deploy |
+| R-14 | Risco (2026-09-18) | Lista errada por época/destino (ex.: sem agasalho na serra em julho) passa imagem de erro do consultor | Gestor (PM redige, Gestor aprova) | Rótulo "clima típico da época, confira a previsão perto da viagem" (RN-14) e aprovação do conteúdo pelo Gestor, pelos critérios da decisão 9, antes do deploy |
+| R-15 | Risco (2026-09-18) | Escopo que cresce para Fase 2 (item próprio, compartilhar, lembrete, dados de documento) | Gestor (PM) | Cortes explícitos na Seção 4, "Adição pontual"; qualquer item novo exige nova rodada |
 
 ## 7. Perguntas em Aberto (para o Business Analyst)
 
@@ -491,3 +594,52 @@ aprovação do V2.0 (P-03 a P-05, R-05 a R-11).
    briefing (Brasil, América do Sul, EUA, Europa) que deveria ficar
    explicitamente fora do MVP, ou esses quatro já são exaustivos para o
    propósito de sugestão por sazonalidade?
+
+### Decisões do dono e do Gestor — Checklist de bagagem e documentos — 2026-09-18
+
+Todas as perguntas da rodada 1 foram respondidas. Não há pergunta em aberto
+sobre esta adição. Resta a aprovação final do rascunho da rodada 2 pelo dono.
+
+1. **Onde aparece (dono):** só em roteiros **concluídos**, em
+   `/meus-roteiros/[sessionId]`. Nem sessão encerrada parcialmente nem
+   antes de concluir.
+2. **Categorias (Gestor, delegado):** seis, fixas: (a) documentos e
+   dinheiro; (b) roupas e calçados; (c) higiene e cuidados; (d)
+   eletrônicos e carregadores; (e) itens do clima e do tipo de viagem; (f)
+   antes de sair de casa. Crianças e pet **não** viram categoria: entram
+   como itens condicionais (decisão 5).
+3. **Item próprio (Gestor, delegado):** **não** nesta entrega. Decisão
+   final; reabrir só em rodada futura, com evidência de uso.
+4. **Documentos e destino fora do catálogo (Gestor, delegado):** para
+   destino do catálogo (100% Brasil), documentos nacionais comuns (RG ou
+   CNH, CPF, cartão do plano de saúde se houver, confirmações que o
+   usuário já tiver). Para destino fora do catálogo, com o exterior
+   incluso, só a **lista universal** e a nota "confira as regras de entrada
+   em fonte oficial". O produto **nunca** afirma passaporte, visto ou
+   vacina, com ou sem catálogo.
+5. **Itens condicionais (Gestor, delegado):** exatamente dois itens
+   estáticos, exibidos a todos, sem pergunta nem inferência: "Documento ou
+   autorização do menor, se viajar com criança ou adolescente" (em
+   documentos) e "O que o seu animal de estimação precisa, se ele for
+   junto" (em antes de sair). Redação neutra, sem citar vacina nem
+   condição de saúde.
+6. **Impressão (dono):** a impressão do navegador basta. Requisito mínimo
+   de CSS de impressão (RNF-16). Sem botão de exportar/PDF.
+7. **Lembrete por e-mail/push (dono):** fora, decisão final.
+8. **Fatia mínima da Fase 2 (dono):** aprovada explicitamente em
+   2026-09-18. Fecha a ressalva 1 do Gate 1.
+9. **Conteúdo curado (dono delegou ao Gestor):** o PM redige e o Gestor
+   aprova, sem revisão do dono antes do deploy. A aprovação é tarefa do
+   lote e acontece quando o conteúdo existir. Critérios objetivos:
+   (i) nenhuma afirmação de regra de entrada, visto, passaporte ou vacina;
+   (ii) clima sempre "típico da época", nunca previsão;
+   (iii) itens coerentes com o clima e a época de cada um dos 23 destinos
+   (ex.: sem agasalho pesado em praia tropical no verão; com agasalho na
+   serra fria em julho);
+   (iv) nenhum item que infira condição de saúde ou menores, além dos dois
+   condicionais estáticos da decisão 5;
+   (v) sem vocabulário de reserva/venda (RN-07), voz de consultor
+   (RNF-11);
+   (vi) todo `itemKey` estável e único.
+10. **Métrica (dono):** roteiros concluídos com pelo menos 1 item marcado
+    em até 7 dias, lida do banco, sem meta até haver baseline.

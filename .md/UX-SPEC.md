@@ -1024,3 +1024,139 @@ conteúdo):
 textos citados nas §8.2 e §8.4. O texto do consentimento é exatamente
 `CONSENTIMENTO_TEXTO` (ADR-012). Mudar esse texto exige mudar
 `CONSENTIMENTO_VERSAO`.
+
+## 9. Adição pontual (2026-09-18) — Checklist de bagagem e documentos
+
+Fonte: RF-19 a RF-21, RNF-14 a RNF-16, RN-13 a RN-16. Arquitetura em
+`SDD.md` §9 e ADR-013. **Altera** T-MEUS-DET (§8.2/§8.4) só para acrescentar
+o painel abaixo; o resto da tela não muda. Nenhuma outra tela conhece o
+checklist (RN-13, RF-19.10).
+
+### 9.1 Fluxo e mapeamento (RF-19.1, RF-19.10)
+
+| Situação da sessão | O que T-MEUS-DET mostra |
+|---|---|
+| Roteiro concluído | Resumo, dias em leitura e, **abaixo dos dias**, o painel "Checklist de bagagem e documentos" |
+| Encerrada em {etapa} (parcial) | Só o resumo e a linha de encerramento. **Nenhum** painel |
+| Em andamento | Nem chega a T-MEUS-DET (T-MEUS leva "Continuar"); se a rota for aberta, comportamento atual da tela; nenhum painel |
+
+A ordem "roteiro, depois checklist" mantém o roteiro como conteúdo principal
+e não muda o foco/ordem de tabulação existentes; o painel é a última região
+da página, com `<section aria-labelledby>`. Sem link de salto novo (não há
+`SkipLink` no design system; o h2 é navegável por títulos).
+
+### 9.2 Wireframe funcional do painel
+
+- Título (h2): "Checklist de bagagem e documentos".
+- Linha de progresso, texto e `aria-live="polite"`: "{n} de {total} itens
+  separados". Também uma barra `progress` decorativa com `aria-hidden` (a
+  informação está no texto, GUARDRAILS 23).
+- Aviso permanente, com ícone (RN-14), em voz de consultor: "Montei esta
+  lista pelo clima típico da época; confira a previsão perto da viagem."
+- Contexto em uma linha (quando há dados): "{Destino} · {mês(es)} ·
+  {duração} dias" e a faixa ("Viagem de 4 a 7 dias"). Sem datas: omite mês e
+  duração.
+- Seis grupos, na ordem fixa: Documentos e dinheiro; Roupas e calçados;
+  Higiene e cuidados; Eletrônicos e carregadores; Itens do clima e do tipo de
+  viagem; Antes de sair de casa. Cada grupo é um `<section>` com h3 e uma
+  `<ul>`; **grupo sem itens some** (na lista universal, o grupo "Itens do
+  clima e do tipo de viagem" some).
+- Cada item: `<li><label><input type="checkbox"> texto</label></li>`, com o
+  **rótulo inteiro clicável**, alvo >= 44 px de altura, checkbox nativo
+  (sem checkbox custom sem semântica). Marcado: texto com riscado leve **e**
+  ícone de check visível (nunca só cor, GUARDRAILS 23).
+- Os dois itens condicionais estáticos aparecem como itens comuns, sem
+  destaque: "Documento ou autorização do menor, se viajar com criança ou
+  adolescente" e "O que o seu animal de estimação precisa, se ele for junto".
+- **Não há** campo de item próprio, botão de exportar, PDF, compartilhar nem
+  "imprimir" (a impressão do navegador basta, RNF-16).
+- Avisos condicionais (mesmo componente de aviso, com ícone):
+  - sem datas: "Sem as datas, não consigo ajustar a lista à época."
+  - destino fora do catálogo ou exterior: "Confira as regras de entrada do
+    destino em fonte oficial." e a lista é a universal, sem afirmar clima.
+
+### 9.3 Componentes (design system)
+
+| Componente | Situação | Observação |
+|---|---|---|
+| `ChecklistPanel` | **NOVO** (composição) | Renderiza título, progresso, aviso, grupos. Só usa tokens existentes (`surface`, `border`, `primary`, `foreground`) e tipografia do §3/§8.3 |
+| `ChecklistItem` | **NOVO** | Checkbox nativo + rótulo, foco visível com o anel padrão do sistema, estado `pending` |
+| `ErrorRetryState` | Reutilizado | Sem variante nova (`EmptyState` não é usado: a lista nunca é vazia) |
+| Ícones de check/aviso | Reutilizados do conjunto existente | Nenhum ícone novo fora do conjunto |
+
+Nenhum token novo. Componentes novos sinalizados conforme o guardrail de
+design system.
+
+### 9.4 Estados de tela
+
+| Painel | Vazio | Carregando | Erro | Sucesso |
+|---|---|---|---|---|
+| Checklist em T-MEUS-DET | **Não se aplica à lista**: toda sessão concluída recebe ao menos a lista universal, que nunca é vazia. Casos tratados como variação, não como vazio: sem datas (aviso), fora do catálogo (universal + nota). Sessão parcial: painel **ausente** (não é estado do painel) | A lista é montada no servidor junto com a página, então não há skeleton próprio; o `loading.tsx` existente da rota cobre a espera. Ao marcar: o item aplica a mudança de imediato (otimista), fica com `aria-busy` e o checkbox continua utilizável | **Leitura falhou:** só o painel mostra `ErrorRetryState` "Não consegui carregar o checklist agora." + "Tentar de novo" (recarrega a rota), e o resumo e o roteiro seguem utilizáveis. **Gravação falhou:** o item volta ao estado anterior, com mensagem inline `role="alert"` junto ao item: "Não consegui guardar esta marcação agora. Tente de novo.", e o restante continua utilizável (RF-20.6). **Sessão de outra conta/inexistente:** a rota já volta a T-MEUS com "Não encontrei essa viagem." | Lista com estado gravado; progresso "{n} de {total} itens separados"; reabrir em outro dispositivo mostra o mesmo estado (RF-20.3) |
+
+### 9.5 Acessibilidade (WCAG AA, `accessibility-review`)
+
+- Checkbox nativo com `<label>` associado; toque e clique na linha inteira.
+- Teclado: Tab percorre os itens na ordem visual; Espaço alterna; nenhuma
+  armadilha de foco; foco mantido no item após marcar (o item não some nem
+  reordena ao marcar).
+- Leitor de tela: cada grupo é `section` com h3 (navegável por títulos); o
+  progresso vive numa região `aria-live="polite"` (anunciado sem roubar o
+  foco); o erro de gravação usa `role="alert"` e o foco **não** se move.
+- Contraste: texto >= 4,5:1; riscado do item marcado não pode reduzir o
+  contraste abaixo de 4,5:1 (usar `foreground` com opacidade fixa mínima
+  validada, não cinza claro); check e ícone de aviso >= 3:1.
+- Status nunca só por cor: check + riscado + texto do progresso.
+- `prefers-reduced-motion`: sem animação de progresso.
+- Sem pendência crítica.
+
+### 9.6 Comportamento responsivo e impressão
+
+- Mobile (< 768 px): coluna única, grupos empilhados, alvo de toque >= 44 px.
+- Tablet/desktop (>= 768 px): os grupos em duas colunas (`grid`, ordem de
+  leitura em colunas), largura máxima do container da tela; o texto do item
+  nunca é cortado.
+- **Impressão (RNF-16):** o navegador imprime a página (sem botão próprio).
+  CSS `@media print` simples:
+  - oculta `AccountNav`, links de navegação, botões, o
+    `ErrorRetryState`, o aviso de erro de gravação e os dias do roteiro;
+    mantém título, contexto ("Destino · mês · duração"), o aviso de clima
+    típico, o progresso em texto e os grupos com itens;
+  - checkbox desenhado com borda visível e o "check" também visível no papel
+    (não depender de cor de fundo; usar `print-color-adjust: exact` só para o
+    símbolo), fundo branco, texto preto;
+  - `break-inside: avoid` em cada grupo; sem cabeçalho/rodapé próprios.
+- Sem exportar/PDF/compartilhar.
+
+### 9.7 Restrições técnicas aplicadas e trade-offs (autocheck contra `SDD.md` §9)
+
+| Restrição | Efeito na tela | Decisão |
+|---|---|---|
+| A lista é calculada na leitura no servidor (ADR-013) | Não há estado de carregamento próprio da lista | Aceito; a UX de espera é a da rota. Ganho: sem flash de conteúdo |
+| Marcação exige idempotência e allowlist de `itemKey` | O cliente envia o estado desejado, não "alternar"; chave desconhecida é recusada | Cliente aplica otimismo e reverte no erro; sem impacto visual |
+| A state machine e `TripSession.updatedAt` não mudam | Marcar não reordena "Meus roteiros" nem muda o rótulo de status | Nenhum indicador de "atualizado agora" na lista |
+| O quiz não é persistido (tipo vem do destino) | O contexto exibido mostra destino, mês e duração, **não** o "tipo de experiência" escolhido no quiz | Aceito (detalhe); não afirmar "por causa do seu perfil de viagem" |
+| Sem texto livre (RN-16) | Sem campo "adicionar item" | Decisão final do dono; sem alternativa em UI |
+| Sem previsão do tempo (RN-14) | Aviso permanente "clima típico" | Obrigatório |
+
+Nenhum trade-off com impacto em custo ou prazo; nada a sinalizar ao Gestor
+além do já registrado (aprovação do conteúdo curado antes do deploy).
+
+### 9.8 Glossário de copy (voz de consultor, RN-07/RN-15)
+
+Textos fixos (fonte única, exportados em um módulo de constantes junto do
+painel): título "Checklist de bagagem e documentos"; aviso de clima típico
+(§9.2); "Sem as datas, não consigo ajustar a lista à época."; "Confira as
+regras de entrada do destino em fonte oficial."; "{n} de {total} itens
+separados"; "Não consegui carregar o checklist agora."; "Não consegui guardar
+esta marcação agora. Tente de novo.".
+
+- Vocabulário proibido: toda a tabela de termos proibidos da §8.8
+  (reserva/venda, agência/humano, linguagem de sistema), **mais** "visto",
+  "passaporte" e "vacina" em qualquer texto do checklist, e as palavras
+  "reservar" e "comprar" (inclusive nos itens de conteúdo). A palavra "sessão"
+  não aparece em texto de interface.
+- Nunca afirmar regra de entrada; o único texto de entrada é a nota "Confira
+  as regras de entrada do destino em fonte oficial.".
+- Itens curtos, no imperativo neutro ("Levar", "Separar") ou substantivo
+  ("Carregador do celular"). Sem vocabulário de tipo "kit" comercial além de
+  "kit de lavagem" (item da faixa longa).

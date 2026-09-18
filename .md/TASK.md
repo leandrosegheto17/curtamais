@@ -6672,6 +6672,60 @@ Sem bloqueio. Nenhum desvio de escopo.
 
 ---
 
+### V2-L9 — Checklist de bagagem e documentos (adição pontual, 2026-09-18)
+
+**Status do lote: Pendente** (planejado em 2026-09-18 por `/planejar_tarefa`,
+Coordenador). Adição isolada: **não reabre nem altera nenhuma tarefa** dos
+lotes `Validado` acima. Fontes: `PRD-TECNICO.md` RF-19 a RF-21, RNF-14 a
+RNF-16, RN-13 a RN-16, INT-17 a INT-20; `SDD.md` §9; `UX-SPEC.md` §9;
+[ADR-013](adr/013-checklist-de-bagagem-conteudo-curado-e-marcacao-persistida.md).
+17 tarefas (lote acima de 5-6 tarefas, justificado na Seção 6: uma
+funcionalidade coerente com 4 tarefas de conteúdo, 1 gate editorial e
+paralelismo real; nenhuma tarefa é grande).
+
+**Diretrizes do lote (tradução prática de ADR-013 e GUARDRAILS 41-44):**
+
+- Módulo `src/lib/checklist/` é **puro**: nada de Prisma, Gateway de IA
+  (`@/lib/gateway-ia`), `@/lib/stage-rules` (valores) ou `next/*`; regra
+  `no-restricted-imports` em T02, e teste "Gateway não chamado" em T08/T09.
+- `itemKey` segue `^[a-z]+\.[a-z0-9]+(-[a-z0-9]+)*$`, <= 64 caracteres, única
+  e estável; nunca reaproveitar chave para item de outro sentido.
+- Escrita da marcação **só** em `prisma.tripChecklistMark.upsert`; nunca via
+  `tripSession.update` nem nested write (preserva `updatedAt` da sessão).
+- Ação recebe estado desejado (`marcado: boolean`), nunca "alternar".
+- Não editar arquivos de tarefas `Validado` além de `page.tsx` e o seu teste
+  (T12) e de `prisma/schema.prisma` (T01, só o novo model e o campo de
+  relação). `account-deletion.ts` **não** é alterado.
+- Copy: `UX-SPEC.md` §9.8; termos proibidos de §8.8 + visto, passaporte,
+  vacina, reservar, comprar.
+- Conteúdo redigido em português do Brasil, itens curtos, voz de consultor.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Paralelizável com | Status | Critério de aceite |
+|---|---|---|---|---|---|---|---|
+| V2-L9-T01 | Migration Prisma aditiva `v2_trip_checklist_marks`: model `TripChecklistMark` (`sessionId`, `itemKey`, `checked`, `updatedAt`), `UNIQUE(session_id,item_key)`, FK `ON DELETE CASCADE`; campo de relação `checklistMarks` em `TripSession` (ADR-013 §5) | BE | 0.5 dia | — | T02 | Pendente | Migration aplica sem erro sobre o schema atual; nenhuma coluna de texto livre nem `user_id`; `UNIQUE` rejeita duplicata; apagar a `TripSession` remove as marcas (teste de integração curto); inserir marca **não** altera `trip_sessions.updated_at`; nenhuma coluna alterada em tabela existente |
+| V2-L9-T02 | Tipos e calendário do módulo `src/lib/checklist/` (`tipos.ts`, `calendario.ts`): 6 categorias e ordem, uniões `PerfilClima`/`TipoViagem`/`Estacao`/`FaixaDuracao`, tipo `ItemChecklist`, `mesesDoPeriodo`, `estacaoDoMes` (hemisfério sul), `faixaDeDuracao`, `validarItemKey`; regra ESLint `no-restricted-imports` para o diretório | BE | 1 dia | — | T01 | Pendente | Testes unitários: 12 meses -> estação correta; duração 1, 3, 4, 7, 8 e 15 dias -> faixa correta; período que cruza o ano (dez-jan) devolve os 2 meses; `validarItemKey` aceita `documentos.rg-ou-cnh` e rejeita maiúscula, acento, espaço, ponto duplo e > 64 chars; import proibido em `src/lib/checklist/**` falha no lint |
+| V2-L9-T03 | `gerarChecklist(entrada)` em `regra.ts`: filtra itens por `quando` (união dos meses do período), resolve destino no catálogo (`normalizarNomeDestino`), cai em lista universal + nota (RF-21) e sem datas (RF-21.2), agrupa nas 6 categorias na ordem fixa, devolve `{categorias, faixaDuracao, avisos}` | BE | 1 dia | T02 | T04, T05, T06, T07, T10 | Pendente | Testes com conteúdo de fixture: mesma entrada duas vezes -> saída deep-equal (RF-19.8); Gramado + julho + 5 dias -> item de agasalho e faixa "media"; destino "Lisboa" -> só itens sem `perfis/tipos` e `avisos.foraDoCatalogo`; sem `inicio` -> nenhum item com `estacoes/chuvoso/duracoes` e `avisos.semDatas`; sem `inicio`, sem `destino`, nunca lança; grupo vazio omitido; não importa `CATALOGO_DESTINOS` no caminho da lista universal |
+| V2-L9-T04 | **Conteúdo (PM redige):** `conteudo/universal.ts` — itens sempre presentes das 6 categorias (RG ou CNH, CPF, cartão do plano de saúde se houver, dinheiro/cartão, higiene básica, carregadores; sem item de medicamento nem de saúde além do cartão do plano, previsto na decisão 4 do PRD; "antes de sair": conferir contas, fechar a casa etc.), itens por faixa de duração (peças de roupa, "kit de lavagem" na longa) e os **2 condicionais estáticos** com o texto exato de RF-19.11 | PM (Gestor) | 1 dia | T02 | T03, T05, T06, T07, T10 | Pendente | Todos os itens têm `itemKey` válida e única (`validarItemKey`); os 2 condicionais existem com o texto exato de RF-19.11, nas categorias corretas, sem citar vacina nem saúde; nenhum termo proibido; nenhum item exige `perfis/tipos` (funciona sem catálogo, RF-21.4); a faixa "longa" contém "kit de lavagem" e a "curta" não |
+| V2-L9-T05 | **Conteúdo (PM redige):** itens condicionados dos perfis litorâneos `praia-tropical` e `praia-subtropical` (por estação e mês chuvoso; ex.: protetor, capa de chuva no chuvoso, agasalho leve só em inverno subtropical), categorias roupas/higiene/clima | PM (Gestor) | 1 dia | T02 | T03, T04, T06, T07, T10 | Pendente | Cada item com `itemKey` válida/única e `quando` coerente com o perfil; nenhum agasalho pesado em `praia-tropical`; cada estação e o flag `chuvoso` têm ao menos um item relevante para cada um dos 2 perfis; sem termos proibidos; sem afirmar previsão ("típico da época") |
+| V2-L9-T06 | **Conteúdo (PM redige):** itens condicionados dos perfis `serra-fria`, `interior-termal`, `natureza-aventura` e `cidade-litoral` (ex.: agasalho pesado em serra no inverno, roupa de banho e chinelo no termal, calçado de trilha na natureza/aventura, calçado confortável na cidade) | PM (Gestor) | 1 dia | T02 | T03, T04, T05, T07, T10 | Pendente | Cada item com `itemKey` válida/única e `quando` coerente com o perfil; `serra-fria` tem agasalho pesado no inverno e não no verão; cada um dos 4 perfis tem itens para as 4 estações ou justificativa curta em comentário; sem termos proibidos; sem afirmar previsão |
+| V2-L9-T07 | **Conteúdo (PM redige):** `conteudo/destinos.ts` — mapa `Record<SlugDestino, {perfil, tipo, mesesChuvosos}>` para os **23 destinos** do catálogo, com `SlugDestino` derivado de `CATALOGO_DESTINOS`, e comentário curto com a fonte da classificação | PM (Gestor) | 1 dia | T02 | T03, T04, T05, T06, T10 | Pendente | O arquivo compila com `satisfies`: 23 entradas, uma por slug do catálogo, sem sobra nem falta; todo `perfil` e `tipo` pertence às uniões de T02; `mesesChuvosos` só com inteiros 1..12; Fernando de Noronha e Lençóis Maranhenses classificados como `natureza-aventura`, Gramado e Campos do Jordão como `serra-fria` (âncoras do PRD) |
+| V2-L9-T08 | Server Action `obterChecklist(sessionId)` em `src/lib/actions/checklist.ts`: guard de dono (`exigeConta: true`), só `concluida`, lê destino aprovado e datas, chama `gerarChecklist`, cruza com marcas e **ignora chaves obsoletas** (RF-20.4); resultado discriminado | BE | 1 dia | T01, T03 | T09, T10, T13 | Pendente | Dono da sessão concluída recebe a lista com o estado gravado; outra conta/inexistente -> `SessionNotFoundError` (404 lógico); sessão parcial ou em andamento -> `{status:"indisponivel"}`; marca com `itemKey` que não existe mais é ignorada sem erro e chave nova vem `marcado:false`; **Gateway de IA não é chamado** e `llm_generation_logs` não ganha linha; sem `conta_necessaria` como exceção |
+| V2-L9-T09 | Server Action `marcarItemChecklist(sessionId, itemKey, marcado)` em `src/lib/actions/checklist.ts`: guard de dono, só `concluida`, allowlist de `itemKey` contra a lista gerada, `upsert` idempotente em `tripChecklistMark` | BE | 1 dia | T01, T03 | T08, T10, T13 | Pendente | Marcar e repetir a mesma chamada deixa 1 linha; desmarcar grava `checked=false`; `itemKey` fora da lista ou malformada -> `item_invalido`, nada gravado; conta não dona -> 404 lógico, nada gravado; sessão não concluída -> recusa sem gravar; sem conta autenticada -> `conta_necessaria` discriminado; grava só `sessionId`,`itemKey`,`checked`,`updatedAt`; `trip_sessions.updated_at` inalterado |
+| V2-L9-T10 | Componentes apresentacionais `ChecklistItem` e `ChecklistPanel` (props-driven, sem chamar ação): título, progresso textual `aria-live`, aviso de clima típico, contexto, 6 grupos (grupo vazio some), avisos sem datas/fora do catálogo, marcado com check + riscado; copy de `UX-SPEC.md` §9.8 | FE | 1 dia | T02 | T03, T04, T05, T06, T07, T08, T09, T13 | Pendente | Render com fixture: 6 grupos na ordem fixa; `<label>` associado a `input[type=checkbox]` para todos os itens; progresso "{n} de {total} itens separados"; avisos condicionais aparecem só nos casos de RF-21; não há campo de item próprio nem botão exportar/PDF/imprimir/compartilhar; teste de acessibilidade automático (mesmo padrão dos demais testes de tela) sem violação; sem termos proibidos nos textos fixos |
+| V2-L9-T11 | Cliente do painel (`ChecklistPanelConnected`, Client Component): liga `ChecklistPanel` a `marcarItemChecklist` com atualização otimista, `aria-busy` por item, **reversão + mensagem `role="alert"` em falha**, progresso recalculado, foco mantido | FE | 1 dia | T09, T10 | T12 (só depois de T08), T13 | Pendente | Marcar chama a ação com `marcado:true` e atualiza o progresso na hora; falha da ação reverte o item, mostra "Não consegui guardar esta marcação agora. Tente de novo." e o restante segue utilizável; `conta_necessaria`/`item_invalido` também revertem sem quebrar; duplo clique não gera estado inconsistente; o foco permanece no checkbox; teste com ação mockada |
+| V2-L9-T12 | Integração em T-MEUS-DET (`src/app/meus-roteiros/[sessionId]/page.tsx` + teste da página): quando `concluida`, chama `obterChecklist` e renderiza o painel **abaixo dos dias**; falha isolada mostra `ErrorRetryState` só no painel; parcial não renderiza | FE | 0.5 dia | T08, T11 | T13 | Pendente | Sessão concluída mostra a seção "Checklist de bagagem e documentos"; encerrada parcial não renderiza nada do checklist; falha em `obterChecklist` mostra "Não consegui carregar o checklist agora." + "Tentar de novo" e o roteiro segue visível; `{status:"indisponivel"}`/`conta_necessaria` não renderiza o painel e não quebra a rota; os testes existentes da página continuam verdes (mocks atualizados) |
+| V2-L9-T13 | CSS de impressão do painel (`@media print`, RNF-16): oculta navegação, botões, erros e dias do roteiro; mostra título, contexto, aviso, progresso e grupos; checkbox/check visíveis no papel; `break-inside: avoid` por grupo | FE | 0.5 dia | T10 | T08, T09, T11, T12 | Pendente | Com `emulateMedia({media:"print"})` (Playwright) em página concluída: `AccountNav`, botões e o bloco dos dias ficam ocultos e o painel fica visível; o símbolo de marcado é visível sem cor de fundo; sem botão de imprimir/exportar no DOM; screenshot de impressão anexado à nota da tarefa |
+| V2-L9-T14 | Testes de conteúdo: **cobertura e integridade** — os 23 slugs do catálogo têm entrada; todo destino x 12 meses x 3 faixas gera lista não vazia, com as 6 categorias tratadas; `itemKey` únicas em todo o conteúdo e válidas; determinismo; destino fora do catálogo/sem datas | BE | 0.5 dia | T03, T04, T05, T06, T07 | T15, T16 | Pendente | Teste falha se um slug do catálogo ficar sem entrada (simulando remoção); nenhuma `itemKey` duplicada nem inválida; toda combinação (23 x 12 x 3) devolve lista com >= 1 item por categoria obrigatória (documentos, roupas, higiene, eletrônicos, antes de sair); duas execuções são idênticas; "Lisboa" e sem datas cobertos |
+| V2-L9-T15 | Testes de conteúdo: **texto e coerência climática** — varre todo texto do conteúdo e dos textos fixos: proibidos `visto`, `passaporte`, `vacina`, `reservar`, `comprar` (insensível a acento/caixa, por palavra) e a tabela de §8.8; coerência: sem agasalho pesado em `praia-tropical` no verão, com agasalho em `serra-fria` em julho, itens de chuva só com `chuvoso` | BE | 0.5 dia | T03, T04, T05, T06, T07 | T14, T16 | Pendente | O teste falha ao injetar "passaporte" ou "reservar" num item (prova que detecta); conteúdo real passa; Gramado/julho contém agasalho; Maceió/janeiro não contém agasalho pesado; lista de "Lisboa" não contém "visto"; nenhum item fora dos 2 condicionais menciona criança, adolescente, idoso, gestante, grávida, doença ou medicamento (única menção a saúde permitida: o item "cartão do plano de saúde, se houver", decisão 4 do PRD, em lista de exceção explícita no teste) |
+| V2-L9-T16 | Testes de integração de autorização, cascata e ordem: usuário B não marca item da sessão de A (nada gravado); exclusão de conta remove as marcas; marcar não muda a ordem de "Meus roteiros" nem o estado; reabrir devolve o estado gravado | BE | 0.5 dia | T01, T09 | T14, T15 | Pendente | B recebe recusa e nenhuma linha é criada; após `DELETE` da conta, `trip_checklist_marks` do usuário tem 0 linhas (junto com as demais filhas); `listarMeusRoteiros` retorna a mesma ordem antes e depois de marcar; marcar 3 itens e reler devolve os 3 marcados; nenhum registro contém texto além de `itemKey` |
+| V2-L9-T17 | **Gestor aprova o conteúdo curado dos 23 destinos** (aprovação editorial, PRD.md decisão 9; **bloqueia o deploy, não bloqueia o código T08-T13**) | Gestor (CTO) | 0.5 dia | T04, T05, T06, T07, T14, T15 | — (só após o conteúdo e os testes verdes) | Pendente | Registro de aprovação por escrito, com os 6 critérios avaliados um a um sobre os 23 destinos: (i) nenhuma afirmação de regra de entrada, visto, passaporte ou vacina; (ii) clima sempre "típico da época", nunca previsão; (iii) itens coerentes com clima e época de cada um dos 23 destinos (ex.: sem agasalho pesado em praia tropical no verão; com agasalho na serra fria em julho); (iv) nenhum item que infira condição de saúde ou menores além dos 2 condicionais; (v) sem vocabulário de reserva/venda, voz de consultor; (vi) todo `itemKey` estável e único. Se reprovar, devolve ao PM com a lista de itens; conteúdo só vai a produção com "Aprovado" registrado |
+
+**Ordem e paralelismo do lote** (detalhe na Seção 4): onda 1 = T01 + T02 em
+paralelo; onda 2 (após T02) = T03, T04, T05, T06, T07, T10 em paralelo (T08 e
+T09 entram assim que T01 e T03 concluem); onda 3 = T11 (T09+T10), T13 (T10),
+T14/T15/T16 (conforme conteúdo e T09); onda 4 = T12 (T08+T11); por fim T17
+(Gestor). O deploy só depende de T17 `Concluída` com "Aprovado".
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):
@@ -6815,6 +6869,48 @@ interna):
 | V2-L6 | 9 | 3 no início (T01+T02+T09); depois 5 simultâneas (T04-T08, após T03) |
 | V2-L7 | 9 | 2 no início (T01+T03); depois 2-3 conforme T02/T04/T05 liberam |
 | V2-L8 | 5 | 3 (T01+T02+T03, após V2-L6-T03/T09) |
+
+### V2-L9 — Dependências e Ordem de Execução (2026-09-18)
+
+```
+V2-L9-T01 (migration)          ─┬─→ T08 (obterChecklist)   [também precisa de T03]
+V2-L9-T02 (tipos/calendário)   ─┤   T09 (marcarItemChecklist) [também precisa de T03]
+                                ├─→ T03 (engine gerarChecklist)
+                                ├─→ T04, T05, T06, T07 (conteúdo, PM)
+                                └─→ T10 (ChecklistPanel apresentacional)
+T03 + T01 → T08, T09
+T09 + T10 → T11 (cliente com marcação)
+T08 + T11 → T12 (integração em T-MEUS-DET)
+T10        → T13 (CSS de impressão)
+T03 + T04 + T05 + T06 + T07 → T14, T15 (testes de conteúdo)
+T01 + T09  → T16 (integração: autorização/cascata/ordem)
+T04 + T05 + T06 + T07 + T14 + T15 → T17 (Gestor aprova conteúdo) → DEPLOY
+```
+
+Dependências externas ao lote: nenhuma sobre tarefas não `Concluída`.
+Pré-requisitos já entregues e apenas **consumidos** (sem alterá-los, exceto
+os dois arquivos citados na diretriz do lote): `V2-L1`/`V2-L6-T03`
+(guard `assertSessionAccess`, `exigeConta`), `V2-L2-T01` (catálogo e
+`normalizarNomeDestino`), `V2-L8-T03/T05` (`obterRoteiroLeitura`, página
+T-MEUS-DET). O lote é independente de todos os demais lotes novos ou
+antigos.
+
+Pico de paralelismo interno:
+
+| Onda | Elegível ao mesmo tempo | Simultâneas |
+|---|---|---|
+| 1 | T01, T02 | 2 |
+| 2 (após T02; T08/T09 após T01+T03) | T03, T04, T05, T06, T07, T10 | 6 (depois T08, T09 entram, com T13) |
+| 3 | T11, T13, T14, T15, T16 | até 5 |
+| 4 | T12 | 1 |
+| 5 | T17 (Gestor) | 1 |
+
+Pares **com dependência direta** (ordem obrigatória): T02 -> T03/T04-T07/T10;
+T01+T03 -> T08/T09; T09+T10 -> T11; T08+T11 -> T12; conteúdo+T03 -> T14/T15;
+T14+T15+conteúdo -> T17. Todo o resto do lote é paralelizável entre si dentro
+de cada onda. O conteúdo curado (T04-T07) e a aprovação (T17) **bloqueiam o
+deploy**, não bloqueiam o código (T08-T13): o painel funciona com fixtures e,
+sem conteúdo aprovado, o sistema não vai a produção.
 
 ## 5. Riscos de Prazo
 
@@ -7118,6 +7214,59 @@ mesma rodada, registradas aqui só para rastreabilidade:
   (decisão do dono, 2026-09-16) — `V2-L8-T04` reaproveita a API já
   existente desde o Lote 11 do MVP (`DELETE /api/account`), sem tarefa
   nova de backend.
+
+### V2-L9 — Lacunas Sinalizadas e autocheck de granularidade (2026-09-18)
+
+**Divisões feitas no autocheck (antes/depois):**
+
+- Conteúdo curado: primeira versão tinha 1 tarefa "conteúdo dos 23 destinos"
+  (~3 dias, mistura universal + perfis + mapa). Dividida em 4 tarefas
+  (T04 universal + condicionais; T05 perfis litorâneos; T06 perfis
+  serra/termal/natureza/cidade; T07 mapa 23 destinos) — cada uma ~1 dia e
+  paralelizável, e o mapa dos 23 (que o teste de cobertura fiscaliza) fica
+  isolado dos textos.
+- Ação de leitura e ação de marcar: primeira versão tinha 1 tarefa "Server
+  Actions do checklist". Dividida em T08 e T09 (endpoints distintos, regras
+  distintas, sem dependência entre si depois de T01+T03).
+- Componente e integração: primeira versão "painel + marcação + página" em
+  1 tarefa. Dividida em T10 (apresentacional), T11 (comportamento/otimismo/
+  reversão), T12 (integração em `page.tsx`) e T13 (impressão): telas/fluxos
+  distintos e T13 roda em paralelo com T11/T12.
+- Testes: "todos os testes" virou T14 (cobertura/integridade), T15 (texto
+  proibido/coerência) e T16 (autorização/cascata/ordem), cada uma ~0.5 dia,
+  em paralelo.
+- Migration (T01) e tipos (T02) ficaram separados da lógica que as usa.
+- `T02` acumula tipos + calendário + lint: mantido junto (inseparável: o lint
+  protege o mesmo diretório e os tipos são a base do calendário; ~1 dia).
+
+**Inseparabilidades / exceções documentadas (Seção 3):**
+
+- `T09` inclui a allowlist de `itemKey` (regra de negócio) junto do endpoint:
+  inseparável, pois a allowlist é o próprio contrato de segurança da escrita.
+- `T08`/`T09` incluem o teste de "Gateway não chamado" de cada action, em vez
+  de tarefa de teste própria (padrão de `V2-L8-T03`).
+- Lote com 17 tarefas (acima de 5-6): coerente com uma só funcionalidade,
+  tarefas todas <= 1 dia; 4 são conteúdo de PM e 1 é gate do Gestor, então o
+  lote é largo por composição de papéis e não por tarefa grande.
+- Nenhuma tarefa deve exigir mais de ~300 mil tokens de contexto: as de
+  conteúdo (T04-T07) leem só os tipos de T02 e o catálogo; T12 lê só
+  `page.tsx`, seu teste e o painel.
+
+**Lacunas de detalhe decididas (documentadas em ADR-013):** tipo de viagem vem
+do destino (quiz não persistido); faixa "união dos meses" para período que
+cruza estações; `mesesChuvosos` por destino; marca desmarcada mantém a linha
+(`checked=false`); sem rate limit novo (allowlist limita as linhas).
+
+**Lacuna estrutural nova: nenhuma.** Não há mudança de arquitetura em lote
+`Validado`; `TripSession` só ganha o campo de relação Prisma. Dois toques em
+código de lote `Validado` (`page.tsx`/seu teste em T12; `schema.prisma` em T01)
+são aditivos e listados acima; o Validador deve rodar regressão de
+T-MEUS-DET e da exclusão de conta no fechamento do lote.
+
+**Sinalizações ao Gestor:** (1) T17 é gate de deploy (P-07/R-14); (2) `PRD.md`
+diz "tipo de experiência (RF-03.1 item 3) quando existir na sessão" — hoje
+nunca existe; a decisão do ADR-013 (perfil do destino) está de acordo com o
+"senão" de RF-19.2, mas o Gestor deve saber que o quiz não personaliza a lista.
 
 ## Rascunho de GUARDRAILS.md
 

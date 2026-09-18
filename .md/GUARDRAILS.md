@@ -152,6 +152,37 @@ exceção; as regras abaixo são acréscimos, não substituições.
     Action do V2.0 assume ou implementa esses dois mecanismos (decisão do
     dono, 2026-09-16, `SDD.md` §8.6).
 
+## Regras do Checklist de bagagem (2026-09-18) — aprovadas pelo Gestor em 2026-09-18
+
+Propostas pelo Coordenador (`/planejar_tarefa`), extraídas de ADR-013,
+`SDD.md` §9 e `PRD-TECNICO.md` RN-13 a RN-16; aprovadas pelo Gestor (regra 43
+com ajuste de redação, ver Log de Alterações). Regras 1-40 continuam valendo;
+estas são acréscimos, não substituições.
+
+41. **Toda tabela filha de `TripSession` que guarde dado do usuário entra no
+    cascade da sessão** (`onDelete: Cascade` na FK `session_id`), coberta por
+    teste de integração de exclusão de conta — vale para `trip_checklist_marks`
+    e para qualquer tabela futura (RNF-06, regras 16/20).
+42. **A marcação do checklist grava só `sessionId`, `itemKey` (código),
+    marcado e data/hora**: nunca texto livre, nome do item, número de documento
+    ou dado de saúde; a ação só aceita `itemKey` que pertença à lista gerada
+    para a sessão e escreve por estado desejado (`upsert`), nunca por
+    "alternar" nem via `tripSession.update` (RNF-14, RN-16, ADR-013).
+43. **O checklist é sempre determinístico e sem IA, e só existe em roteiro
+    concluído**: `src/lib/checklist/` não importa Prisma, Gateway de IA nem
+    `next/*`; nenhuma etapa do wizard, home ou sessão parcial renderiza o
+    painel; a state machine não ganha estado nem transição por causa dele
+    — verificado por regra de lint (`no-restricted-imports`, V2-L9-T02) e por
+    testes (V2-L9-T08: sem chamada ao Gateway de IA; V2-L9-T12: sem painel em
+    sessão parcial), não só por revisão manual (RN-13, RF-19.7, ADR-006,
+    regra 35).
+44. **Conteúdo curado do checklist nunca afirma regra de entrada, visto,
+    passaporte ou vacina, nunca apresenta clima como previsão e nunca usa
+    vocabulário de reserva/venda**; só vai a produção com a aprovação do
+    Gestor registrada (6 critérios da decisão 9 do PRD) e `itemKey` estável e
+    única — chave nunca é reaproveitada para item de outro sentido (RN-14,
+    RN-15, RN-07, R-14).
+
 ---
 
 Este rascunho segue para aprovação do usuário (orquestrador) junto com
@@ -165,3 +196,4 @@ severidade alta, não como preferência de estilo.
 |---|---|---|---|---|
 | 2026-09-07 | coordenador | gestor | Aprovação da versão inicial (regras 1-27), com duas ressalvas não bloqueantes: (1) adicionar regra explícita proibindo implementação de entidades/funcionalidades de Fase 2 (Checklist, TripDocument, Expense, TripMember) neste ciclo do MVP, mesmo que o schema as preveja como extensão futura (SDD.md §5); (2) adicionar regra travando ADR-001 (PWA vs. nativo) contra mudança sem novo ADR, no mesmo padrão já aplicado à regra 26 (plataforma de deploy) — nenhuma das duas contradiz o conteúdo aprovado, ambas fecham lacuna de cobertura em relação à ressalva 3 do Gate 1 (CTO-REVIEW.md) e à simetria de tratamento entre ADRs | Ver parecer ad hoc em `CTO-REVIEW.md` (2026-09-07) |
 | 2026-09-16 | coordenador | gestor | Aprovação das regras 28-40 (V2.0), extraídas de `SDD.md` §8, `UX-SPEC.md` §8 e ADR-009 a ADR-012 — catálogo de imagens (crédito/licença, correspondência exata, sem busca externa/IA), consentimento no cadastro, verificação de conta no servidor antes de qualquer chamada de IA pós-destino, state machine inalterada, vínculo de sessão explícito/atômico, vocabulário proibido, allowlist de parâmetros de URL e de redirecionamento, e exclusão explícita de recuperação de senha/verificação de e-mail do escopo. `guardrails-governance` (Gestor) checou consistência com as regras 1-27: nenhuma contradição, nenhuma exceção estrutural sem justificativa — todas as 13 regras novas reforçam ou detalham princípios já aprovados (Gateway de IA único ponto de chamada a LLM, state machine server-side imutável em transições, isolamento de dados pessoais/sessão, imutabilidade de ADR por superação). Sem ressalvas | Ver `TASK.md`, Seção 3 (lotes `V2-L1` a `V2-L8`) e Seção 6 (V2.0) |
+| 2026-09-18 | coordenador | gestor | Aprovação das regras 41-44 (Checklist de bagagem, lote V2-L9, ADR-013), numeração mantida; marcação "PENDENTE" removida. Regras 41, 42 e 44 aprovadas sem alteração; regra 43 **ajustada** só na redação (acrescentada a forma de verificação: lint `no-restricted-imports` em V2-L9-T02 e testes de V2-L9-T08/T12), sem mudar o conteúdo. `guardrails-governance`: sem contradição com 15/16/17/20/21 (41 generaliza a 20 para tabelas filhas futuras; 42 é coerente com 17/21 e RNF-14), com 35 (43 reforça a state machine inalterada) e com 37 (44 reusa o vocabulário proibido); cada regra tem teste/lint no lote (T01/T16, T09/T16, T02/T08/T12, T15/T17). Ressalva não bloqueante: a parte "chave nunca reaproveitada" da regra 44 não é automatizável (só unicidade e formato são testados em T14); fica coberta pela revisão editorial de V2-L9-T17 | Adição pontual V2-L9; `PRD-TECNICO.md` RN-13 a RN-16, RNF-14 a RNF-16; `TASK.md` V2-L9-T01 a T17 |

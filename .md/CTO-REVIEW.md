@@ -258,3 +258,62 @@ Nenhuma ação corretiva obrigatória antes de seguir; ressalvas acima ficam
 como itens de acompanhamento para o próximo ciclo.
 
 ---
+
+## Gate 1 (escopado) — Checklist de bagagem e documentos por destino e época — 2026-09-18
+
+### Escopo
+Demanda pontual (`/planejar_tarefa`), item #5 das 8 funcionalidades
+recomendadas em 2026-09-18 e escolhido pelo dono. Skill
+`tech-strategy-review` + `risk-and-compliance-check` em nível estratégico.
+
+### Achados
+- **Objetivo de negócio:** explícito (motivo de retorno ao app após o
+  roteiro concluído, esforço P). Alinhado ao V2 (consultor de roteiros).
+- **Custo de IA:** zero se determinístico (recomendado); sem teto de gasto
+  hoje, então qualquer chamada nova de IA ficaria fora sem limite por
+  roteiro.
+- **Conflito com "Fora do V2":** nenhum. State machine intacta (painel de
+  leitura pós-conclusão, marcação em tabela própria).
+- **Tensão com a Fase 2:** checklist e documentos constam na Fase 2 do
+  `PRD.md`; a demanda antecipa uma fatia mínima. Exige confirmação do dono.
+- **LGPD:** marcação persistida por usuário é dado pessoal de baixo risco
+  se gravar só `itemKey` + marcado + data, sem texto livre nem item que
+  infira saúde/menores, com exclusão em cascata (GUARDRAILS 17, 20, 21).
+- **INT-15:** a marcação abre a primeira escrita em "Meus roteiros";
+  exceção declarada e restrita.
+- **Capacidade:** sem gap; sem integração externa nova.
+
+### Veredito
+**Aprovado com ressalvas.** Ressalvas: (1) dono confirma antecipar a fatia
+da Fase 2; (2) sem IA nem texto livre na primeira entrega; (3) conteúdo
+curado revisado pelo dono antes do deploy; (4) sem afirmação de regras de
+entrada/visto/passaporte; (5) Validador confere cascade de exclusão e
+autorização de dono nas rotas. Libera os chapéus PM/BA para o rascunho.
+
+### Atualização da rodada 2 — 2026-09-18 (rascunho aguardando aprovação final do dono)
+O dono respondeu às 10 perguntas (`PRD.md` Seção 7, "Decisões do dono e do
+Gestor"). **Veredito mantido: Aprovado**, com as ressalvas 2, 4 e 5
+mantidas e as ressalvas 1 e 3 fechadas:
+- **Ressalva 1 — FECHADA.** O dono aprovou explicitamente, em 2026-09-18,
+  antecipar a fatia mínima da Fase 2 (checklist de bagagem e lembrete de
+  documentos, sem dados de documento). Fica registrada como exceção à
+  sequência "Fase 2 só depois de validar a Fase 1".
+- **Ressalva 3 — FECHADA e substituída.** O dono delegou ao Gestor a
+  aprovação do conteúdo curado dos 23 destinos, sem revisão dele antes do
+  deploy. O PM redige; o Gestor aprova como tarefa do lote, quando o
+  conteúdo existir. Critérios objetivos: (i) nenhuma afirmação de regra de
+  entrada, visto, passaporte ou vacina; (ii) clima sempre "típico da
+  época", nunca previsão; (iii) itens coerentes com clima e época de cada
+  destino; (iv) nenhum item que infira saúde ou menores, além dos dois
+  condicionais estáticos; (v) sem vocabulário de reserva/venda; (vi)
+  `itemKey` estável e único. A aprovação ainda **não** foi dada: o conteúdo
+  não existe.
+- **Ressalva 2 mantida:** sem IA e sem item próprio (decisão final).
+- **Ressalva 4 mantida:** sem regra de entrada/visto/passaporte/vacina.
+- **Ressalva 5 mantida:** Validador confere cascade de exclusão e
+  autorização de dono.
+- Escopo ajustado pelo dono/Gestor: só roteiro concluído; seis categorias;
+  dois itens condicionais estáticos; impressão do navegador (sem
+  exportar/PDF); sem lembrete por e-mail/push.
+
+---
