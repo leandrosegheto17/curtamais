@@ -150,3 +150,44 @@
       );
   }
 }
+/* V2-L9-T13 / RNF-16: impressao do painel de checklist (sem botao de imprimir; Ctrl+P do navegador) */
+@media print {
+  .checklist-print-hide,
+  header,
+  nav,
+  footer,
+  button,
+  [data-print-hide] {
+    display: none !important;
+  }
+  .checklist-panel {
+    color: #000;
+  }
+  .checklist-panel .grid {
+    display: block;
+  }
+  .checklist-group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: transparent !important;
+    border: 1px solid #000 !important;
+    margin-bottom: 0.75rem;
+  }
+  .checklist-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 1.5px solid #000;
+    background: transparent;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .checklist-checkbox:checked {
+    background: linear-gradient(#000, #000) center / 0.5rem 0.5rem no-repeat;
+  }
+  .checklist-check {
+    color: #000 !important;
+    display: inline-block;
+  }
+}

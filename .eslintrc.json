@@ -30,6 +30,35 @@
           }
         ]
       }
+    },
+    {
+      "files": ["src/lib/checklist/**/*.{ts,tsx}"],
+      "excludedFiles": ["src/lib/checklist/**/__tests__/**"],
+      "rules": {
+        "no-restricted-imports": "off",
+        "@typescript-eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/lib/gateway-ia",
+                  "@/lib/gateway-ia/*",
+                  "@/lib/stage-rules",
+                  "@/lib/stage-rules/*",
+                  "@/lib/prisma",
+                  "@/lib/prisma/*",
+                  "@prisma/client",
+                  "openai",
+                  "next",
+                  "next/*"
+                ],
+                "message": "ADR-013 decisão 1 (RF-19, GUARDRAILS 41-44): o módulo puro src/lib/checklist não pode importar Prisma, Gateway de IA, stage-rules, SDK da OpenAI nem next/*."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

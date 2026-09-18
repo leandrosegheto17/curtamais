@@ -206,6 +206,7 @@ model TripSession {
   activityApprovals      ActivityApproval[]
   itineraryItems         ItineraryItem[]
   llmGenerationLogs      LlmGenerationLog[]
+  checklistMarks         TripChecklistMark[]
 
   // "Meus roteiros" (V2-L8-T01): busca por userId ordenada por updatedAt
   // desc (SDD.md §8.5).
@@ -323,4 +324,20 @@ model LlmGenerationLog {
   session TripSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("llm_generation_logs")
+}
+
+// V2-L9-T01 (ADR-013 §5, GUARDRAILS 41/42): marcação do checklist de bagagem.
+// Só código (`itemKey`), sem texto livre nem `userId` (dono = o da sessão).
+// Escrita direta via upsert nesta tabela; nunca mexe em `TripSession.updatedAt`.
+model TripChecklistMark {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  itemKey   String   @map("item_key") @db.VarChar(64)
+  checked   Boolean
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  session TripSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, itemKey])
+  @@map("trip_checklist_marks")
 }
