@@ -118,7 +118,7 @@ export function RoteiroSalvoScreen({
 
       {isComplete ? (
         dias && dias.length > 0 ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4" data-print-hide>
             <h2 className="font-serif text-xl text-foreground">
               Seu roteiro
             </h2>

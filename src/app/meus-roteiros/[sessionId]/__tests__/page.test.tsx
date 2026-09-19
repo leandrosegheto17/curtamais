@@ -1,12 +1,20 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const redirectMock = vi.fn(() => {
   throw new Error("NEXT_REDIRECT");
 });
 
+const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
   redirect: (...args: unknown[]) => redirectMock(...args),
+  useRouter: () => ({ refresh: refreshMock }),
+}));
+
+const obterChecklistMock = vi.fn();
+vi.mock("@/lib/actions/checklist", () => ({
+  obterChecklist: (...args: unknown[]) => obterChecklistMock(...args),
+  marcarItemChecklist: vi.fn(),
 }));
 
 const obterResumoEncerramentoMock = vi.fn();
@@ -122,5 +130,112 @@ describe("RoteiroSalvoPage (rota T-MEUS-DET, V2-L8-T05, RF-17.5)", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Seu roteiro")).not.toBeInTheDocument();
     expect(obterRoteiroLeituraMock).not.toHaveBeenCalled();
+  });
+
+  describe("checklist (V2-L9-T12)", () => {
+    const resumoConcluido = {
+      destino: { name: "Gramado" },
+      hospedagem: { name: "Hotel Serra", type: "Hotel" },
+      passeios: [{ name: "Mini Mundo", free: false }],
+      roteiroAprovado: true,
+      temConta: true,
+    };
+    const dias = [
+      {
+        date: "2026-06-12",
+        morning: [
+          {
+            activity: "Café colonial",
+            suggestedTime: "08h00",
+            timingJustification: null,
+            sequenceOrder: 0,
+          },
+        ],
+        afternoon: [],
+        evening: [],
+      },
+    ];
+
+    async function renderPage() {
+      const Page = (await import("@/app/meus-roteiros/[sessionId]/page"))
+        .default;
+      render(
+        await Page({ params: Promise.resolve({ sessionId: "session-1" }) }),
+      );
+    }
+
+    it("sessão concluída mostra o checklist abaixo dos dias", async () => {
+      obterResumoEncerramentoMock.mockResolvedValueOnce(resumoConcluido);
+      obterRoteiroLeituraMock.mockResolvedValueOnce(dias);
+      obterChecklistMock.mockResolvedValueOnce({
+        status: "ok",
+        avisos: [],
+        itens: [
+          {
+            itemKey: "docs.rg",
+            categoria: "documentos",
+            texto: "RG ou CNH",
+            marcado: true,
+          },
+        ],
+      });
+      await renderPage();
+
+      const painel = screen.getByRole("heading", {
+        name: "Checklist de bagagem e documentos",
+      });
+      const roteiro = screen.getByText("Café colonial");
+      expect(
+        roteiro.compareDocumentPosition(painel) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(obterChecklistMock).toHaveBeenCalledWith("session-1");
+    });
+
+    it("encerrada parcial não chama nem renderiza o checklist", async () => {
+      obterResumoEncerramentoMock.mockResolvedValueOnce({
+        ...resumoConcluido,
+        hospedagem: null,
+        passeios: null,
+        roteiroAprovado: false,
+      });
+      await renderPage();
+
+      expect(obterChecklistMock).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText("Checklist de bagagem e documentos"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("falha em obterChecklist isola o erro no painel e mantém o roteiro", async () => {
+      obterResumoEncerramentoMock.mockResolvedValueOnce(resumoConcluido);
+      obterRoteiroLeituraMock.mockResolvedValueOnce(dias);
+      obterChecklistMock.mockRejectedValueOnce(new Error("db fora"));
+      await renderPage();
+
+      expect(
+        screen.getByText("Não consegui carregar o checklist agora."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Café colonial")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+      expect(refreshMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      [{ status: "indisponivel" }],
+      [{ status: "conta_necessaria", sessionId: "session-1" }],
+    ])("%j não renderiza o painel nem quebra a rota", async (resultado) => {
+      obterResumoEncerramentoMock.mockResolvedValueOnce(resumoConcluido);
+      obterRoteiroLeituraMock.mockResolvedValueOnce(dias);
+      obterChecklistMock.mockResolvedValueOnce(resultado);
+      await renderPage();
+
+      expect(screen.getByText("Café colonial")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Checklist de bagagem e documentos"),
+      ).not.toBeInTheDocument();
+      expect(redirectMock).not.toHaveBeenCalled();
+    });
   });
 });

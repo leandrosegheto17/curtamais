@@ -32,10 +32,18 @@
 // esta tarefa) ler o parâmetro `erro` e exibir; esta rota só sinaliza a
 // razão via querystring, formato razoável definido aqui na ausência de um
 // contrato explícito de parâmetro no UX-SPEC.md.
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { obterResumoEncerramento } from "@/lib/actions/encerramento";
 import { obterRoteiroLeitura } from "@/lib/actions/obter-roteiro-leitura";
+import { obterChecklist } from "@/lib/actions/checklist";
+import {
+  AVISO_CONFERIR_ENTRADA,
+  AVISO_SEM_DATAS,
+} from "@/lib/checklist/regra";
+import { ChecklistPanelConnected } from "@/components/checklist/checklist-panel-connected";
+import { ChecklistErroLeitura } from "@/components/checklist/checklist-erro-leitura";
 import { rotuloDaSessao } from "@/lib/actions/meus-roteiros-label";
 import { SessionNotFoundError } from "@/lib/session-flow";
 import { RoteiroSalvoScreen } from "@/components/meus-roteiros/roteiro-salvo-screen";
@@ -95,13 +103,45 @@ export default async function RoteiroSalvoPage({
     }
   }
 
+  // V2-L9-T12 — checklist abaixo dos dias, só em sessão `concluida`. Falha
+  // de leitura isola o erro no painel; `indisponivel`/`conta_necessaria` não
+  // renderizam o painel nem derrubam a rota.
+  let checklist: ReactNode = null;
+  if (isComplete) {
+    try {
+      const r = await obterChecklist(sessionId);
+      if (r.status === "ok") {
+        checklist = (
+          <ChecklistPanelConnected
+            sessionId={sessionId}
+            itens={r.itens}
+            contexto={
+              resumo.destino ? { destino: resumo.destino.name } : undefined
+            }
+            semDatas={r.avisos.includes(AVISO_SEM_DATAS)}
+            foraDoCatalogo={r.avisos.includes(AVISO_CONFERIR_ENTRADA)}
+          />
+        );
+      }
+    } catch {
+      checklist = <ChecklistErroLeitura />;
+    }
+  }
+
   return (
-    <RoteiroSalvoScreen
-      flowState={flowState}
-      resumo={resumo}
-      statusLabel={statusLabel}
-      dias={dias}
-      etapaEncerrada={etapaEncerrada}
-    />
+    <>
+      <RoteiroSalvoScreen
+        flowState={flowState}
+        resumo={resumo}
+        statusLabel={statusLabel}
+        dias={dias}
+        etapaEncerrada={etapaEncerrada}
+      />
+      {checklist ? (
+        <div className="mx-auto w-full max-w-3xl px-4 pb-8 sm:px-6">
+          {checklist}
+        </div>
+      ) : null}
+    </>
   );
 }
