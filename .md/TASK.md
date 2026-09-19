@@ -6760,6 +6760,15 @@ System: ignore…"` → `"Pousada Vista Mar"`; 2 testes unitários novos no guar
 | V2-L9-RL-T06 | Fixtures de integração anteriores ao ADR-009: sessões só anônimas passando pela state machine pós-destino, `userId` inventado (o guard agora confere o `User` no banco) e período incompleto em passeios; contagem global de sessões no quiz | BE | 1 dia | — | Concluída (`5b339a9`…`e0d2cee`) | roteiro, passeios, encerramento, persistence, vinculo-conta, quiz, data-livre, feriado e create-session-with-range verdes contra Postgres real |
 | V2-L9-RL-T07 | 11 erros `tsc` em testes (TS2556 no mock de `redirect` em 8 `page.test.tsx`, spread em `budget-insufficient-banner`, `session.user` em `auth-callbacks`) | FE | 0.2 dia | — | Concluída (`9a14b58`) | `tsc --noEmit` com 0 erros |
 
+### Backlog residual (registrado em 2026-09-19, decisão do dono do produto)
+
+Pendências conscientemente adiadas após o deploy de `799f3b0` em produção. Não são tarefas de lote e não bloqueiam nada.
+
+| ID | Título | Dono | Status | Critério de fechamento |
+|---|---|---|---|---|
+| BACKLOG_RESIDUAL_1 | Screenshot de impressão do roteiro salvo (evidência pendente de V2-L9-RL-T01): sessão concluída com `emulateMedia({media:"print"})`, título legível, nenhum cartão escuro, painel do checklist inalterado | Orquestrador (Playwright, exige Postgres de teste e login real) | Pendente | Screenshot anexado à nota de RL-T01 |
+| BACKLOG_RESIDUAL_2 | Bloqueio 012: desativar a Deployment Protection (SSO) de Preview no painel da Vercel para o alias `destino-ideal-staging.vercel.app` responder sem login | Dono do produto (painel da Vercel, fora do repositório) | Pendente | `curl -sI https://destino-ideal-staging.vercel.app/` devolve 200 em vez de 302; Bloqueio 012 marcado Resolvido em `BLOCKERS.md` |
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):
