@@ -769,3 +769,12 @@ existem para esta versão em produção (dashboard, fora do alcance de
 - **Confirmado pelo usuário** antes de produção (2026-09-19). Banco Neon segue compartilhado entre staging e produção, por decisão do dono.
 - **Não verificado:** screenshot de impressão do roteiro salvo (RL-T01) com Playwright.
 - **Rollback:** `rollback.yml`.
+
+### Deploy em Staging e Produção — 2026-09-19 (fotos dos 5 destinos restantes, catálogo 23/23)
+
+- **Commit publicado:** `585123e9ba25f9a9331140b22bb99adc7abc9114` (`main`), SHA completo. CI de `main` verde neste commit (run `35420644139`).
+- **Conteúdo:** fotos do Wikimedia Commons para Imbassaí, Praia do Forte, Caldas Novas, Olímpia e Poços de Caldas (CC BY 2.0 / CC BY-SA 3.0, autor e link registrados no catálogo); nova fonte `wikimedia` no tipo do catálogo; `rotuloFonteImagem` compartilhado no crédito do hero, da home e do `suggestion-card`; nota de redimensionamento na seção de créditos; testes de integridade do catálogo. Sem migration.
+- **Staging:** run [`35420797769`](https://github.com/leandrosegheto17/curtamais/actions/runs/35420797769), `success` (alias ainda atrás de SSO, Bloqueio 012 / BACKLOG_RESIDUAL_2).
+- **Produção:** run [`35420927656`](https://github.com/leandrosegheto17/curtamais/actions/runs/35420927656), `success`, alias `https://destino-ideal-ljs.vercel.app`. Verificação HTTP: `/`, `/entrar` e `/api/auth/providers` 200; as 5 novas `/destinos/*-v1.jpg` 200 `image/jpeg`.
+- **Confirmado pelo usuário** (2026-09-19). Banco compartilhado, sem migration.
+- **Não verificado:** aparência dos créditos na interface renderizada (só testes de componente).
