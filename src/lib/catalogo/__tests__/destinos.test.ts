@@ -4,8 +4,15 @@
 // aceite: 23 destinos presentes; exatamente 8 com `vitrine` 1..8 sem
 // repetição; exatamente 1 `hero`; `slug` único no formato `^[a-z0-9-]+$`;
 // nenhum destino falha ao ser importado/usado com `imagem: null`.
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { CATALOGO_DESTINOS, type DestinoCatalogo } from "@/lib/catalogo/destinos";
+import {
+  CATALOGO_DESTINOS,
+  rotuloFonteImagem,
+  type DestinoCatalogo,
+} from "@/lib/catalogo/destinos";
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 
@@ -51,5 +58,54 @@ describe("CATALOGO_DESTINOS", () => {
       expect(destino.uf).toMatch(/^[A-Z]{2}$/);
       expect(destino.rotuloRegiao.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("fotos curadas do catálogo (RF-15.5, ADR-010)", () => {
+  const comImagem = CATALOGO_DESTINOS.filter(
+    (d): d is DestinoCatalogo & { imagem: NonNullable<DestinoCatalogo["imagem"]> } =>
+      d.imagem !== null,
+  );
+
+  it("todo destino tem foto curada (23 de 23)", () => {
+    expect(comImagem).toHaveLength(23);
+  });
+
+  it("o arquivo existe em public/, com as dimensões declaradas", async () => {
+    for (const { slug, imagem } of comImagem) {
+      const arquivo = path.join(process.cwd(), "public", imagem.arquivo);
+      expect(existsSync(arquivo), `${slug}: ${imagem.arquivo} não existe`).toBe(true);
+      const meta = await sharp(readFileSync(arquivo)).metadata();
+      expect(`${slug} ${meta.width}x${meta.height}`).toBe(
+        `${slug} ${imagem.largura}x${imagem.altura}`,
+      );
+    }
+  });
+
+  it("crédito completo: autor, links https, licença coerente com a fonte e data", () => {
+    const licencasPorFonte = {
+      unsplash: ["Unsplash License"],
+      pexels: ["Pexels License"],
+      wikimedia: ["CC BY 2.0", "CC BY-SA 3.0"],
+    } as const;
+    for (const { slug, imagem } of comImagem) {
+      expect(imagem.autor.trim(), `${slug}: autor vazio`).not.toBe("");
+      expect(imagem.autorUrl.startsWith("https://"), `${slug}: autorUrl`).toBe(true);
+      expect(imagem.fonteUrl.startsWith("https://"), `${slug}: fonteUrl`).toBe(true);
+      expect(licencasPorFonte[imagem.fonte], `${slug}: licença x fonte`).toContain(
+        imagem.licenca,
+      );
+      expect(imagem.curadaEm).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
+    }
+  });
+
+  it("rotuloFonteImagem: Unsplash/Pexels sem licença; Wikimedia com a licença CC", () => {
+    expect(rotuloFonteImagem({ fonte: "unsplash", licenca: "Unsplash License" })).toBe(
+      "Unsplash",
+    );
+    expect(rotuloFonteImagem({ fonte: "pexels", licenca: "Pexels License" })).toBe("Pexels");
+    expect(rotuloFonteImagem({ fonte: "wikimedia", licenca: "CC BY-SA 3.0" })).toBe(
+      "Wikimedia Commons (CC BY-SA 3.0)",
+    );
   });
 });

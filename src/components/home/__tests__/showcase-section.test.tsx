@@ -18,7 +18,11 @@ import type { ImgHTMLAttributes } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CATALOGO_DESTINOS, type ImagemCurada } from "@/lib/catalogo/destinos";
+import {
+  CATALOGO_DESTINOS,
+  type DestinoCatalogo,
+  type ImagemCurada,
+} from "@/lib/catalogo/destinos";
 import { ShowcaseSection, ImageCreditsSection } from "@/components/home/showcase-section";
 
 vi.mock("next/image", () => ({
@@ -37,15 +41,22 @@ const DESTINOS_VITRINE_ORDEM = CATALOGO_DESTINOS.filter((d) => d.vitrine !== nul
   (a, b) => a.vitrine! - b.vitrine!,
 );
 
-/** Um destino do catálogo (fora da vitrine) ainda sem foto curada — usado pelos testes que mutam `imagem`. */
-function pegarDestinoSemImagemCurada() {
-  const destino = CATALOGO_DESTINOS.find((d) => d.imagem === null);
-  if (!destino) {
-    throw new Error(
-      "Todo o catálogo já tem imagem curada — ajuste estes testes (ex.: mockar `resolver-imagem.ts` em vez de mutar dado real).",
-    );
+/**
+ * Roda `fn` com a imagem de um destino real (fora da vitrine) trocada por
+ * `imagem` — `ImageCreditsSection` resolve a foto pelo nome, contra o
+ * catálogo real, então o teste precisa mutar o dado e restaurar no fim. O
+ * catálogo já tem foto curada em todos os 23 destinos.
+ */
+function comImagemTemporaria(imagem: ImagemCurada | null, fn: (destino: DestinoCatalogo) => void) {
+  const destino = CATALOGO_DESTINOS.find((d) => d.vitrine === null);
+  if (!destino) throw new Error("Catálogo sem destino fora da vitrine.");
+  const original = destino.imagem;
+  destino.imagem = imagem;
+  try {
+    fn(destino);
+  } finally {
+    destino.imagem = original;
   }
-  return destino;
 }
 
 const IMAGEM_CURADA_EXEMPLO: (slug: string, fonte: "unsplash" | "pexels") => ImagemCurada = (
@@ -144,32 +155,54 @@ describe("ShowcaseSection (V2-L4-T04)", () => {
 
 describe("ImageCreditsSection (V2-L4-T04, RF-15.5)", () => {
   it("não renderiza nada quando nenhum destino recebido tem imagem curada", () => {
-    const destino = pegarDestinoSemImagemCurada();
-    expect(destino.imagem).toBeNull();
-
-    const { container } = render(<ImageCreditsSection destinos={[destino]} />);
-
-    expect(container).toBeEmptyDOMElement();
+    comImagemTemporaria(null, (destino) => {
+      const { container } = render(<ImageCreditsSection destinos={[destino]} />);
+      expect(container).toBeEmptyDOMElement();
+    });
   });
 
   it('lista "Foto de {autor} no {fonte}" com links, sob id="creditos", quando há imagem curada', () => {
-    const destino = pegarDestinoSemImagemCurada();
-    const original = destino.imagem;
-    destino.imagem = IMAGEM_CURADA_EXEMPLO(destino.slug, "pexels");
-
-    try {
+    const destino0 = CATALOGO_DESTINOS.find((d) => d.vitrine === null)!;
+    comImagemTemporaria(IMAGEM_CURADA_EXEMPLO(destino0.slug, "pexels"), (destino) => {
       render(<ImageCreditsSection destinos={[destino]} />);
 
-      const secao = document.getElementById("creditos");
-      expect(secao).not.toBeNull();
+      expect(document.getElementById("creditos")).not.toBeNull();
 
       const linkAutor = screen.getByRole("link", { name: "Autora Exemplo" });
       expect(linkAutor).toHaveAttribute("href", "https://example.com/pexels/autora");
 
       const linkFonte = screen.getByRole("link", { name: "Pexels" });
       expect(linkFonte).toHaveAttribute("href", "https://pexels.com/photos/exemplo");
-    } finally {
-      destino.imagem = original;
-    }
+      expect(screen.queryByText(/redimensionadas/i)).toBeNull();
+    });
+  });
+
+  it("foto do Wikimedia Commons: crédito mostra a licença CC e a nota de redimensionamento", () => {
+    const destino0 = CATALOGO_DESTINOS.find((d) => d.vitrine === null)!;
+    comImagemTemporaria(
+      {
+        arquivo: `/destinos/${destino0.slug}-v1.jpg`,
+        largura: 1600,
+        altura: 1200,
+        autor: "Autor Commons",
+        autorUrl: "https://commons.wikimedia.org/wiki/User:Exemplo",
+        fonte: "wikimedia",
+        fonteUrl: "https://commons.wikimedia.org/wiki/File:Exemplo.jpg",
+        licenca: "CC BY-SA 3.0",
+        curadaEm: "2026-09-19",
+      },
+      (destino) => {
+        render(<ImageCreditsSection destinos={[destino]} />);
+
+        const linkFonte = screen.getByRole("link", {
+          name: "Wikimedia Commons (CC BY-SA 3.0)",
+        });
+        expect(linkFonte).toHaveAttribute(
+          "href",
+          "https://commons.wikimedia.org/wiki/File:Exemplo.jpg",
+        );
+        expect(screen.getByText(/redimensionadas para exibição/i)).toBeInTheDocument();
+      },
+    );
   });
 });

@@ -55,6 +55,7 @@ import {
   type PriceRangeBadgeProps,
 } from "@/components/design-system/price-range-badge";
 import { DestinationImage } from "@/components/catalogo/destination-image";
+import { rotuloFonteImagem } from "@/lib/catalogo/destinos";
 import type { ImagemResolvida } from "@/lib/catalogo/resolver-imagem";
 import { cn } from "@/lib/utils";
 
@@ -63,11 +64,6 @@ type ImagemCuradaResolvida = Extract<
   ImagemResolvida,
   { tipo: "curada" }
 >["imagem"];
-
-const FONTE_LABEL: Record<ImagemCuradaResolvida["fonte"], string> = {
-  unsplash: "Unsplash",
-  pexels: "Pexels",
-};
 
 /**
  * Crédito de autor/fonte (RF-15.5) — "Foto: {autor} / {fonte}" (UX-SPEC.md
@@ -93,7 +89,7 @@ function ImageCredit({ imagem }: { imagem: ImagemCuradaResolvida }) {
         rel="noreferrer"
         className="underline underline-offset-2 hover:text-foreground"
       >
-        {FONTE_LABEL[imagem.fonte]}
+        {rotuloFonteImagem(imagem)}
       </a>
     </p>
   );

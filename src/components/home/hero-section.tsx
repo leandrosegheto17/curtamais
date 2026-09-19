@@ -16,7 +16,7 @@
 // futuro, para o build falhar alto e cedo em vez de mostrar hero vazio.
 import Link from "next/link";
 
-import { CATALOGO_DESTINOS } from "@/lib/catalogo/destinos";
+import { CATALOGO_DESTINOS, rotuloFonteImagem } from "@/lib/catalogo/destinos";
 import { gerarFallback, type ImagemResolvida } from "@/lib/catalogo/resolver-imagem";
 import { DestinationImage } from "@/components/catalogo/destination-image";
 import { Button } from "@/components/ui/button";
@@ -105,7 +105,7 @@ export function HeroSection() {
             href={imagemHero.imagem.fonteUrl}
             className="underline underline-offset-2 hover:no-underline"
           >
-            {imagemHero.imagem.fonte === "unsplash" ? "Unsplash" : "Pexels"}
+            {rotuloFonteImagem(imagemHero.imagem)}
           </a>
         </p>
       )}

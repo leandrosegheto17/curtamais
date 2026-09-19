@@ -33,7 +33,11 @@
 //    `UpcomingHolidaysSection`/T06b quando não há conteúdo para mostrar).
 import Link from "next/link";
 
-import { CATALOGO_DESTINOS, type DestinoCatalogo } from "@/lib/catalogo/destinos";
+import {
+  CATALOGO_DESTINOS,
+  rotuloFonteImagem,
+  type DestinoCatalogo,
+} from "@/lib/catalogo/destinos";
 import { resolverImagemDestino, type ImagemResolvida } from "@/lib/catalogo/resolver-imagem";
 import { DestinationImage } from "@/components/catalogo/destination-image";
 import { SectionBand } from "@/components/home/section-band";
@@ -179,12 +183,18 @@ export function ImageCreditsSection({ destinos = DESTINOS_VITRINE }: ImageCredit
               href={imagem.imagem.fonteUrl}
               className="underline underline-offset-2 hover:no-underline"
             >
-              {imagem.imagem.fonte === "unsplash" ? "Unsplash" : "Pexels"}
+              {rotuloFonteImagem(imagem.imagem)}
             </a>{" "}
             ({destino.nome})
           </li>
         ))}
       </ul>
+      {creditos.some(({ imagem }) => imagem.imagem.fonte === "wikimedia") && (
+        <p className="mt-2 text-[0.8125rem] text-foreground-muted">
+          Fotos do Wikimedia Commons redimensionadas para exibição; cada uma
+          segue a licença indicada.
+        </p>
+      )}
     </section>
   );
 }

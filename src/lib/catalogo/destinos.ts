@@ -9,7 +9,14 @@
 // são exatamente os do PRD.md ... `imagem: null` é um estado válido").
 
 /** Fonte de onde a foto curada foi obtida — só fontes gratuitas (RF-15.5, decisão 8 do PRD.md). */
-export type FonteImagem = "unsplash" | "pexels";
+export type FonteImagem = "unsplash" | "pexels" | "wikimedia";
+
+/** Licenças de uso livre aceitas para foto curada (RF-15.5). As CC exigem crédito ao autor (e, nas BY-SA, manter a licença na imagem adaptada). */
+export type LicencaImagem =
+  | "Unsplash License"
+  | "Pexels License"
+  | "CC BY 2.0"
+  | "CC BY-SA 3.0";
 
 /** Dados de uma foto curada manualmente pelo dono do produto (ADR-010). */
 export type ImagemCurada = {
@@ -23,13 +30,32 @@ export type ImagemCurada = {
   fonte: FonteImagem;
   /** URL da página da foto na fonte (crédito, RF-15.5). */
   fonteUrl: string;
-  licenca: "Unsplash License" | "Pexels License";
+  licenca: LicencaImagem;
   /** Data da curadoria, formato AAAA-MM-DD. */
   curadaEm: string;
   /** `object-position` em porcentagem, opcional. */
   focoX?: number;
   focoY?: number;
 };
+
+const FONTE_ROTULO: Record<FonteImagem, string> = {
+  unsplash: "Unsplash",
+  pexels: "Pexels",
+  wikimedia: "Wikimedia Commons",
+};
+
+/**
+ * Rótulo da fonte para o crédito (RF-15.5): "Unsplash", "Pexels" ou, para as
+ * fontes com licença Creative Commons, "Wikimedia Commons (CC BY-SA 3.0)" —
+ * a licença faz parte do crédito exigido pela CC.
+ */
+export function rotuloFonteImagem(
+  imagem: Pick<ImagemCurada, "fonte" | "licenca">,
+): string {
+  return imagem.fonte === "wikimedia"
+    ? `${FONTE_ROTULO.wikimedia} (${imagem.licenca})`
+    : FONTE_ROTULO[imagem.fonte];
+}
 
 /** Um destino do catálogo curado (23 no V2.0, 8 deles também na vitrine da home). */
 export type DestinoCatalogo = {
@@ -316,7 +342,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     rotuloRegiao: "Costa dos Coqueiros",
     variantes: [],
     vitrine: null,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/imbassai-v1.jpg",
+      largura: 1600,
+      altura: 1200,
+      autor: "LeRoc",
+      autorUrl: "https://commons.wikimedia.org/wiki/User:LeRoc",
+      fonte: "wikimedia",
+      fonteUrl: "https://commons.wikimedia.org/wiki/File:Imbassa%C3%AD_beach.jpg",
+      licenca: "CC BY-SA 3.0",
+      curadaEm: "2026-09-19",
+    },
   },
   {
     slug: "buzios",
@@ -382,7 +418,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     rotuloRegiao: "Costa dos Coqueiros",
     variantes: [],
     vitrine: null,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/praia-do-forte-v1.jpg",
+      largura: 1600,
+      altura: 1200,
+      autor: "Bruno da Silva Lessa",
+      autorUrl: "https://commons.wikimedia.org/wiki/File:Barcos-PraiaDoForte.jpg",
+      fonte: "wikimedia",
+      fonteUrl: "https://commons.wikimedia.org/wiki/File:Barcos-PraiaDoForte.jpg",
+      licenca: "CC BY-SA 3.0",
+      curadaEm: "2026-09-19",
+    },
   },
   {
     slug: "caldas-novas",
@@ -391,7 +437,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     rotuloRegiao: "Região das Águas Quentes",
     variantes: [],
     vitrine: null,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/caldas-novas-v1.jpg",
+      largura: 1600,
+      altura: 1067,
+      autor: "Otávio Nogueira",
+      autorUrl: "https://www.flickr.com/photos/55953988@N00/",
+      fonte: "wikimedia",
+      fonteUrl: "https://commons.wikimedia.org/wiki/File:Hot_Park_1.jpg",
+      licenca: "CC BY 2.0",
+      curadaEm: "2026-09-19",
+    },
   },
   {
     slug: "olimpia",
@@ -400,7 +456,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     rotuloRegiao: "Interior Paulista",
     variantes: [],
     vitrine: null,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/olimpia-v1.jpg",
+      largura: 1600,
+      altura: 1200,
+      autor: "Marco Aurélio Esparza",
+      autorUrl: "https://web.archive.org/web/20161021195246/http://www.panoramio.com/user/3227857?with_photo_id=53093585",
+      fonte: "wikimedia",
+      fonteUrl: "https://commons.wikimedia.org/wiki/File:Thermas_dos_Laranjais,_Ol%C3%ADmpia_-_Piscina_de_Ondas_-_Wave_pool_-_panoramio.jpg",
+      licenca: "CC BY-SA 3.0",
+      curadaEm: "2026-09-19",
+    },
   },
   {
     slug: "pocos-de-caldas",
@@ -409,7 +475,17 @@ export const CATALOGO_DESTINOS: DestinoCatalogo[] = [
     rotuloRegiao: "Sul de Minas",
     variantes: [],
     vitrine: null,
-    imagem: null,
+    imagem: {
+      arquivo: "/destinos/pocos-de-caldas-v1.jpg",
+      largura: 1600,
+      altura: 902,
+      autor: "Andreia Reis",
+      autorUrl: "https://www.flickr.com/people/8276622@N03",
+      fonte: "wikimedia",
+      fonteUrl: "https://commons.wikimedia.org/wiki/File:Po%C3%A7os_de_Caldas_(8341659567).jpg",
+      licenca: "CC BY 2.0",
+      curadaEm: "2026-09-19",
+    },
   },
   {
     slug: "fernando-de-noronha",
