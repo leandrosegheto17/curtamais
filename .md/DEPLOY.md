@@ -758,3 +758,14 @@ existem para esta versão em produção (dashboard, fora do alcance de
 - **Ressalvas conhecidas em produção:** `Refatoração Lote-V2-L9` pendente (RL-T01 impressão do cabeçalho da tela salva; RL-T02 redação do critério da T13; RL-T03 rate limit de `marcarItemChecklist`). CI de `main` vermelho por 36 falhas de integração pré-existentes, independentes do L9.
 - **Bloqueio 012 segue aberto:** o alias `destino-ideal-staging.vercel.app` (novo passo do `deploy.yml`) continua atrás de SSO da Vercel; requer desativar a Deployment Protection para Preview no painel (fora do repositório).
 - **Rollback:** `rollback.yml`.
+
+### Deploy em Staging e Produção — 2026-09-19 (correção do guard, impressão, CI verde)
+
+- **Commit publicado:** `799f3b0217068be3b0dd9217449656ccb1d2ea5f` (`main`), SHA completo.
+- **Conteúdo:** correção do guard de prompt injection (`d09af25`, ver adendo em `SECURITY-REVIEW.md`), CSS de impressão do roteiro salvo (RL-T01/T02), portes de fixtures de integração e correções de `tsc` em testes, ADR-013 com aceite do risco L9-S1, e `ci.yml` em Node 24 (o `jsdom` 30/`undici` exigem Node mais novo; com Node 20 o CI gerava 69 erros `markAsUncloneable`). Sem migration nova.
+- **CI de `main`:** verde neste commit (run `35418949560` falhou por Node 20; corrigido em `799f3b0`).
+- **Staging:** run [`35419162188`](https://github.com/leandrosegheto17/curtamais/actions/runs/35419162188), `success`; alias `destino-ideal-staging.vercel.app` criado, ainda atrás de SSO (Bloqueio 012 segue aberto, depende do painel da Vercel).
+- **Produção:** run [`35419384518`](https://github.com/leandrosegheto17/curtamais/actions/runs/35419384518), `success`, `--prod`, aliado a `https://destino-ideal-ljs.vercel.app`. Verificação HTTP: `/` 200, `/entrar` 200, `/api/auth/providers` 200, `/meus-roteiros` 307 (rota autenticada, esperado).
+- **Confirmado pelo usuário** antes de produção (2026-09-19). Banco Neon segue compartilhado entre staging e produção, por decisão do dono.
+- **Não verificado:** screenshot de impressão do roteiro salvo (RL-T01) com Playwright.
+- **Rollback:** `rollback.yml`.
