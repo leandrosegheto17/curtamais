@@ -162,12 +162,27 @@ async function createSessionAtPasseiosPendente(
   options: { comConta?: boolean } = {},
 ) {
   const comConta = options.comConta ?? true;
-  const userId = comConta ? await linkAccountIdentity() : null;
+  if (!comConta) {
+    // Sessão anônima LEGADA (RF-16.9): pós-destino a state machine passou a
+    // exigir conta (ADR-009), então esta combinação só existe como dado
+    // antigo — gravada direto em `passeios_pendente` via Prisma puro.
+    return prisma.tripSession.create({
+      data: {
+        entryPath: "data_livre",
+        dateRangeStart: new Date("2026-12-15"),
+        dateRangeEnd: new Date("2026-12-20"),
+        anonSessionId: ANON_ID,
+        flowState: "passeios_pendente",
+      },
+    });
+  }
+  const userId = await linkAccountIdentity();
   const session = await prisma.tripSession.create({
     data: {
       entryPath: "data_livre",
+      dateRangeStart: new Date("2026-12-15"),
       dateRangeEnd: new Date("2026-12-20"),
-      ...(comConta ? { userId } : { anonSessionId: ANON_ID }),
+      userId,
     },
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
