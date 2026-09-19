@@ -54,10 +54,19 @@ jobs:
 
       - name: Deploy (Vercel)
         id: deploy
-        run: >-
-          vercel deploy
-          ${{ github.event.inputs.environment == 'production' && '--prod' || '' }}
-          --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          URL=$(vercel deploy ${{ github.event.inputs.environment == 'production' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }})
+          echo "Deployment URL: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Bloqueio 012: `vercel deploy` sem --prod gera um Preview com URL
+      # efêmera. Em staging, aponta um alias estável para esse deployment.
+      - name: Alias fixo de staging
+        if: github.event.inputs.environment == 'staging'
+        run: vercel alias set "${{ steps.deploy.outputs.url }}" destino-ideal-staging.vercel.app --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
