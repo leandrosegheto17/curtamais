@@ -63,6 +63,9 @@ describe("vincularSessaoAConta — integração real com Postgres (V2-L7-T02)", 
   async function createPendingSession(
     anonSessionId: string = ANON_ID,
   ): Promise<string> {
+    // `createSessionWithDateRange` passa pelo guard central: a identidade da
+    // requisição precisa ser o dono anônimo que está sendo gravado.
+    mockAnonymous(anonSessionId);
     const result = await createSessionWithDateRange({
       entryPath: "data_livre",
       dateRangeStart: new Date("2026-11-10T00:00:00.000Z"),
@@ -77,6 +80,9 @@ describe("vincularSessaoAConta — integração real com Postgres (V2-L7-T02)", 
   async function createConfirmedSession(
     anonSessionId: string = ANON_ID,
   ): Promise<string> {
+    // `createSessionWithDateRange` passa pelo guard central: a identidade da
+    // requisição precisa ser o dono anônimo que está sendo gravado.
+    mockAnonymous(anonSessionId);
     const result = await createSessionWithDateRange({
       entryPath: "data_livre",
       dateRangeStart: new Date("2026-11-10T00:00:00.000Z"),
