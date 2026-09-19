@@ -58,6 +58,23 @@ async function createTestSession() {
   });
 }
 
+/** Sessão de dono autenticado: as transições pós-destino exigem conta
+ * (ADR-009 item 1) e a identidade da requisição precisa ser essa conta. */
+async function createTestSessionComConta() {
+  const user = await prisma.user.create({
+    data: { email: `executor-persistence-${Date.now()}-${Math.random()}@example.com` },
+  });
+  getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
+  return prisma.tripSession.create({
+    data: {
+      entryPath: "data_livre",
+      dateRangeStart: new Date("2026-12-15"),
+      dateRangeEnd: new Date("2026-12-20"),
+      userId: user.id,
+    },
+  });
+}
+
 describe("applySessionFlowTransition — integração real com Postgres (L4-T02)", () => {
   const sessionIds: string[] = [];
 
@@ -123,7 +140,7 @@ describe("applySessionFlowTransition — integração real com Postgres (L4-T02)
   });
 
   it("aprovar hospedagem persiste AccommodationApproval e avança flowState", async () => {
-    const session = await createTestSession();
+    const session = await createTestSessionComConta();
     sessionIds.push(session.id);
     await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
     await applySessionFlowTransition({
@@ -192,7 +209,7 @@ describe("applySessionFlowTransition — integração real com Postgres (L4-T02)
   }
 
   it("aprovar passeios persiste ActivityApproval(ns) e avança flowState", async () => {
-    const session = await createTestSession();
+    const session = await createTestSessionComConta();
     sessionIds.push(session.id);
     await advanceToPasseiosPendente(session.id);
 
@@ -234,7 +251,7 @@ describe("applySessionFlowTransition — integração real com Postgres (L4-T02)
   });
 
   it("aprovar roteiro persiste ItineraryItem(ns), avança flowState e sincroniza status=completed", async () => {
-    const session = await createTestSession();
+    const session = await createTestSessionComConta();
     sessionIds.push(session.id);
     await advanceToPasseiosPendente(session.id);
     await applySessionFlowTransition({
