@@ -117,13 +117,45 @@ function mockRoteiro() {
   });
 }
 
-async function createSessionAtRoteiroPendente() {
-  const session = await prisma.tripSession.create({
+async function createUser() {
+  return prisma.user.create({
+    data: {
+      email: `executor-roteiro-${Date.now()}-${Math.random()}@example.com`,
+    },
+  });
+}
+
+/** Alinha o mock de identidade com o dono autenticado da `TripSession`
+ * (mesma convenção de `hospedagem.integration.test.ts`, V2-L6-T05). */
+function mockAuthenticatedOwner(userId: string) {
+  getServerSessionMock.mockResolvedValue({ user: { id: userId } });
+}
+
+/** Sessão anônima LEGADA (RF-16.9) já gravada em `roteiro_pendente` via
+ * Prisma puro: pós-destino, o fluxo normal passou a exigir conta (ADR-009),
+ * então esta combinação só existe como dado antigo do MVP. */
+async function createLegacyAnonSessionAtRoteiroPendente() {
+  return prisma.tripSession.create({
     data: {
       entryPath: "data_livre",
       dateRangeStart: new Date("2026-12-20"),
       dateRangeEnd: new Date("2026-12-21"),
       anonSessionId: ANON_ID,
+      flowState: "roteiro_pendente",
+    },
+  });
+}
+
+/** Sessão "com conta" chegando normalmente a `roteiro_pendente` — as
+ * transições pós-destino exigem conta (ADR-009 item 1). */
+async function createSessionAtRoteiroPendente(userId: string) {
+  mockAuthenticatedOwner(userId);
+  const session = await prisma.tripSession.create({
+    data: {
+      entryPath: "data_livre",
+      dateRangeStart: new Date("2026-12-20"),
+      dateRangeEnd: new Date("2026-12-21"),
+      userId,
     },
   });
   await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
@@ -187,7 +219,8 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("gera o roteiro usando destino/hospedagem/passeios já aprovados (RF-08.1)", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
     mockRoteiro();
 
@@ -210,12 +243,14 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("rejeita gerar roteiro fora de roteiro_pendente (sem pular etapa)", async () => {
+    const user = await createUser();
+    mockAuthenticatedOwner(user.id);
     const session = await prisma.tripSession.create({
       data: {
         entryPath: "data_livre",
         dateRangeStart: new Date("2026-12-20"),
         dateRangeEnd: new Date("2026-12-21"),
-        anonSessionId: ANON_ID,
+        userId: user.id,
       },
     });
     sessionIds.push(session.id);
@@ -228,12 +263,14 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("V2-L6-T07/RF-16.7: sem conta (cookie anônimo divergente), recusa sem chamar o Gateway de IA", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
     // Identidade da requisição não bate com o `anonSessionId` da sessão —
     // mesmo efeito de "sem conta" para uma sessão que ainda é anônima: a
     // posse falha ANTES mesmo de `exigeConta` ser avaliado (ADR-009 item 2,
     // linha 4 da tabela) — 404 lógico, nunca `ContaNecessariaError`.
+    getServerSessionMock.mockResolvedValue(null);
     cookieGetMock.mockReturnValue({ value: "00000000-0000-4000-8000-000000000000" });
 
     await expect(gerarRoteiro(session.id)).rejects.toBeInstanceOf(
@@ -243,7 +280,7 @@ describe("gerarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("V2-L6-T07/RF-16.7: dono anônimo confirmado mas sem conta autenticada devolve conta_necessaria sem chamar o Gateway de IA", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const session = await createLegacyAnonSessionAtRoteiroPendente();
     sessionIds.push(session.id);
     // Cookie confere (mesmo `ANON_ID` do `beforeEach`), mas
     // `getServerSessionMock` continua `null` (sem conta autenticada) — posse
@@ -303,7 +340,8 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("aprovar persiste todos os itens do roteiro como ItineraryItem e conclui a sessão (RF-08.4/RF-09, critério de aceite)", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
 
     const result = await aprovarRoteiro({
@@ -353,12 +391,14 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("rejeita aprovar a partir de um estado que não é roteiro_pendente (sem pular etapa) sem persistir nada", async () => {
+    const user = await createUser();
+    mockAuthenticatedOwner(user.id);
     const session = await prisma.tripSession.create({
       data: {
         entryPath: "data_livre",
         dateRangeStart: new Date("2026-12-20"),
         dateRangeEnd: new Date("2026-12-21"),
-        anonSessionId: ANON_ID,
+        userId: user.id,
       },
     });
     sessionIds.push(session.id);
@@ -381,7 +421,8 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("rejeita payload de item adulterado (atividade vazia) sem persistir nada", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
 
     await expect(
@@ -408,7 +449,8 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("rejeita payload com data de dia em formato inválido sem persistir nada", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
 
     await expect(
@@ -425,7 +467,8 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("sanitiza tentativa de prompt injection em activity/timingJustification antes de persistir (mesmo padrão de RL8-T02)", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
 
     await aprovarRoteiro({
@@ -463,8 +506,10 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("V2-L6-T07/RF-16.7: sem conta (cookie anônimo divergente), recusa sem persistir nenhum ItineraryItem nem avançar a etapa", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const user = await createUser();
+    const session = await createSessionAtRoteiroPendente(user.id);
     sessionIds.push(session.id);
+    getServerSessionMock.mockResolvedValue(null);
     cookieGetMock.mockReturnValue({ value: "00000000-0000-4000-8000-000000000000" });
 
     await expect(
@@ -482,7 +527,7 @@ describe("aprovarRoteiro — integração real com Postgres (L10-T03)", () => {
   });
 
   it("V2-L6-T07/RF-16.7: dono anônimo confirmado mas sem conta autenticada devolve conta_necessaria sem persistir nenhum ItineraryItem nem avançar a etapa", async () => {
-    const session = await createSessionAtRoteiroPendente();
+    const session = await createLegacyAnonSessionAtRoteiroPendente();
     sessionIds.push(session.id);
 
     const result = await aprovarRoteiro({
