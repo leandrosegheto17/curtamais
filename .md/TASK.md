@@ -6726,6 +6726,25 @@ T09 entram assim que T01 e T03 concluem); onda 3 = T11 (T09+T10), T13 (T10),
 T14/T15/T16 (conforme conteúdo e T09); onda 4 = T12 (T08+T11); por fim T17
 (Gestor). O deploy só depende de T17 `Concluída` com "Aprovado".
 
+### Refatoração Lote-V2-L9 (débito registrado pelo Validador)
+
+**Status do lote V2-L9: Validado com ressalvas** (2026-09-18, Validador).
+QA (`.md/QA-REPORT.md`): Aprovado com ressalvas, sem reprovação crítica; 32/32
+testes do lote verdes contra Postgres real (banco `curtamais_test`), Playwright
+de impressão executado com login real. DevSecOps (`.md/SECURITY-REVIEW.md`):
+Aprovado, sem achado alto/crítico, LGPD/cascata atendidos. Checagem estrutural:
+17 tarefas `Concluída`, nenhuma `Bloqueada`, dependências consistentes; os
+bloqueios `Aberto` de `BLOCKERS.md` são de L6 e do pipeline de deploy, não
+afetam este lote. Fora do escopo do L9 (não vira tarefa aqui): 36 falhas de
+testes de integração em 11 arquivos e erros TS2556 em `page.test.tsx`,
+reproduzidos em `55638ab~1`, portanto pré-existentes.
+
+| ID | Título | Chapéu | Estimativa | Depende de | Status | Critério de aceite |
+|---|---|---|---|---|---|---|
+| V2-L9-RL-T01 | Impressão fora do painel (achado QA, T13/RNF-16): em `roteiro-salvo-screen.tsx`, o título "Sua viagem" sai quase invisível e os cartões "Roteiro concluído/Destino/Roteiro" saem como caixas escuras com texto branco; ocultar (`data-print-hide`) ou forçar preto sobre branco em `@media print` | FE | 0.3 dia | — | Pendente | Com `emulateMedia({media:"print"})` em sessão concluída: título legível, nenhum cartão com fundo escuro, painel do checklist inalterado; screenshot de impressão anexado; testes existentes da página verdes |
+| V2-L9-RL-T02 | Corrigir a redação do critério de aceite da T13: cita `AccountNav`, que só existe na home; o equivalente na rota é `header`/`nav` ocultos | FE | 0.1 dia | — | Pendente | Critério da T13 passa a citar `header`/`nav`/`footer` em vez de `AccountNav`; nenhuma mudança de código |
+| V2-L9-RL-T03 | Débito baixo L9-S1 (`SECURITY-REVIEW.md`): `marcarItemChecklist` não tem rate limit próprio e regenera a lista a cada chamada (impacto limitado ao dono autenticado, sem custo de IA); decidir entre limite por usuário e aceite registrado no ADR-013 | BE | 0.5 dia | — | Pendente | Ou há limite por (usuário, sessão) com teste, ou o ADR-013 registra o aceite do risco com justificativa; prazo junto do próximo lote de hardening, não bloqueia o deploy |
+
 ## 4. Dependências e Ordem de Execução
 
 Ordem de lote recomendada (setas = depende de):

@@ -4456,3 +4456,28 @@ auditado em detalhe e implementa corretamente o padrão WAI-ARIA
 `alertdialog`. Nenhuma regressão identificada em `EncerramentoScreen`/T-END
 nem em `RoteiroScreen`/T08 pelas extrações/novas props desta tarefa. Lote
 liberado para a auditoria de segurança dedicada (`SECURITY-REVIEW.md`).
+
+---
+
+## Lote V2-L9 — Checklist de bagagem e documentos (T01-T17) — validação QA (2026-09-18)
+
+### Método e evidência (reexecutada pelo Validador)
+- Banco isolado `curtamais_test` (Postgres real, porta 55432); 4 arquivos do lote (checklist-autorizacao.integration, trip-checklist-marks.integration, conteudo-cobertura, conteudo-texto): 32/32 verdes (levantamento da sessão).
+- `tsc --noEmit`: nenhum erro em arquivo do lote. Único erro em arquivos tocados pelo lote é `meus-roteiros/[sessionId]/__tests__/page.test.tsx(10,50)` TS2556, mesmo padrão idêntico presente em 7 outros page.test.tsx não tocados pelo L9 (pré-existente/estilo de mock). `eslint` em src/lib/checklist, src/components/checklist, actions/checklist.ts, meus-roteiros: limpo.
+- RNF: busca por termos proibidos/promessa absoluta (garant*, obrigatório, 100% seguro, "você deve", proibid*) em conteúdo e copy: 0 ocorrências. Acessibilidade estrutural coberta pelos testes de painel (checkbox nativo, agrupamento) e pelo Playwright de impressão. Sem botão imprimir/exportar no DOM.
+- Playwright T13 (login real, next dev :3177 contra curtamais_test): painel visível, 6 grupos, break-inside avoid, dias/botões/erros ocultos, marcado com símbolo preto sem fundo. Evidências (screenshots/PDF), seed.js e print.js em: C:\Users\leand\AppData\Local\Temp\claude\c--Users-leand-OneDrive-Projetos-CurtaMais\51db4a72-b8ed-4894-be0e-b7aff38e3164\scratchpad
+- Testes de 36 falhas da suíte completa: reexecutei em worktree de `55638ab~1` (dad4de4, sem nenhum código L9) os arquivos quiz.integration e encerramento.integration: 3 falhas idênticas (ContaNecessariaError / SessionNotFoundError). Portanto pré-existentes e independentes do L9 (o L9 não toca session-flow/autorização).
+
+### Cobertura dos critérios de aceite
+T01-T12, T14-T16: critérios cobertos por testes unitários/integração executados e código lido; T16 (autorização B->A, cascata na exclusão de conta, ordem inalterada, releitura) agora executado contra Postgres real e verde (antes registrado como "não executado"). T13: ver achado 1. T17 (editorial): Aprovado com ressalvas, e a recomendação de rodar os 2 vitest de conteúdo foi cumprida (verdes). Nenhum critério ficou sem evidência.
+
+### Achados
+1. **Simples — T13/RNF-16:** na impressão, o painel do checklist fica correto, mas o restante da página (`roteiro-salvo-screen`) não recebe overrides de impressão: o título "Sua viagem" sai quase invisível (texto claro do tema sobre fundo branco forçado no body) e os cartões "Roteiro concluído/Destino/Roteiro" saem como caixas escuras com texto branco (regras de cor só cobrem `.checklist-panel`). Não compromete o critério de aceite literal da T13 (painel visível, dias/botões ocultos, marcado sem fundo, sem botão de imprimir), nem a legibilidade do checklist; degrada o cabeçalho impresso e gasta tinta. Correção pontual: marcar o título/cartões com `checklist-print-hide`/`data-print-hide` ou forçar preto sobre branco fora do painel.
+2. **Simples (ajuste de texto de critério, não de código) — T13:** o critério cita `AccountNav`, que só existe na home; não se aplica à rota do roteiro salvo. O comportamento equivalente (header/nav ocultos via CSS) está implementado. Sem ação de código; corrigir a redação no TASK.md quando conveniente.
+3. **Fora de escopo/débito pré-existente (não reprova L9):** 36 testes falhando em 11 arquivos de integração (auth-authorize, data-livre, encerramento, hospedagem, passeios, processar-feriado-escolhido, quiz, roteiro, vinculo-conta, create-session-with-range, persistence) por ContaNecessariaError/SessionNotFoundError/timeouts; reproduzidos antes do L9. Recomenda-se investigação em tarefa própria (provável impacto da ADR-009 item 2 nos fixtures). Sinalizo também 8 erros TS2556 em page.test.tsx e erros em auth-callbacks/budget-insufficient-banner tests, pré-existentes.
+
+### Tarefa criada em `Refatoração Lote-V2-L9`
+- Ajustar CSS de impressão fora do painel (achado 1); prazo: antes do deploy do lote; tarefa a ser registrada no TASK.md na etapa de fechamento estrutural. Nenhuma tarefa volta para `Em andamento`.
+
+### Veredito (Lote V2-L9)
+**Aprovado com ressalvas.** Nenhuma reprovação crítica; 1 reprovação simples (T13, cabeçalho impresso) e 1 ajuste de redação. Liberado para auditoria DevSecOps.

@@ -2966,3 +2966,30 @@ toda a extensão da rota T-MEUS-DET. Nenhum achado de relevância
 estratégica a sinalizar ao Gestor. Build liberado para deploy do ponto de
 vista de segurança deste lote (sujeito à dupla aprovação QA+DevSecOps
 combinada de todos os lotes envolvidos no deploy real).
+
+
+---
+
+## Lote V2-L9 — Checklist de viagem (T01-T17) — Auditoria DevSecOps (2026-09-18)
+
+Pré-requisito: QA do lote Aprovado com ressalvas (sem crítica).
+
+### Escopo auditado
+`src/lib/checklist/**`, `src/lib/actions/checklist.ts`, `src/components/checklist/**`, rota `meus-roteiros/[sessionId]`, `roteiro-salvo-screen.tsx`, schema + migration `20260918120000_v2_trip_checklist_marks`, `src/lib/account-deletion.ts`, CSS de impressão.
+
+### Resultados por foco
+1. Autorização/IDOR: `obterChecklist` e `marcarItemChecklist` buscam a sessão, lançam `SessionNotFoundError` (404 lógico) se ausente, chamam `assertSessionAccess(..., { exigeConta: true })` antes de qualquer leitura/escrita de marcas; `ContaNecessariaError` vira `conta_necessaria`; só `flowState = concluida`. Guard antes do upsert. Testes de integração com Postgres real passaram. OK.
+2. Validação/injeção: `validarItemKey` (string, tamanho máximo, regex `^[a-z]+\.[a-z0-9]+(-[a-z0-9]+)*$`), `marcado` checado como boolean, e allowlist contra a lista gerada para a sessão. Somente Prisma parametrizado, sem SQL cru. OK.
+3. Dado gravado: `trip_checklist_marks` guarda id, session_id, item_key (VARCHAR 64), checked e updated_at. Sem texto livre, sem userId, sem dado de saúde/menor. OK.
+4. Exclusão de conta: FK `ON DELETE CASCADE` na migration e no schema; `deleteUserAccount` apaga `tripSession` e o cascade remove as marcas; coberto por teste de cascata. LGPD (esquecimento) atendida.
+5. Logs: zero `console.*` no escopo do lote; catch do cliente não registra nada. OK.
+6. XSS: sem `dangerouslySetInnerHTML`; conteúdo estático renderizado como texto React. OK.
+7. Mensagens de erro: retornos são status genéricos; copy de erro fixa, sem detalhe interno nem sessionId. `SessionNotFoundError` não distingue inexistente de alheia. OK.
+8. Dependências: nenhuma mudança em `package.json` no lote (último commit que o tocou é anterior, V2.0); `npm audit` não reexecutado, sem dependência nova.
+
+### Achados
+- Baixo (débito, informativo) L9-S1: `marcarItemChecklist` não tem rate limit próprio, e cada chamada regenera a lista e faz upsert. Superfície limitada ao dono autenticado, sem custo de IA. Prazo sugerido: junto do próximo lote de hardening; tarefa em `Refatoração Lote-V2-L9`, criada pelo caller ao consolidar (não alterei TASK.md).
+- Nenhum achado alto/crítico. Nenhum compliance obrigatório em aberto. Nada de relevância estratégica para o Gestor.
+
+### Veredito (Lote V2-L9)
+**Aprovado com 1 débito baixo.** Não bloqueante. Liberado para deploy do ponto de vista de segurança, sujeito à dupla aprovação no deploy real.
