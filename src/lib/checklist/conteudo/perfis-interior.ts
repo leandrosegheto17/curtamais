@@ -55,6 +55,13 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     quando: { perfis: ["serra-fria"], chuvoso: true },
   },
 
+  {
+    itemKey: "clima.garrafa-agua-serra",
+    categoria: "clima",
+    texto: "Garrafa de água reutilizável para os passeios ao ar livre",
+    quando: { perfis: ["serra-fria"] },
+  },
+
   // ---- interior-termal ----
   {
     itemKey: "roupas.roupa-banho-termal",
@@ -87,12 +94,6 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     quando: { perfis: ["interior-termal"], estacoes: ["outono", "inverno"] },
   },
   {
-    itemKey: "higiene.protetor-solar-termal",
-    categoria: "higiene",
-    texto: "Protetor solar para as piscinas ao ar livre",
-    quando: { perfis: ["interior-termal"], estacoes: ["verao", "primavera"] },
-  },
-  {
     itemKey: "higiene.hidratante-pos-termas",
     categoria: "higiene",
     texto: "Hidratante para depois das termas, a água quente resseca a pele",
@@ -103,6 +104,25 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     categoria: "roupas",
     texto: "Agasalho para a noite, o interior esfria depois do pôr do sol",
     quando: { perfis: ["interior-termal"], estacoes: ["outono", "inverno"] },
+  },
+
+  {
+    itemKey: "clima.saco-impermeavel-termal",
+    categoria: "clima",
+    texto: "Saquinho impermeável para proteger o celular perto da água",
+    quando: { perfis: ["interior-termal"] },
+  },
+  {
+    itemKey: "clima.bone-ou-chapeu-termal",
+    categoria: "clima",
+    texto: "Boné ou chapéu para o sol das piscinas ao ar livre",
+    quando: { perfis: ["interior-termal"], estacoes: ["verao", "primavera"] },
+  },
+  {
+    itemKey: "clima.capa-chuva-termal",
+    categoria: "clima",
+    texto: "Capa de chuva leve ou guarda-chuva compacto, o período costuma ter chuva",
+    quando: { perfis: ["interior-termal"], chuvoso: true },
   },
 
   // ---- natureza-aventura ----
@@ -121,8 +141,8 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
   {
     itemKey: "roupas.agasalho-leve-natureza",
     categoria: "roupas",
-    texto: "Agasalho leve para o começo da manhã e o fim da tarde",
-    quando: { perfis: ["natureza-aventura"], estacoes: ["outono", "inverno", "primavera"] },
+    texto: "Um agasalho leve para a manhã e a noite, que costumam ser mais frescas no inverno",
+    quando: { perfis: ["natureza-aventura"], estacoes: ["inverno"] },
   },
   {
     itemKey: "higiene.repelente-natureza",
@@ -131,9 +151,9 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     quando: { perfis: ["natureza-aventura"] },
   },
   {
-    itemKey: "higiene.protetor-solar-natureza",
-    categoria: "higiene",
-    texto: "Protetor solar e boné ou chapéu para trechos sem sombra",
+    itemKey: "clima.bone-ou-chapeu-natureza",
+    categoria: "clima",
+    texto: "Boné ou chapéu para os trechos sem sombra",
     quando: { perfis: ["natureza-aventura"] },
   },
   {
@@ -181,12 +201,6 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     quando: { perfis: ["cidade-litoral"], estacoes: ["outono", "inverno"] },
   },
   {
-    itemKey: "higiene.protetor-solar-cidade",
-    categoria: "higiene",
-    texto: "Protetor solar para passeios a pé durante o dia",
-    quando: { perfis: ["cidade-litoral"] },
-  },
-  {
     itemKey: "clima.guarda-chuva-cidade",
     categoria: "clima",
     texto: "Guarda-chuva compacto, o período costuma ser chuvoso",
@@ -197,11 +211,5 @@ export const ITENS_PERFIS_INTERIOR: ItemChecklist[] = [
     categoria: "clima",
     texto: "Bolsa cruzada ou pochete para andar com as mãos livres",
     quando: { perfis: ["cidade-litoral"] },
-  },
-  {
-    itemKey: "eletronicos.bateria-portatil-cidade",
-    categoria: "eletronicos",
-    texto: "Bateria portátil para dias longos de passeio e mapa no celular",
-    quando: { perfis: ["cidade-litoral"], duracoes: ["media", "longa"] },
   },
 ];

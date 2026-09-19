@@ -32,6 +32,9 @@ const OBRIGATORIAS = [
   "eletronicos",
   "antes",
 ] as const;
+// Destinos do catálogo: "clima" também é coberto em toda combinação (perfis).
+// Fora do catálogo (só universais) "clima" fica vazio por desenho (UX-SPEC 9.2).
+const OBRIGATORIAS_CATALOGO = [...OBRIGATORIAS, "clima"] as const;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 // Início no dia 1 de cada mês de 2027; duração em dias por faixa.
@@ -120,7 +123,7 @@ describe("geração: destino x 12 meses x 3 faixas", () => {
           combos++;
           const ctx = `${nome} mes=${mes} ${faixa}`;
           expect(r.avisos, ctx).toEqual([]);
-          for (const c of OBRIGATORIAS) {
+          for (const c of OBRIGATORIAS_CATALOGO) {
             expect(r.itens.some((i) => i.categoria === c), `${ctx} ${c}`).toBe(true);
           }
           const ks = r.itens.map((i) => i.itemKey);
