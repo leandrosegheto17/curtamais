@@ -747,3 +747,14 @@ existem para esta versão em produção (dashboard, fora do alcance de
 (`.md/BLOCKERS.md`). Produção publicada: MVP (Lotes 1-12) + V2.0
 (Lotes V2-L1 a V2-L8) completos e ao vivo em
 `https://destino-ideal-ljs.vercel.app`.
+
+### Deploy em Produção — 2026-09-19 (V2-L9, confirmado pelo usuário)
+
+- **Commit publicado:** `a3cddd29c942ba9a9510d09cf34ab59408aae7ed` (`main`), o mesmo já publicado em staging (run `35416037220`).
+- **Run:** [`35416611642`](https://github.com/leandrosegheto17/curtamais/actions/runs/35416611642), `environment=production`, todos os passos `success` (`db:migrate`, `vercel deploy --prod`). Deployment `destinoideal-nuqtc76fc-leandrosegheto17s-projects.vercel.app`, aliado a `https://destino-ideal-ljs.vercel.app`.
+- **Tentativa anterior:** run `35416484545` falhou no `Checkout ref aprovado` (SHA abreviado `a3cddd2` não é aceito pelo `actions/checkout`); nada foi migrado nem publicado. Reexecutado com o SHA completo. Para próximos disparos, usar SHA completo ou branch em `ref`.
+- **Verificação HTTP:** `/` 200, `/entrar` 200, `/meus-roteiros` 307 para `/entrar?retorno=/meus-roteiros` (rota autenticada, comportamento esperado).
+- **Lote publicado:** V2-L9 (checklist de bagagem e documentos), `Validado com ressalvas` (QA e DevSecOps aprovados; T17 editorial aprovada com ressalvas). Migration `20260918120000_v2_trip_checklist_marks` já estava aplicada no banco compartilhado desde o deploy de staging de 2026-09-19 (só cria tabela nova).
+- **Ressalvas conhecidas em produção:** `Refatoração Lote-V2-L9` pendente (RL-T01 impressão do cabeçalho da tela salva; RL-T02 redação do critério da T13; RL-T03 rate limit de `marcarItemChecklist`). CI de `main` vermelho por 36 falhas de integração pré-existentes, independentes do L9.
+- **Bloqueio 012 segue aberto:** o alias `destino-ideal-staging.vercel.app` (novo passo do `deploy.yml`) continua atrás de SSO da Vercel; requer desativar a Deployment Protection para Preview no painel (fora do repositório).
+- **Rollback:** `rollback.yml`.
