@@ -317,3 +317,70 @@ mantidas e as ressalvas 1 e 3 fechadas:
   exportar/PDF); sem lembrete por e-mail/push.
 
 ---
+
+## Gate 4 — Fechamento pós-deploy de produção (V2-L9) — 2026-09-19
+
+### Escopo do gate
+Registro de fechamento, sem poder de veto, do lote V2-L9 (checklist de
+bagagem e documentos por destino e época), com base em `DEPLOY.md` ("Deploy
+em Produção — 2026-09-19"), `QA-REPORT.md`, `SECURITY-REVIEW.md` e
+`TASK.md` ("Refatoração Lote-V2-L9").
+
+### Resultado
+**Sucesso.** Commit `a3cddd29c942ba9a9510d09cf34ab59408aae7ed` (`main`)
+publicado em produção. Run
+[`35416611642`](https://github.com/leandrosegheto17/curtamais/actions/runs/35416611642),
+todos os passos `success`. `https://destino-ideal-ljs.vercel.app`
+respondendo 200 (`/entrar` 200; `/meus-roteiros` 307 para login, esperado).
+Uma tentativa anterior (run `35416484545`) falhou no checkout por SHA
+abreviado, sem migrar nem publicar nada; lição: usar SHA completo em `ref`.
+Validação: QA Aprovado com ressalvas, DevSecOps Aprovado (1 débito baixo,
+L9-S1), T17 (conteúdo editorial) aprovada com ressalvas.
+
+### Aderência ao objetivo de negócio
+Aderente ao Gate 1 escopado de 2026-09-18: entrega um motivo de retorno ao
+app após o roteiro concluído (checklist por destino e época, seis
+categorias, impressão do navegador), sem IA (custo zero), sem texto livre,
+sem afirmação de visto/passaporte/vacina, com marcação só por `itemKey` e
+exclusão em cascata. As ressalvas 2, 4 e 5 do Gate 1 foram atendidas
+segundo QA/DevSecOps; a ressalva 3 (aprovação do conteúdo pelo Gestor) foi
+cumprida pela T17, com ressalvas editoriais. Não há indício de conflito com
+o posicionamento V2 nem com "Fora do V2".
+
+### Ressalvas aceitas (não bloqueantes)
+1. **RL-T01/T02/T03** (`TASK.md`, `Pendente`): T01 impressão do cabeçalho da
+   tela salva (título quase invisível, cartões escuros); T02 redação do
+   critério da T13 (cita `AccountNav`); T03 rate limit de
+   `marcarItemChecklist` (débito baixo L9-S1, impacto só no dono
+   autenticado, sem custo de IA).
+2. **CI de `main` vermelho** por 36 falhas de integração pré-existentes,
+   reproduzidas antes do L9 e independentes dele. Aceito para este deploy,
+   mas a suíte vermelha reduz o valor do CI como rede de segurança.
+3. **Bloqueio 012 aberto** (severidade baixa): o alias de staging segue
+   atrás de SSO da Vercel; exige desativar a Deployment Protection para
+   Preview no painel (fora do repositório).
+4. **Staging e produção compartilham o mesmo banco Neon**, decisão
+   consciente do dono (Gate 4 de 2026-09-17). A migration do L9 já estava
+   aplicada desde o staging; só cria tabela nova, sem risco de dados.
+
+### Pendências que precisam de decisão do dono do produto
+1. **Banco separado para produção**: hoje as marcações de usuários reais e
+   os testes de staging convivem no mesmo banco. Decidir o momento (antes de
+   qualquer divulgação pública).
+2. **Teto de gasto de IA / monetização**: segue pendente desde 2026-09-16 e
+   deve ser decidido antes do lançamento público (o L9 não consome IA).
+3. **RL-T03**: escolher entre implementar rate limit por usuário ou aceitar
+   o risco no ADR-013; e definir o prazo das RL-T01/T02.
+4. **CI vermelho**: decidir se abre um lote de correção das 36 falhas
+   pré-existentes antes do próximo lote de funcionalidades.
+5. **Bloqueio 012**: liberar a Deployment Protection no painel Vercel ou
+   aceitar o alias de staging protegido.
+6. **Ressalvas editoriais da T17**: confirmar se serão tratadas em revisão
+   futura do conteúdo.
+
+### Veredito
+**Registrado — sem poder de veto.** Ciclo do V2-L9 encerrado com sucesso;
+nenhuma ação corretiva obrigatória antes de seguir. Itens acima ficam como
+acompanhamento.
+
+---
