@@ -81,7 +81,7 @@ const INJECTION_PHRASE_PATTERNS: readonly RegExp[] = [
   /esque[cç]a\s+(tudo|todas\s+as\s+instru[cç][oõ]es|o\s+que\s+foi\s+dito)/gi,
   /disregard\s+(the\s+)?(above|previous|prior)/gi,
   /desconsidere\s+(as\s+)?(instru[cç][oõ]es|regras)/gi,
-  /voc[eê]\s+(agora\s+)?[ée]\s+(um[a]?\s+)?(novo|nova|outro|outra)\s+assistente/gi,
+  /voc[eê]\s+(agora\s+)?([ée]|fosse|seja|for)\s+(um[a]?\s+)?(novo|nova|outro|outra)\s+assistente/gi,
   /you\s+are\s+now\s+/gi,
   /aja\s+como\s+(um|uma|se)/gi,
   /act\s+as\s+(if\s+you\s+are|a[n]?)/gi,
@@ -153,10 +153,11 @@ export type SanitizeFreeTextForPromptOptions = {
  * caminho alternativo válido (ex. "sem destino").
  *
  * Ordem das etapas (cada uma reduz um vetor diferente de ataque):
- * 1. Trim + colapso de quebra de linha/tab (evita simular múltiplas
- *    "mensagens" dentro de um único campo de texto).
- * 2. Remoção de marcadores de papel/delimitador (`System:`, ```` ``` ````,
- *    `[INST]`, `<|...|>`, `###`, `---`).
+ * 1. Trim + remoção de marcadores de papel/delimitador (`System:`, ```` ``` ````,
+ *    `[INST]`, `<|...|>`, `###`, `---`) — antes do colapso de linhas, pois
+ *    `System:` só é reconhecido no início de uma linha.
+ * 2. Colapso de quebra de linha/tab (evita simular múltiplas "mensagens"
+ *    dentro de um único campo de texto).
  * 3. Redação de frases conhecidas de override de instrução (PT-BR/EN).
  * 4. Colapso de espaços redundantes deixados pelas remoções acima.
  * 5. Truncagem para `options.maxLength` (mesmo limite de tamanho já em uso
@@ -171,8 +172,10 @@ export function sanitizeFreeTextForPrompt(
     return "";
   }
 
-  let sanitized = collapseLineBreaks(initial);
-  sanitized = stripDelimiterMarkers(sanitized);
+  // Delimitadores primeiro: `^\s*system:` (flag `m`) só casa enquanto as
+  // quebras de linha originais ainda existem.
+  let sanitized = stripDelimiterMarkers(initial);
+  sanitized = collapseLineBreaks(sanitized);
   sanitized = redactInjectionPhrases(sanitized);
   sanitized = collapseWhitespace(sanitized);
 
