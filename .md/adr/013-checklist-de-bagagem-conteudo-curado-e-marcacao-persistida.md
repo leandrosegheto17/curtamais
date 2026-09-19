@@ -217,3 +217,20 @@ Um arquivo `src/lib/actions/checklist.ts` (`"use server"`):
 - (-) Uma escrita do usuário passa a existir em "Meus roteiros" (exceção
   INT-15/RF-19.9), restrita a esta tabela.
 - Toda mudança futura de decisão gera novo ADR que supersede este.
+
+## Adendo — 2026-09-19: aceite do risco L9-S1 (sem rate limit em `marcarItemChecklist`)
+
+Achado baixo L9-S1 do `SECURITY-REVIEW.md`: `marcarItemChecklist` não tem
+limite de taxa próprio e regenera a lista a cada chamada. **Decisão: risco
+aceito, sem implementar limite nesta entrega.** Justificativa:
+
+- Só o dono autenticado da sessão concluída chega à escrita (guard de dono,
+  `exigeConta: true`); não há superfície anônima.
+- Nenhuma chamada ao Gateway de IA e nenhum custo variável: a lista é gerada
+  por módulo puro e a escrita é um `upsert` idempotente de uma linha.
+- Repetir a chamada não cria linhas (`UNIQUE(session_id, item_key)`), então o
+  pior caso é carga de banco atribuível a uma única conta.
+
+**Reavaliar** se surgir qualquer um destes: abuso observado, chamada
+anônima à ação, ou geração de conteúdo com custo por chamada. Nesse caso,
+novo ADR que supersede este adendo, com limite por (usuário, sessão).
