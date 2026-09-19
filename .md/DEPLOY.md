@@ -778,3 +778,12 @@ existem para esta versão em produção (dashboard, fora do alcance de
 - **Produção:** run [`35420927656`](https://github.com/leandrosegheto17/curtamais/actions/runs/35420927656), `success`, alias `https://destino-ideal-ljs.vercel.app`. Verificação HTTP: `/`, `/entrar` e `/api/auth/providers` 200; as 5 novas `/destinos/*-v1.jpg` 200 `image/jpeg`.
 - **Confirmado pelo usuário** (2026-09-19). Banco compartilhado, sem migration.
 - **Não verificado:** aparência dos créditos na interface renderizada (só testes de componente).
+
+### Deploy em Staging e Produção — 2026-09-19 (teto de IA US$ 10/mês e ajustes editoriais do checklist)
+
+- **Commit publicado:** `e802e4cc202c53133a37e7d53c542001b448e20c` (`main`), SHA completo. CI de `main` verde neste commit.
+- **Conteúdo:** teto mensal de gasto com IA no Gateway (`monthly-budget.ts`, RL-T08; `AI_MONTHLY_BUDGET_USD` opcional, padrão 10) e ajustes editoriais do checklist (RL-T09). Sem migration.
+- **Staging:** run [`35421597070`](https://github.com/leandrosegheto17/curtamais/actions/runs/35421597070), `success` (alias ainda atrás de SSO, Bloqueio 012 / BACKLOG_RESIDUAL_2).
+- **Produção:** run [`35421724209`](https://github.com/leandrosegheto17/curtamais/actions/runs/35421724209), `success`, alias `https://destino-ideal-ljs.vercel.app`. Verificação HTTP: `/`, `/entrar`, `/api/auth/providers` e `/roteiro-exemplo` 200.
+- **Confirmado pelo usuário** (2026-09-19). Banco compartilhado, sem migration.
+- **Não verificado em produção:** o bloqueio efetivo ao atingir o teto (coberto por testes; depende de gasto real). Recomendação mantida: limite rígido também no painel da OpenAI.
