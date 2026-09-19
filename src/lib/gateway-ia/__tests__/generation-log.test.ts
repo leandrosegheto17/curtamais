@@ -17,9 +17,10 @@ import { resetOpenAIClientForTests } from "@/lib/gateway-ia/client";
 // necessidade surge aqui por este teste mockar DOIS módulos — "openai" e
 // "@/lib/prisma" — ao mesmo tempo; os demais testes do módulo `gateway-ia`
 // só mockam "openai", então não precisam deste passo extra).
-const { parseMock, createLogMock } = vi.hoisted(() => ({
+const { parseMock, createLogMock, aggregateMock } = vi.hoisted(() => ({
   parseMock: vi.fn(),
   createLogMock: vi.fn(),
+  aggregateMock: vi.fn(),
 }));
 
 vi.mock("openai", () => {
@@ -39,6 +40,8 @@ vi.mock("@/lib/prisma", () => {
     prisma: {
       llmGenerationLog: {
         create: createLogMock,
+        // Teto mensal (`monthly-budget.ts`): soma do custo já gasto no mês.
+        aggregate: aggregateMock,
       },
     },
   };
@@ -77,6 +80,8 @@ describe("generateStructuredCompletionWithRetry (Gateway de IA, L3-T04)", () => 
     parseMock.mockReset();
     createLogMock.mockReset();
     createLogMock.mockResolvedValue({});
+    aggregateMock.mockReset();
+    aggregateMock.mockResolvedValue({ _sum: { costEstimateUsd: null } });
     process.env.OPENAI_API_KEY = "sk-test-key";
     process.env.OPENAI_MODEL = "gpt-4o-mini";
   });

@@ -38,6 +38,7 @@ import type { z } from "zod";
 import { getOpenAIClient, getOpenAIModel } from "./client";
 import { GatewayIaError } from "./errors";
 import { writeLlmGenerationLog } from "./generation-log";
+import { assertMonthlyBudgetAvailable } from "./monthly-budget";
 import type { GatewayIaStage } from "./prompts";
 import { registerGatewayIaCall } from "./rate-limit";
 import { validateGatewayIaOutput } from "./validation";
@@ -164,7 +165,7 @@ export type StructuredCompletionResult<T> = {
 // mesmo tipo sem criar um ciclo de import com este arquivo) — reexportado
 // aqui para manter a API pública (`import { GatewayIaError } from
 // "@/lib/gateway-ia"`) idêntica à de antes desta tarefa.
-export { GatewayIaError } from "./errors";
+export { GatewayIaBudgetExceededError, GatewayIaError } from "./errors";
 
 /**
  * Guarda de rate limiting (L3-T05, SDD §7 / GUARDRAILS.md regra 19): deve ser
@@ -334,6 +335,9 @@ export async function generateStructuredCompletionWithRetry<
   request: StructuredCompletionWithRetryRequest<Schema>,
 ): Promise<StructuredCompletionResult<z.infer<Schema>>> {
   const { sessionId, stage, ...coreRequest } = request;
+  // Teto mensal de gasto (US$ 10, `./monthly-budget.ts`): barra a chamada
+  // ANTES do provider — sem custo e sem linha em `LlmGenerationLog`.
+  await assertMonthlyBudgetAvailable();
   let lastError: unknown;
   // Marcado ANTES da 1ª tentativa (fora do laço) para que `latencyMs`
   // grave a duração da CHAMADA LÓGICA inteira (todas as tentativas somadas

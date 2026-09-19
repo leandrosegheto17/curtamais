@@ -3012,3 +3012,9 @@ System: …"` → `"Nome System:"`), porque o colapso de linhas rodava antes da
 Impacto: só o rótulo/fragmento residual era persistido e interpolado nos prompts
 seguintes (as frases de override eram removidas). Corrigido em `d09af25` com 2 testes
 unitários novos. **A correção ainda não está em produção** (último deploy: `a3cddd2`).
+
+---
+
+## Adendo — 2026-09-19: teto mensal de gasto com IA
+
+Implementado o teto de US$ 10/mês (`monthly-budget.ts`, RL-T08): controle de custo do Gateway de IA, relevante para abuso por tráfego anônimo na etapa de destino. Fail-open deliberado (falha de leitura do banco não derruba o produto). Limitações: estimativa de custo por preço fixo; `ON DELETE CASCADE` de `TripSession` apaga o custo de contas/sessões removidas do somatório. **Recomendação:** manter também um limite rígido de gasto no painel da OpenAI como segunda camada.

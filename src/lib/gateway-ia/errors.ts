@@ -26,3 +26,23 @@ export class GatewayIaError extends Error {
     this.cause = cause;
   }
 }
+
+/**
+ * O teto mensal de gasto com IA foi atingido (`./monthly-budget.ts`). Lançado
+ * ANTES de qualquer chamada ao provider — não há custo nem linha de log. É um
+ * `GatewayIaError`, então os chamadores que já tratam falhas do Gateway seguem
+ * funcionando; quem quiser distinguir o motivo usa `instanceof`.
+ */
+export class GatewayIaBudgetExceededError extends GatewayIaError {
+  readonly spentUsd: number;
+  readonly budgetUsd: number;
+
+  constructor(spentUsd: number, budgetUsd: number) {
+    super(
+      "O limite mensal de uso da IA foi atingido. Tente novamente no próximo mês.",
+    );
+    this.name = "GatewayIaBudgetExceededError";
+    this.spentUsd = spentUsd;
+    this.budgetUsd = budgetUsd;
+  }
+}
