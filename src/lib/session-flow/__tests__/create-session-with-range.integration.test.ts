@@ -109,20 +109,23 @@ describe("createSessionWithDateRange — integração real com Postgres", () => 
   });
 
   it("owner do tipo user: grava user_id, nunca anon_session_id (ADR-008)", async () => {
-    mockOwner({ type: "user", userId: "range-test-user-1" });
+    const user = await prisma.user.create({
+      data: { email: `executor-${Date.now()}-${Math.random()}@example.com` },
+    });
+    mockOwner({ type: "user", userId: user.id });
 
     const result = await createSessionWithDateRange({
       entryPath: "data_livre",
       dateRangeStart: new Date("2026-11-05"),
       dateRangeEnd: new Date("2026-11-08"),
-      owner: { type: "user", userId: "range-test-user-1" },
+      owner: { type: "user", userId: user.id },
     });
     sessionIds.push(result.sessionId);
 
     const stored = await prisma.tripSession.findUniqueOrThrow({
       where: { id: result.sessionId },
     });
-    expect(stored.userId).toBe("range-test-user-1");
+    expect(stored.userId).toBe(user.id);
     expect(stored.anonSessionId).toBeNull();
   });
 

@@ -86,7 +86,10 @@ describe("submeterDataLivre — integração real com Postgres (L6-T03)", () => 
   });
 
   it("com usuário autenticado: cria a sessão gravando user_id (nunca anon_session_id), mesmo com cookie anônimo presente (ADR-008)", async () => {
-    getServerSessionMock.mockResolvedValue({ user: { id: "user-abc-123" } });
+    const user = await prisma.user.create({
+      data: { email: `executor-${Date.now()}-${Math.random()}@example.com` },
+    });
+    getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
 
     const result = await submeterDataLivre({
       dataInicial: "2026-11-10",
@@ -97,7 +100,7 @@ describe("submeterDataLivre — integração real com Postgres (L6-T03)", () => 
     const stored = await prisma.tripSession.findUniqueOrThrow({
       where: { id: result.sessionId },
     });
-    expect(stored.userId).toBe("user-abc-123");
+    expect(stored.userId).toBe(user.id);
     expect(stored.anonSessionId).toBeNull();
   });
 

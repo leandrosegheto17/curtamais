@@ -85,7 +85,10 @@ describe("submitQuizAnswers — integração real com Postgres (L6-T07)", () => 
   });
 
   it("com usuário autenticado: grava user_id (nunca anon_session_id), mesmo com cookie anônimo presente (ADR-008)", async () => {
-    getServerSessionMock.mockResolvedValue({ user: { id: "user-quiz-1" } });
+    const user = await prisma.user.create({
+      data: { email: `executor-${Date.now()}-${Math.random()}@example.com` },
+    });
+    getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
 
     const result = await submitQuizAnswers(baseAnswers());
     sessionIds.push(result.sessionId);
@@ -93,7 +96,7 @@ describe("submitQuizAnswers — integração real com Postgres (L6-T07)", () => 
     const stored = await prisma.tripSession.findUniqueOrThrow({
       where: { id: result.sessionId },
     });
-    expect(stored.userId).toBe("user-quiz-1");
+    expect(stored.userId).toBe(user.id);
     expect(stored.anonSessionId).toBeNull();
   });
 
@@ -163,13 +166,16 @@ describe("submitQuizAnswers — integração real com Postgres (L6-T07)", () => 
   });
 
   it("rejeita chamada sem período (RF-03.3), sem criar sessão", async () => {
-    const countBefore = await prisma.tripSession.count();
+    // Contagem restrita ao cookie deste arquivo: arquivos de teste rodam em
+    // paralelo contra o mesmo banco, então a contagem global não é estável.
+    const countWhere = { anonSessionId: ANON_ID };
+    const countBefore = await prisma.tripSession.count({ where: countWhere });
 
     await expect(
       submitQuizAnswers(baseAnswers({ periodo: null })),
     ).rejects.toThrow();
 
-    const countAfter = await prisma.tripSession.count();
+    const countAfter = await prisma.tripSession.count({ where: countWhere });
     expect(countAfter).toBe(countBefore);
   });
 });

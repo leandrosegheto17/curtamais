@@ -94,7 +94,10 @@ describe("processarFeriadoEscolhido — integração real com Postgres (L6-T05, 
   it("com usuário autenticado: grava user_id (nunca anon_session_id), mesmo com cookie anônimo presente (ADR-008)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 0, 1));
-    getServerSessionMock.mockResolvedValue({ user: { id: "user-holiday-1" } });
+    const user = await prisma.user.create({
+      data: { email: `executor-${Date.now()}-${Math.random()}@example.com` },
+    });
+    getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
 
     const pure = getNationalHolidaysWithBridgeInRange(2026, 2027);
     const holiday = pure[0];
@@ -107,7 +110,7 @@ describe("processarFeriadoEscolhido — integração real com Postgres (L6-T05, 
     const stored = await prisma.tripSession.findUniqueOrThrow({
       where: { id: result.sessionId },
     });
-    expect(stored.userId).toBe("user-holiday-1");
+    expect(stored.userId).toBe(user.id);
     expect(stored.anonSessionId).toBeNull();
   });
 
