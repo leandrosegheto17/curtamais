@@ -98,7 +98,7 @@ export function RoteiroSalvoScreen({
       <h1
         ref={headingRef}
         tabIndex={-1}
-        className="font-serif text-2xl text-foreground focus-visible:outline-none"
+        className="print-plain font-serif text-2xl text-foreground focus-visible:outline-none"
       >
         Sua viagem
       </h1>
@@ -109,12 +109,14 @@ export function RoteiroSalvoScreen({
         `role="alert"`, nunca tokens semânticos de erro, mesmo quando a
         viagem foi encerrada antecipadamente.
       */}
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
+      <div className="print-plain flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
         <StatusIcon className="h-6 w-6 shrink-0 text-success" aria-hidden="true" />
         <p className="font-serif text-xl text-foreground">{statusLabel}</p>
       </div>
 
-      <EncerramentoResumoBlocks resumo={resumo} />
+      <div className="print-plain">
+        <EncerramentoResumoBlocks resumo={resumo} />
+      </div>
 
       {isComplete ? (
         dias && dias.length > 0 ? (

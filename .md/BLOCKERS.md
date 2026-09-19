@@ -824,6 +824,15 @@ qualquer nova tentativa de promoção a staging.
   em build-time). Status mantido: **não confirmado**, agora bloqueado por
   motivo diferente (proteção de acesso à URL, não mais o Bloqueio
   008/`VERCEL_TOKEN`).
+- **Atualização — 2026-09-19** (orquestrador, verificação por HTTP em
+  produção): `https://destino-ideal-ljs.vercel.app` (deploy `--prod`, sem
+  SSO) responde `200` em `/`, `/entrar`, `/api/auth/session` e
+  `/api/auth/providers`; este último devolve o provedor `credentials`. O
+  erro `NO_SECRET` derrubava justamente as rotas de autenticação em
+  runtime, então a rota funciona com o `NEXTAUTH_SECRET` atual.
+  Runtime Logs da Vercel não foram inspecionados (sem acesso ao painel).
+- Status: **Resolvido** (2026-09-19) — confirmado por HTTP em produção; a
+  conferência opcional dos Runtime Logs fica com o dono do produto.
 
 ## Bloqueio 010 — 2026-09-16
 

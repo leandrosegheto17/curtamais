@@ -164,6 +164,14 @@
     background: #fff !important;
     color: #000 !important;
   }
+  .print-plain,
+  .print-plain * {
+    color: #000 !important;
+    background: transparent !important;
+  }
+  .print-plain {
+    border-color: #000 !important;
+  }
   .checklist-panel,
   .checklist-panel * {
     color: #000 !important;
