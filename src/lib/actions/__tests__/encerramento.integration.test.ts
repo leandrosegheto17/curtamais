@@ -72,8 +72,34 @@ async function createSessionWithDestinoAprovado() {
   return session;
 }
 
+/** Sessão completa pertence a uma conta: as transições pós-destino exigem
+ * conta (ADR-009 item 1). Devolve também o `userId` para limpeza. */
 async function createSessionCompleta() {
-  const session = await createSessionWithDestinoAprovado();
+  const user = await prisma.user.create({
+    data: { email: `executor-encerramento-${Date.now()}-${Math.random()}@example.com` },
+  });
+  getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
+  const session = await prisma.tripSession.create({
+    data: {
+      entryPath: "data_livre",
+      dateRangeStart: new Date("2026-12-20"),
+      dateRangeEnd: new Date("2026-12-21"),
+      userId: user.id,
+    },
+  });
+  await applySessionFlowTransition({ sessionId: session.id, action: "iniciar" });
+  await applySessionFlowTransition({
+    sessionId: session.id,
+    action: "aprovar",
+    childData: {
+      stage: "destino",
+      name: "Foz do Iguaçu",
+      justification: "Clima ameno e dentro do orçamento.",
+      priceRangeMin: "800.00",
+      priceRangeMax: "1500.00",
+      source: "ia_suggested",
+    },
+  });
   await applySessionFlowTransition({ sessionId: session.id, action: "avancar" });
   await applySessionFlowTransition({
     sessionId: session.id,
@@ -174,9 +200,9 @@ describe("obterResumoEncerramento — integração real com Postgres (L12-T04)",
       { name: "Mirante gratuito", free: true },
     ]);
     expect(resumo.roteiroAprovado).toBe(true);
-    // Este fixture não vincula conta (`vincularConta`) à sessão — mesmo
-    // roteiro completo, `temConta` reflete só `TripSession.userId`.
-    expect(resumo.temConta).toBe(false);
+    // Roteiro completo só é alcançável por uma sessão com conta (ADR-009);
+    // `temConta` reflete `TripSession.userId`.
+    expect(resumo.temConta).toBe(true);
   });
 
   it("resumo com conta vinculada: temConta=true", async () => {
@@ -195,6 +221,8 @@ describe("obterResumoEncerramento — integração real com Postgres (L12-T04)",
       where: { id: session.id },
       data: { userId: user.id },
     });
+    // Agora a dona é a conta: a requisição precisa se identificar como ela.
+    getServerSessionMock.mockResolvedValue({ user: { id: user.id } });
 
     const resumo = await obterResumoEncerramento(session.id);
 
