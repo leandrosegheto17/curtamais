@@ -160,8 +160,16 @@
   [data-print-hide] {
     display: none !important;
   }
-  .checklist-panel {
-    color: #000;
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .checklist-panel,
+  .checklist-panel * {
+    color: #000 !important;
+  }
+  .checklist-panel *:not(.checklist-checkbox) {
+    background: transparent !important;
   }
   .checklist-panel .grid {
     display: block;
