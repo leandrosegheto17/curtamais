@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // `src/app/hospedagem/__tests__/page.test.tsx`, L12-T01) — as Server Actions
 // reais de `@/lib/actions/passeios` também são mockadas para não exigir
 // banco/sessão real neste teste de rota.
-const redirectMock = vi.fn(() => {
+const redirectMock = vi.fn((..._args: unknown[]) => {
   throw new Error("NEXT_REDIRECT");
 });
 

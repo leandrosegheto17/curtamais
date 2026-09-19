@@ -46,7 +46,7 @@ describe("NextAuth callbacks (L1-T03 — sessão sobrevive a reload)", () => {
       token: { userId: "user-456" } as JWT,
     } as SessionCallbackArgs);
 
-    expect(session.user.id).toBe("user-456");
+    expect((session.user as { id?: string }).id).toBe("user-456");
   });
 
   it("estratégia de sessão é jwt (obrigatório com Credentials Provider)", () => {

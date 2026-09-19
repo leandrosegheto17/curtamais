@@ -1,7 +1,7 @@
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const redirectMock = vi.fn(() => {
+const redirectMock = vi.fn((..._args: unknown[]) => {
   throw new Error("NEXT_REDIRECT");
 });
 

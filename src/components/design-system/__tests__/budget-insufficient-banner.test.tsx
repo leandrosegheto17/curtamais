@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -59,7 +60,7 @@ describe("BudgetInsufficientBanner (UX-SPEC.md Seção 3/§4, RF-10.2/RN-04)", (
       differenceLabel: "R$ 10",
       className: "custom",
     };
-    render(<BudgetInsufficientBanner {...(props as never)} />);
+    render(<BudgetInsufficientBanner {...(props as unknown as ComponentProps<typeof BudgetInsufficientBanner>)} />);
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // comportamento de roteamento (mesmo padrão de foco usado nos testes de
 // `src/app/destino/confirmacao/__tests__/page.test.tsx`, adaptado para não
 // exigir a Server Action real de hospedagem).
-const redirectMock = vi.fn(() => {
+const redirectMock = vi.fn((..._args: unknown[]) => {
   throw new Error("NEXT_REDIRECT");
 });
 
