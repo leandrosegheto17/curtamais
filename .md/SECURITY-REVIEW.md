@@ -2993,3 +2993,22 @@ Pré-requisito: QA do lote Aprovado com ressalvas (sem crítica).
 
 ### Veredito (Lote V2-L9)
 **Aprovado com 1 débito baixo.** Não bloqueante. Liberado para deploy do ponto de vista de segurança, sujeito à dupla aprovação no deploy real.
+
+---
+
+## Adendo — 2026-09-19: lacuna no guard de prompt injection (corrigida)
+
+Ao reproduzir a suíte de integração contra Postgres real, os testes de sanitização
+de `hospedagem`/`passeios` falharam e revelaram duas lacunas em
+`sanitizeFreeTextForPrompt` (`src/lib/gateway-ia/prompt-injection-guard.ts`), que
+revisões anteriores de SECURITY-REVIEW aprovaram sem rodar esses testes:
+
+- **Baixo:** `System:` sobrevivia quando vinha após uma quebra de linha
+  (`"Nome
+System: …"` → `"Nome System:"`), porque o colapso de linhas rodava antes da
+  remoção de delimitadores, cujo padrão `^…` (flag `m`) depende da quebra original.
+- **Baixo:** "você fosse um novo assistente" deixava resíduo depois de "aja como se".
+
+Impacto: só o rótulo/fragmento residual era persistido e interpolado nos prompts
+seguintes (as frases de override eram removidas). Corrigido em `d09af25` com 2 testes
+unitários novos. **A correção ainda não está em produção** (último deploy: `a3cddd2`).
