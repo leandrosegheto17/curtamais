@@ -47,7 +47,11 @@ function getAuthorize(): Authorize {
 
 const REQ = { headers: { "x-forwarded-for": "203.0.113.42" } };
 
-describe("authorize do Credentials Provider (V2-L7-T08)", () => {
+// Cada `bcrypt.compare` real (custo 12, bcryptjs puro JS) leva ~0,6 s; os testes de
+// rate limit fazem 10-11 chamadas em sequência, acima do timeout padrão de 5 s.
+// O timeout maior evita também que o loop de um teste estourado continue em
+// segundo plano e contamine o `compareSpy` do teste seguinte.
+describe("authorize do Credentials Provider (V2-L7-T08)", { timeout: 30_000 }, () => {
   afterEach(() => {
     vi.clearAllMocks();
     resetAuthRateLimitersForTests();
